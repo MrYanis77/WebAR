@@ -14,6 +14,15 @@ npm run build      # vérification TypeScript + build de production
 
 L'application visiteur occupe tout l'écran ; sur ordinateur, elle garde la largeur d'un smartphone (480 px max.). Une bascule « Application visiteur / Back-office » en bas à droite permet de passer de l'une à l'autre (masquée sur smartphone).
 
+### Déploiement sur Vercel
+
+Le fichier `vercel.json` est prêt : build `npm run build`, dossier `dist`, et redirection de toutes les routes vers `index.html` (indispensable pour ouvrir directement `/a/<code>` ou `/backoffice`). Deux façons de déployer :
+
+- importer le dépôt GitHub sur [vercel.com/new](https://vercel.com/new) (aucun réglage à changer) ;
+- ou en ligne de commande : `npx vercel` puis `npx vercel --prod`.
+
+Vercel sert le site en HTTPS, ce qui permet d'utiliser la caméra et la géolocalisation sur smartphone.
+
 Comptes de démonstration du back-office (`/backoffice`) — tout mot de passe de 8 caractères ou plus est accepté :
 
 | Rôle | E-mail | Remarque |
