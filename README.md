@@ -66,7 +66,7 @@ Partout : signalement anonyme (BF-45 à BF-51), FR/EN/DE (BF-13), messages d'err
 
 ## Ce qui reste simulé
 
-- **Reconnaissance d'image** : la détection de l'affiche et de la façade est simulée (succès au bout de 3,5 s, ou état forcé avec le sélecteur « Démo »). Le moteur MindAR / LocAR est à brancher derrière `VueRA`.
+- **Reconnaissance d'image** : la détection de l'affiche et de la façade est simulée (succès au bout de 3,5 s, ou état forcé avec le sélecteur « Démo »). Le moteur MindAR / LocAR est à brancher derrière `VueRA`. Le paquet npm `mind-ar` a été retiré : il dépend du module natif `canvas`, qui ne s'installe pas sur Vercel. Pour l'intégrer, utiliser son build navigateur (CDN ou fichier copié dans `public/`).
 - **API et base de données** : `src/commun/store.ts` joue le rôle de l'API Express/Prisma (mêmes règles : 4 conditions de publication, droits par rôle, décisions, journal).
 - **Caméra** : sans webcam (ou si l'accès est refusé), l'application propose un mode « caméra simulée » qui utilise les photos de la maquette.
 - **Carte** : fond SVG stylisé du centre-ville, en attendant MapLibre + PMTiles.
