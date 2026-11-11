@@ -39,7 +39,7 @@ Les données de démonstration sont gardées dans le `localStorage` du navigateu
 
 | Route | Page | Exigences |
 | --- | --- | --- |
-| `/` | Carte des spectacles, position, distances, lieu promu, message de proximité | BF-05, BF-06, BF-08, BF-32, BF-33 |
+| `/` | Carte MapLibre plein écran, position, distances, lieu promu, message de proximité, itinéraire à pied vers le monument | BF-05, BF-06, BF-08, BF-14, BF-32, BF-33 |
 | `/lieux/:id` | Fiche du lieu, horaires, score du stade, transcription sans caméra | BF-07, BF-22, BNF-11 |
 | `/lieux/:id/ra` | Consignes, animation de lieu, échec de reconnaissance et lancement manuel, photo, sous-titres | BF-03, BF-17 à BF-20, BNF-12 |
 | `/a/:code` | Entrée par QR code : animation d'affiche puis carte centrée sur le lieu promu | BF-02, BF-16, BF-30 à BF-33 |
@@ -69,4 +69,5 @@ Partout : signalement anonyme (BF-45 à BF-51), FR/EN/DE (BF-13), messages d'err
 - **Reconnaissance d'image** : la détection de l'affiche et de la façade est simulée (succès au bout de 3,5 s, ou état forcé avec le sélecteur « Démo »). Le moteur MindAR / LocAR est à brancher derrière `VueRA`. Le paquet npm `mind-ar` a été retiré : il dépend du module natif `canvas`, qui ne s'installe pas sur Vercel. Pour l'intégrer, utiliser son build navigateur (CDN ou fichier copié dans `public/`).
 - **API et base de données** : `src/commun/store.ts` joue le rôle de l'API Express/Prisma (mêmes règles : 4 conditions de publication, droits par rôle, décisions, journal).
 - **Caméra** : sans webcam (ou si l'accès est refusé), l'application propose un mode « caméra simulée » qui utilise les photos de la maquette.
-- **Carte** : fond SVG stylisé du centre-ville, en attendant MapLibre + PMTiles.
+- **Carte** : MapLibre GL JS avec le fond OpenFreeMap (données OpenStreetMap, sans clé). Le cahier des charges prévoit à terme un fichier PMTiles servi par l’API. Les cartes du back-office (lieux, zones) utilisent encore le fond SVG stylisé.
+- **Itinéraire** : calculé par le serveur OSRM piéton de FOSSGIS (routing.openstreetmap.de), uniquement à la demande du visiteur ; la position est alors envoyée à ce service (mentionné dans les mentions légales). Sans GPS, l’option « Partir de la gare de Montbéliard (démo) » permet de tester.
