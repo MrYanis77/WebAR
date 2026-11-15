@@ -46,6 +46,10 @@ export default function ApercuModele3D({ fichier, theme = 'chateau' }: { fichier
           const centre = boite.getCenter(new THREE.Vector3()).multiplyScalar(ech)
           gltf.scene.position.set(-centre.x, -boite.min.y * ech, -centre.z)
           pivot.add(gltf.scene)
+          if (gltf.animations.length) {
+            mixer = new THREE.AnimationMixer(gltf.scene)
+            gltf.animations.forEach((clip) => mixer!.clipAction(clip).play())
+          }
         })
         .catch(() => setErreur('Aperçu impossible : modèle illisible.'))
     } else if (theme === 'stade') {
@@ -95,6 +99,8 @@ export default function ApercuModele3D({ fichier, theme = 'chateau' }: { fichier
       pivot.add(arche)
     }
 
+    let mixer: THREE.AnimationMixer | null = null
+    const horloge = new THREE.Clock()
     let angle = 0.5
     let glisse: number | null = null
     const bas = (e: PointerEvent) => (glisse = e.clientX)
@@ -112,6 +118,7 @@ export default function ApercuModele3D({ fichier, theme = 'chateau' }: { fichier
     const boucle = () => {
       if (glisse === null) angle += 0.006
       pivot.rotation.y = angle
+      mixer?.update(horloge.getDelta())
       renderer.render(scene, camera)
       raf = requestAnimationFrame(boucle)
     }

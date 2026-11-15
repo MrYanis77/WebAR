@@ -9,9 +9,12 @@ export const DELAI_MONUMENT_NON_RECONNU_S = 20
 export const LIMITE_SIGNALEMENTS_PAR_HEURE = 5
 export const COMMENTAIRE_MAX = 500
 
+/** Taille maximale d'un modèle 3D GLB (animations intégrées comprises). */
+export const MODELE_3D_MAX_MO = 100
+
 export const BUDGETS_3D = {
-  AFFICHE: { poidsMo: 4, triangles: 30_000, texturePx: 1024, sonMo: 1 },
-  LIEU: { poidsMo: 10, triangles: 100_000, texturePx: 2048, sonMo: 2 },
+  AFFICHE: { poidsMo: MODELE_3D_MAX_MO, triangles: 30_000, texturePx: 1024, sonMo: 1 },
+  LIEU: { poidsMo: MODELE_3D_MAX_MO, triangles: 100_000, texturePx: 2048, sonMo: 2 },
 } as const
 
 export const FORMATS_ACCEPTES = ['glb', 'mp3', 'm4a', 'aac', 'png', 'jpg', 'jpeg'] as const

@@ -62,6 +62,15 @@ export interface Partenaire {
   creeLe: string
 }
 
+/** Animation intégrée à un fichier GLB (gltf.animations). */
+export interface ClipGlb {
+  /** Position du clip dans le fichier GLB (par défaut : son rang dans la liste). */
+  indice?: number
+  nom: string
+  dureeS: number
+  pistes: number
+}
+
 export interface Fichier {
   id: string
   proprietaireId: string
@@ -70,6 +79,7 @@ export interface Fichier {
   tailleOctets: number
   nbTriangles?: number
   textureMaxPx?: number
+  clips?: ClipGlb[]
   dureeS?: number
   statutControle: StatutControle
   raisonRefus?: string
@@ -84,6 +94,9 @@ export interface Animation {
   type: TypeAnimation
   lieuId?: string
   modeleId?: string
+  /** Indice du clip du GLB à jouer ; vide = tous les clips. */
+  clipIndice?: number
+  lecture?: 'BOUCLE' | 'UNE_FOIS'
   sonId?: string
   declencheur: Declencheur
   dureeS: number
@@ -115,10 +128,29 @@ export interface ModeleAffiche {
   actif: boolean
 }
 
+/** Position du QR code sur l'affiche, en fractions de la largeur et de la hauteur. */
+export interface PlacementQr {
+  x: number
+  y: number
+  taille: number
+  fond: boolean
+  mention: boolean
+}
+
+export interface ImageAffiche {
+  nom: string
+  largeur: number
+  hauteur: number
+  octets: number
+}
+
 export interface Affiche {
   id: string
   proprietaireId: string
-  modeleId: string
+  modeleId?: string
+  image?: ImageAffiche
+  qr?: PlacementQr
+  format?: string
   animationAfficheId: string
   animationLieuId: string
   nom: string

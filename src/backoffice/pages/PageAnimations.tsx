@@ -3,10 +3,10 @@ import { Link } from 'react-router'
 import { BUDGETS_3D } from '../../commun/constantes'
 import { Icone } from '../../commun/Icone'
 import { imageLieu } from '../../commun/images'
-import { animationActive, basculerAnimation, enregistrerAnimation, nomProprietaire, uid, useEtat } from '../../commun/store'
+import { animationActive, basculerAnimation, enregistrerAnimation, nomProprietaire, supprimerAnimation, uid, useEtat } from '../../commun/store'
 import type { Animation, Declencheur, TypeAnimation } from '../../commun/types'
 import { peutCreer, proprietaireDe, useSession } from '../session'
-import { BadgeStatut, EnTetePage, formaterDate, formaterPoids, Interrupteur, Onglets, Recherche, Tiroir, useToast, Vide } from '../ui'
+import { BadgeStatut, DialogueSuppression, EnTetePage, formaterDate, formaterPoids, Interrupteur, Onglets, Recherche, Tiroir, useToast, Vide } from '../ui'
 
 type Filtre = 'toutes' | 'actives' | 'programmees' | 'brouillons' | 'archivees'
 
@@ -30,6 +30,7 @@ export default function PageAnimations() {
   const [texte, setTexte] = useState('')
   const [type, setType] = useState<'tous' | TypeAnimation>('tous')
   const [edition, setEdition] = useState<Animation | null>(null)
+  const [aSupprimer, setASupprimer] = useState<Animation | null>(null)
   const autorise = peutCreer(etat, session)
 
   const visibles = etat.animations.filter((a) => agent || a.proprietaireId === session.partenaireId)
@@ -143,9 +144,14 @@ export default function PageAnimations() {
                         <Icone nom="calendrier" taille={13} />
                         {formaterDate(a.debut)} — {a.fin ? formaterDate(a.fin) : 'permanente'}
                       </span>
-                      <button type="button" onClick={() => setEdition(a)} disabled={verrou}>
-                        Modifier <Icone nom="droite" taille={13} />
-                      </button>
+                      <div className="actions-carte">
+                        <button type="button" className="supprimer" onClick={() => setASupprimer(a)} disabled={!agent && verrou} aria-label={`Supprimer ${a.titre}`} title="Supprimer">
+                          <Icone nom="poubelle" taille={14} />
+                        </button>
+                        <button type="button" onClick={() => setEdition(a)} disabled={!agent && verrou}>
+                          <Icone nom="crayon" taille={13} /> Modifier
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </article>
@@ -171,6 +177,7 @@ export default function PageAnimations() {
         <EditeurAnimation
           animation={edition}
           onFermer={() => setEdition(null)}
+          onSupprimer={etat.animations.some((x) => x.id === edition.id) ? () => setASupprimer(edition) : undefined}
           onEnregistrer={(a) => {
             enregistrerAnimation(a)
             setEdition(null)
@@ -178,12 +185,25 @@ export default function PageAnimations() {
           }}
         />
       )}
+      <DialogueSuppression
+        cible={aSupprimer?.titre ?? null}
+        description={`L’animation ne sera plus proposée aux visiteurs. Les affiches qui l’utilisent doivent d’abord en changer. La suppression reste inscrite au journal.`}
+        onFermer={() => setASupprimer(null)}
+        onConfirmer={() => {
+          const r = supprimerAnimation(aSupprimer!.id)
+          if (r.ok) {
+            setEdition(null)
+            toast.afficher(`Animation « ${aSupprimer!.titre} » supprimée`)
+          }
+          return r
+        }}
+      />
       {toast.element}
     </>
   )
 }
 
-function EditeurAnimation({ animation, onFermer, onEnregistrer }: { animation: Animation; onFermer: () => void; onEnregistrer: (a: Animation) => void }) {
+function EditeurAnimation({ animation, onFermer, onEnregistrer, onSupprimer }: { animation: Animation; onFermer: () => void; onEnregistrer: (a: Animation) => void; onSupprimer?: () => void }) {
   const etat = useEtat()
   const session = useSession()
   const agent = session.role === 'AGENT'
@@ -197,6 +217,7 @@ function EditeurAnimation({ animation, onFermer, onEnregistrer }: { animation: A
     [etat.fichiers, agent, session.partenaireId],
   )
   const modeles = fichiers.filter((f) => f.type === 'MODELE_3D')
+  const clipsModele = etat.fichiers.find((f) => f.id === a.modeleId)?.clips ?? []
   const sons = fichiers.filter((f) => f.type === 'SON')
   const budget = BUDGETS_3D[a.type]
   const poids = (etat.fichiers.find((f) => f.id === a.modeleId)?.tailleOctets ?? 0) + (etat.fichiers.find((f) => f.id === a.sonId)?.tailleOctets ?? 0)
@@ -226,6 +247,11 @@ function EditeurAnimation({ animation, onFermer, onEnregistrer }: { animation: A
       onFermer={onFermer}
       pied={
         <>
+          {onSupprimer && (
+            <button type="button" className="btn btn-texte-danger" onClick={onSupprimer}>
+              <Icone nom="poubelle" taille={15} /> Supprimer
+            </button>
+          )}
           <button type="button" className="btn btn-fantome" onClick={onFermer}>
             Annuler
           </button>
@@ -288,15 +314,40 @@ function EditeurAnimation({ animation, onFermer, onEnregistrer }: { animation: A
           </label>
           <label className={`champ ${tente && erreurs.modele ? 'erreur' : ''}`}>
             <span className="etiquette">Modèle 3D</span>
-            <select value={a.modeleId ?? ''} onChange={(e) => maj({ modeleId: e.target.value || undefined })}>
+            <select value={a.modeleId ?? ''} onChange={(e) => maj({ modeleId: e.target.value || undefined, clipIndice: undefined })}>
               <option value="">Choisir un modèle conforme…</option>
               {modeles.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.nomOriginal} · {formaterPoids(f.tailleOctets)}
+                  {f.clips?.length ? ` · ${f.clips.length} animation${f.clips.length > 1 ? 's' : ''}` : ''}
                 </option>
               ))}
             </select>
           </label>
+          {clipsModele.length > 0 && (
+            <>
+              <label className="champ">
+                <span className="etiquette">
+                  Animation du modèle <small>Intégrée au fichier GLB</small>
+                </span>
+                <select value={a.clipIndice ?? ''} onChange={(e) => maj({ clipIndice: e.target.value === '' ? undefined : Number(e.target.value) })}>
+                  <option value="">Toutes les animations ensemble</option>
+                  {clipsModele.map((c, i) => (
+                    <option key={`${i}-${c.nom}`} value={c.indice ?? i}>
+                      {c.nom} · {c.dureeS.toString().replace('.', ',')} s
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="champ">
+                <span className="etiquette">Lecture</span>
+                <select value={a.lecture ?? 'BOUCLE'} onChange={(e) => maj({ lecture: e.target.value as 'BOUCLE' | 'UNE_FOIS' })}>
+                  <option value="BOUCLE">En boucle pendant la durée de l’animation</option>
+                  <option value="UNE_FOIS">Une seule fois</option>
+                </select>
+              </label>
+            </>
+          )}
           <label className="champ">
             <span className="etiquette">
               Son <small>Facultatif</small>

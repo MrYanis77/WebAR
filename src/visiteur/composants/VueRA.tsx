@@ -7,6 +7,8 @@ import { imageLieu } from '../../commun/images'
 import { compterLancement, nomProprietaire, useEtat } from '../../commun/store'
 import type { Affiche, Animation, Lieu } from '../../commun/types'
 import { usePosition } from '../contexte/position'
+import { AfficheAvecQr, QR_DEFAUT } from '../../commun/AfficheQr'
+import { useImageAffiche } from '../../commun/imagesAffiches'
 import { useCamera, useLuminosite } from '../hooks/capteurs'
 import { capturerPhoto, partagerPhoto } from '../services/photo'
 import { arreterSon, couperSon, estMuet, jouerTheme } from '../services/son'
@@ -508,6 +510,15 @@ export function VueRA({
 
 /** Affiche imprimée vue par la caméra simulée (maquette « poster-mock »). */
 function AfficheMaquette({ affiche, anime }: { affiche?: Affiche; anime: boolean }) {
+  const image = useImageAffiche(affiche?.id)
+  if (affiche && image) {
+    const ratio = affiche.image ? affiche.image.largeur / affiche.image.hauteur : 297 / 420
+    return (
+      <div className={`affiche-maquette importee ${anime ? 'anime' : ''}`} aria-hidden="true" style={{ aspectRatio: String(ratio), height: 'auto', width: ratio > 1 ? 250 : 168, marginLeft: ratio > 1 ? -125 : -84 }}>
+        <AfficheAvecQr image={image} ratio={ratio} code={affiche.codeQr} qr={affiche.qr ?? QR_DEFAUT} nom={affiche.nom} />
+      </div>
+    )
+  }
   return (
     <div className={`affiche-maquette ${anime ? 'anime' : ''}`} aria-hidden="true">
       <small>{affiche?.accroche ?? 'Montbéliard présente'}</small>

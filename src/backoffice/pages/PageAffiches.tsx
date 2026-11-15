@@ -1,10 +1,18 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Icone } from '../../commun/Icone'
-import { nomProprietaire, publiable, reglePublication, useEtat } from '../../commun/store'
-import { ApercuAffiche, donneesAffiche } from '../composants/ApercuAffiche'
+import { nomProprietaire, publiable, reglePublication, supprimerAffiche, useEtat } from '../../commun/store'
+import { AfficheAvecQr, QR_DEFAUT } from '../../commun/AfficheQr'
+import { supprimerImageAffiche, useImageAffiche } from '../../commun/imagesAffiches'
+import type { Affiche } from '../../commun/types'
 import { peutCreer, useSession } from '../session'
-import { BadgeStatut, EnTetePage, formaterDate, Onglets, Recherche, Vide } from '../ui'
+import { BadgeStatut, DialogueSuppression, EnTetePage, formaterDate, Onglets, Recherche, useToast, Vide } from '../ui'
+
+function Miniature({ affiche }: { affiche: Affiche }) {
+  const image = useImageAffiche(affiche.id)
+  const ratio = affiche.image ? affiche.image.largeur / affiche.image.hauteur : 297 / 420
+  return <AfficheAvecQr image={image} ratio={ratio} code={affiche.codeQr} qr={affiche.qr ?? QR_DEFAUT} nom={affiche.nom} className="miniature" />
+}
 
 export default function PageAffiches() {
   const etat = useEtat()
@@ -13,6 +21,8 @@ export default function PageAffiches() {
   const agent = session.role === 'AGENT'
   const [filtre, setFiltre] = useState<'toutes' | 'publiees' | 'bloquees' | 'archivees'>('toutes')
   const [texte, setTexte] = useState('')
+  const [aSupprimer, setASupprimer] = useState<Affiche | null>(null)
+  const toast = useToast()
 
   const visibles = etat.affiches.filter((a) => agent || a.proprietaireId === session.partenaireId)
   const categorie = (a: (typeof visibles)[number]) =>
@@ -23,7 +33,7 @@ export default function PageAffiches() {
     <>
       <EnTetePage
         titre="Affiches"
-        description="Créez et suivez tous vos supports de communication : un QR code unique par affiche, vers l’application uniquement."
+        description="Importez vos affiches : un QR code unique est généré pour chacune et placé sur le fichier à imprimer."
         actions={
           <button type="button" className="btn btn-primaire" onClick={() => navigate('/backoffice/affiches/nouvelle')} disabled={!peutCreer(etat, session)}>
             <Icone nom="plus" taille={16} />
@@ -46,7 +56,7 @@ export default function PageAffiches() {
           <Recherche valeur={texte} onChange={setTexte} />
         </div>
         {liste.length === 0 ? (
-          <Vide icone="affiche" titre="Aucune affiche" texte="Composez votre première affiche à partir d’un modèle de la Ville." />
+          <Vide icone="affiche" titre="Aucune affiche" texte="Importez le fichier de votre première affiche." />
         ) : (
           <div className="grille-affiches">
             {liste.map((a) => {
@@ -55,7 +65,7 @@ export default function PageAffiches() {
               return (
                 <article key={a.id} className="carte-affiche">
                   <button type="button" className="miniature-affiche" onClick={() => navigate(`/backoffice/affiches/${a.id}`)} aria-label={`Ouvrir ${a.nom}`}>
-                    <ApercuAffiche d={donneesAffiche(etat, a)} echelle={0.62} />
+                    <Miniature affiche={a} />
                   </button>
                   <div className="infos-affiche">
                     <div className="ligne-badges">
@@ -86,9 +96,14 @@ export default function PageAffiches() {
                       <Link to={`/a/${a.codeQr}`} className="lien-panneau" title="Ouvre le parcours visiteur de cette affiche">
                         <Icone nom="qr" taille={14} /> Tester le QR
                       </Link>
-                      <Link to={`/backoffice/affiches/${a.id}`} className="lien-panneau">
-                        Ouvrir <Icone nom="droite" taille={14} />
-                      </Link>
+                      <span className="actions-carte">
+                        <button type="button" className="supprimer" onClick={() => setASupprimer(a)} aria-label={`Supprimer ${a.nom}`} title="Supprimer">
+                          <Icone nom="poubelle" taille={14} />
+                        </button>
+                        <Link to={`/backoffice/affiches/${a.id}`} className="lien-panneau">
+                          <Icone nom="crayon" taille={13} /> Modifier
+                        </Link>
+                      </span>
                     </div>
                   </div>
                 </article>
@@ -97,6 +112,20 @@ export default function PageAffiches() {
           </div>
         )}
       </div>
+      <DialogueSuppression
+        cible={aSupprimer?.nom ?? null}
+        description="Son QR code ne mènera plus à l’animation (le visiteur verra « QR code inconnu »). Pensez à retirer l’affiche imprimée. La suppression reste inscrite au journal."
+        onFermer={() => setASupprimer(null)}
+        onConfirmer={() => {
+          const r = supprimerAffiche(aSupprimer!.id)
+          if (r.ok) {
+            void supprimerImageAffiche(aSupprimer!.id)
+            toast.afficher(`Affiche « ${aSupprimer!.nom} » supprimée`)
+          }
+          return r
+        }}
+      />
+      {toast.element}
     </>
   )
 }

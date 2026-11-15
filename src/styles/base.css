@@ -272,3 +272,17 @@ a {
 @media (max-width: 699px) {
   .bascule-prototype { display: none; }
 }
+
+/* ---------- affiche importée avec son QR code (back-office et application visiteur) ---------- */
+
+.affiche-qr-cadre { position: relative; width: 100%; overflow: hidden; background: #e7e2da; box-shadow: 0 14px 30px rgb(95 88 77 / 0.29); container-type: inline-size; user-select: none; }
+.affiche-qr-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.affiche-qr-vide { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px; padding: 8%; color: #8a857e; text-align: center; background: repeating-linear-gradient(135deg, #e9e4dc 0 12px, #e2dcd2 12px 24px); }
+.affiche-qr-vide strong { color: var(--ink); font: 600 clamp(11px, 7cqw, 22px) var(--font-titre); }
+.affiche-qr-vide small { font-size: clamp(9px, 4cqw, 12px); }
+.bloc-qr { position: absolute; display: flex; flex-direction: column; align-items: center; border-radius: 4%; touch-action: none; }
+.bloc-qr.avec-fond { background: #fff; box-shadow: 0 2px 8px rgb(0 0 0 / 0.18); }
+.bloc-qr-image { display: block; width: 100%; aspect-ratio: 1; image-rendering: pixelated; }
+.bloc-qr-mention { width: 100%; margin-top: 4%; padding: 2% 0; border-radius: 3px; background: #fff; color: #1e2024; font: 700 9cqw/1.1 'Inter', sans-serif; text-align: center; white-space: nowrap; overflow: hidden; }
+.affiche-qr-cadre.editable .bloc-qr { cursor: grab; outline: 2px dashed var(--cyan); outline-offset: 3px; }
+.affiche-qr-cadre.editable .bloc-qr:active { cursor: grabbing; }

@@ -1,9 +1,10 @@
 import { lazy, Suspense, useRef, useState, type DragEvent } from 'react'
 import { Link } from 'react-router'
-import { BUDGETS_3D, FORMATS_ACCEPTES } from '../../commun/constantes'
+import { BUDGETS_3D, FORMATS_ACCEPTES, MODELE_3D_MAX_MO } from '../../commun/constantes'
 import { Icone, type NomIcone } from '../../commun/Icone'
 import { ajouterFichier, majFichier, nomProprietaire, useEtat } from '../../commun/store'
 import type { Fichier, TypeFichier } from '../../commun/types'
+import { enregistrerFichierBinaire } from '../../commun/imagesAffiches'
 import { analyserGLB, dimensionsImage, dureeAudio } from '../composants/analyse3D'
 import { peutCreer, proprietaireDe, useSession } from '../session'
 import { BadgeStatut, EnTetePage, formaterDate, formaterPoids, Onglets, Panneau, useToast, Vide } from '../ui'
@@ -28,6 +29,11 @@ function rapport(f: Fichier): Verification[] {
     v.push({ libelle: 'Triangles', ok: (f.nbTriangles ?? 0) <= b.triangles, detail: `${(f.nbTriangles ?? 0).toLocaleString('fr-FR')} / ${b.triangles.toLocaleString('fr-FR')}` })
     v.push({ libelle: 'Textures', ok: (f.textureMaxPx ?? 0) <= b.texturePx, detail: `${f.textureMaxPx ?? 0} px / ${b.texturePx} px` })
     v.push({ libelle: 'Ressources externes', ok: true, detail: 'Aucune' })
+    v.push({
+      libelle: 'Animations intégrées',
+      ok: true,
+      detail: f.clips?.length ? f.clips.map((c) => `${c.nom} (${c.dureeS.toString().replace('.', ',')} s)`).join(' · ') : 'Aucune (modèle statique)',
+    })
   } else if (f.type === 'SON') {
     v.push({ libelle: 'Poids', ok: f.tailleOctets <= b.sonMo * 1_000_000, detail: `${formaterPoids(f.tailleOctets)} / ${b.sonMo} Mo` })
     v.push({ libelle: 'Durée', ok: (f.dureeS ?? 0) <= 120, detail: `${Math.round(f.dureeS ?? 0)} s` })
@@ -63,9 +69,15 @@ export default function PageFichiers() {
       setRejet(`« ${fichier.name} » refusé : seuls les formats GLB, MP3, AAC (M4A), PNG et JPEG sont acceptés.`)
       return
     }
+    if (ext === 'glb' && fichier.size > MODELE_3D_MAX_MO * 1_000_000) {
+      setRejet(`« ${fichier.name} » refusé : ${formaterPoids(fichier.size)}, le maximum pour un modèle 3D est de ${MODELE_3D_MAX_MO} Mo.`)
+      return
+    }
     const type: TypeFichier = ext === 'glb' ? 'MODELE_3D' : ['mp3', 'm4a', 'aac'].includes(ext) ? 'SON' : 'IMAGE'
     const id = ajouterFichier({ proprietaireId: proprietaireDe(session), type, nomOriginal: fichier.name, tailleOctets: fichier.size, statutControle: 'EN_COURS', usage })
     originaux.current.set(id, fichier)
+    // Conservé pour l'aperçu de l'animation sur l'affiche (rechargement de page compris).
+    void enregistrerFichierBinaire(id, fichier).catch(() => {})
     setSelection(id)
     for (let i = 0; i < ETAPES.length; i++) {
       setTraitement({ id, etape: i })
@@ -74,7 +86,7 @@ export default function PageFichiers() {
     try {
       if (type === 'MODELE_3D') {
         const a = await analyserGLB(fichier)
-        majFichier(id, { nbTriangles: a.triangles, textureMaxPx: a.textureMax })
+        majFichier(id, { nbTriangles: a.triangles, textureMaxPx: a.textureMax, clips: a.clips })
       } else if (type === 'SON') {
         majFichier(id, { dureeS: Math.round(await dureeAudio(fichier)) })
       } else {
@@ -122,7 +134,7 @@ export default function PageFichiers() {
           </span>
           <div>
             <strong>Glissez un fichier ici ou choisissez-le</strong>
-            <p>GLB (glTF 2.0), MP3, AAC/M4A, PNG, JPEG · budget affiche 4 Mo / 30 000 triangles · lieu 10 Mo / 100 000 triangles</p>
+            <p>GLB (glTF 2.0) jusqu’à 100 Mo avec ses animations intégrées, MP3, AAC/M4A, PNG, JPEG · affiche 30 000 triangles · lieu 100 000 triangles</p>
           </div>
           <label className="select-compact">
             Usage

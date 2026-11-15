@@ -33,6 +33,16 @@ Comptes de démonstration du back-office (`/backoffice`) — tout mot de passe d
 
 Les données de démonstration sont gardées dans le `localStorage` du navigateur ; le bouton « Réinitialiser la démo » du back-office les remet à zéro.
 
+## Base de données
+
+Le script [database/montbeliard_webar.sql](database/montbeliard_webar.sql) crée la base MySQL / MariaDB (17 tables, 6 vues) et les données de démonstration :
+
+```bash
+mysql -u root -p < database/montbeliard_webar.sql
+```
+
+Il recrée la base `montbeliard_webar` (la supprime d’abord si elle existe). Les règles de l’application y sont aussi appliquées : 4 conditions de publication (vue `v_affiche_publiable`), suppression refusée tant qu’une affiche utilise l’animation ou qu’une animation porte sur le lieu, signalement visant un seul contenu, commentaire obligatoire pour le motif « Autre », QR code dans les limites de l’affiche, statistiques arrondies à l’heure, modèles 3D GLB de 100 Mo maximum avec leurs animations intégrées (table `fichier_clip`) et clip joué par chaque animation, qui doit appartenir à son modèle. Les mots de passe de démonstration sont des marqueurs à remplacer par des hachages Argon2id.
+
 ## Pages
 
 **Application visiteur** (`src/visiteur`)
@@ -56,18 +66,19 @@ Partout : signalement anonyme (BF-45 à BF-51), FR/EN/DE (BF-13), messages d'err
 | `/backoffice/connexion`, `/inscription` | Connexion + double authentification, inscription partenaire avec anti-robot | tous |
 | `/backoffice` | Vue d'ensemble (statistiques, tâches à traiter) | tous |
 | `/backoffice/animations` | Animations, dates de diffusion, transcription | tous |
-| `/backoffice/affiches`, `/affiches/nouvelle` | Liste, éditeur en 4 étapes, QR code, 4 conditions de publication, export PDF | tous |
+| `/backoffice/affiches`, `/affiches/nouvelle` | Import de votre affiche (PNG, JPEG, WebP), QR code unique généré et placé par glisser-déposer, format A4 à A0 visible à l’échelle, aperçu 3D de l’animation qui sort de l’affiche, 4 conditions de publication, export PNG ou PDF | tous |
 | `/backoffice/fichiers` | Import GLB/MP3/AAC/PNG/JPEG, contrôle automatique, aperçu 3D (Three.js) | tous |
 | `/backoffice/statistiques` | Statistiques anonymes, export CSV | tous |
 | `/backoffice/charte`, `/mes-signalements` | Charte d'utilisation, signalements reçus et réexamen | partenaire |
 | `/backoffice/lieux` | Lieux (position, rayon, fiches FR/EN/DE, photos de façade), zones, attributions | agent |
 | `/backoffice/partenaires`, `/signalements`, `/moderation`, `/journal` | Vérification des comptes, file des signalements, décisions, journal horodaté | agent |
-| `/backoffice/score`, `/modeles` | Score du match, modèles d'affiche de la Ville | agent |
+| `/backoffice/score` | Score du match | agent |
 
 ## Ce qui reste simulé
 
 - **Reconnaissance d'image** : la détection de l'affiche et de la façade est simulée (succès au bout de 3,5 s, ou état forcé avec le sélecteur « Démo »). Le moteur MindAR / LocAR est à brancher derrière `VueRA`. Le paquet npm `mind-ar` a été retiré : il dépend du module natif `canvas`, qui ne s'installe pas sur Vercel. Pour l'intégrer, utiliser son build navigateur (CDN ou fichier copié dans `public/`).
 - **API et base de données** : `src/commun/store.ts` joue le rôle de l'API Express/Prisma (mêmes règles : 4 conditions de publication, droits par rôle, décisions, journal).
+- **Fichiers d’affiche** : gardés dans le navigateur (IndexedDB) ; en production ils iront dans `uploads/` via l’API.
 - **Caméra** : sans webcam (ou si l'accès est refusé), l'application propose un mode « caméra simulée » qui utilise les photos de la maquette.
 - **Carte** : MapLibre GL JS avec le fond OpenFreeMap (données OpenStreetMap, sans clé). Le cahier des charges prévoit à terme un fichier PMTiles servi par l’API. Les cartes du back-office (lieux, zones) utilisent encore le fond SVG stylisé.
 - **Itinéraire** : calculé par le serveur OSRM piéton de FOSSGIS (routing.openstreetmap.de), uniquement à la demande du visiteur ; la position est alors envoyée à ce service (mentionné dans les mentions légales). Sans GPS, l’option « Partir de la gare de Montbéliard (démo) » permet de tester.

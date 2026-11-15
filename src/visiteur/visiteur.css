@@ -776,3 +776,6 @@
   .page-carte .etapes-itineraire { max-height: 260px; }
 }
 .demo-gare { max-width: 330px; margin: 6px auto 0; }
+
+.affiche-maquette.importee { padding: 0; background: #e7e2da; }
+.affiche-maquette.importee .affiche-qr-cadre { box-shadow: none; }

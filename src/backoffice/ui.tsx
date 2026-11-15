@@ -334,3 +334,54 @@ export function formaterDate(iso: string, options: Intl.DateTimeFormatOptions = 
 export function formaterPoids(octets: number) {
   return octets >= 1_000_000 ? `${(octets / 1_000_000).toFixed(1).replace('.', ',')} Mo` : `${Math.round(octets / 1000)} Ko`
 }
+
+/** Confirmation d'une suppression ; affiche la raison si elle est refusée. */
+export function DialogueSuppression({
+  cible,
+  description,
+  onConfirmer,
+  onFermer,
+}: {
+  cible: string | null
+  description: string
+  onConfirmer: () => { ok: true } | { ok: false; raison: string }
+  onFermer: () => void
+}) {
+  const [refus, setRefus] = useState<string | null>(null)
+  useEffect(() => setRefus(null), [cible])
+  if (!cible) return null
+  return createPortal(
+    <div className="bo-voile centre" onClick={onFermer}>
+      <div className="dialogue" role="alertdialog" aria-modal="true" aria-label={`Supprimer ${cible}`} onClick={(e) => e.stopPropagation()}>
+        <h2>Supprimer « {cible} » ?</h2>
+        <p className="dialogue-texte">{description}</p>
+        {refus && (
+          <p className="erreur-acces" role="alert">
+            <Icone nom="alerte" taille={15} />
+            {refus}
+          </p>
+        )}
+        <div className="dialogue-actions">
+          <button type="button" className="btn btn-fantome" onClick={onFermer}>
+            {refus ? 'Fermer' : 'Annuler'}
+          </button>
+          {!refus && (
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => {
+                const r = onConfirmer()
+                if (r.ok) onFermer()
+                else setRefus(r.raison)
+              }}
+            >
+              <Icone nom="poubelle" taille={15} />
+              Supprimer
+            </button>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}

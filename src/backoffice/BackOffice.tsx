@@ -14,7 +14,6 @@ import PageFichiers from './pages/PageFichiers'
 import PageJournal from './pages/PageJournal'
 import PageLieux from './pages/PageLieux'
 import PageMesSignalements from './pages/PageMesSignalements'
-import PageModeles from './pages/PageModeles'
 import PageModeration from './pages/PageModeration'
 import PagePartenaires from './pages/PagePartenaires'
 import PageScore from './pages/PageScore'
@@ -45,7 +44,6 @@ const NAVIGATION: { groupe?: string; elements: ElementNav[] }[] = [
     elements: [
       { to: '/backoffice/lieux', libelle: 'Lieux & zones', icone: 'carte', role: 'AGENT', badge: (e) => e.affiches.filter((a) => a.zoneProposeeId || (!a.zoneId && a.proprietaireId !== 'ville')).length },
       { to: '/backoffice/score', libelle: 'Score du match', icone: 'trophee', role: 'AGENT' },
-      { to: '/backoffice/modeles', libelle: 'Modèles d’affiche', icone: 'gabarit', role: 'AGENT' },
     ],
   },
   {
@@ -279,7 +277,6 @@ export default function BackOffice() {
       <Route path="mes-signalements" element={<Protegee role="PARTENAIRE"><PageMesSignalements /></Protegee>} />
       <Route path="lieux" element={<Protegee role="AGENT"><PageLieux /></Protegee>} />
       <Route path="score" element={<Protegee role="AGENT"><PageScore /></Protegee>} />
-      <Route path="modeles" element={<Protegee role="AGENT"><PageModeles /></Protegee>} />
       <Route path="partenaires" element={<Protegee role="AGENT"><PagePartenaires /></Protegee>} />
       <Route path="signalements" element={<Protegee role="AGENT"><PageSignalements /></Protegee>} />
       <Route path="moderation" element={<Protegee role="AGENT"><PageModeration /></Protegee>} />

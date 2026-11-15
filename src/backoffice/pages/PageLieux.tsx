@@ -6,9 +6,9 @@ import { VILLE_ID } from '../../commun/donnees'
 import { deprojeter, METRES_PAR_UNITE, projeter } from '../../commun/geo'
 import { Icone } from '../../commun/Icone'
 import { imageLieu } from '../../commun/images'
-import { attribuerZone, enregistrerLieu, enregistrerZone, nomProprietaire, uid, useEtat } from '../../commun/store'
+import { attribuerZone, enregistrerLieu, enregistrerZone, nomProprietaire, supprimerLieu, uid, useEtat } from '../../commun/store'
 import type { Lieu, Texte3, Zone } from '../../commun/types'
-import { BadgeStatut, EnTetePage, Interrupteur, Onglets, Panneau, Tiroir, useToast } from '../ui'
+import { BadgeStatut, DialogueSuppression, EnTetePage, Interrupteur, Onglets, Panneau, Tiroir, useToast } from '../ui'
 
 type Onglet = 'lieux' | 'zones' | 'attributions'
 
@@ -18,6 +18,7 @@ export default function PageLieux() {
   const [params, setParams] = useSearchParams()
   const onglet = (params.get('onglet') as Onglet) || 'lieux'
   const [lieu, setLieu] = useState<Lieu | null>(null)
+  const [aSupprimer, setASupprimer] = useState<Lieu | null>(null)
   const [zone, setZone] = useState<Zone | null>(null)
   const [choix, setChoix] = useState<Record<string, string>>({})
   const attente = etat.affiches.filter((a) => a.proprietaireId !== VILLE_ID && (!a.zoneId || a.zoneProposeeId) && a.statut !== 'RETIREE')
@@ -97,9 +98,14 @@ export default function PageLieux() {
                   </ul>
                   <div className="pied-carte">
                     <BadgeStatut statut={l.actif ? 'PUBLIEE' : 'BROUILLON'} libelle={l.actif ? 'Sur la carte' : 'Masqué'} />
-                    <button type="button" onClick={() => setLieu(l)}>
-                      Modifier <Icone nom="droite" taille={13} />
-                    </button>
+                    <span className="actions-carte">
+                      <button type="button" className="supprimer" onClick={() => setASupprimer(l)} aria-label={`Supprimer ${l.nom}`} title="Supprimer">
+                        <Icone nom="poubelle" taille={14} />
+                      </button>
+                      <button type="button" onClick={() => setLieu(l)}>
+                        <Icone nom="crayon" taille={13} /> Modifier
+                      </button>
+                    </span>
                   </div>
                 </div>
               </article>
@@ -244,6 +250,7 @@ export default function PageLieux() {
         <EditeurLieu
           lieu={lieu}
           onFermer={() => setLieu(null)}
+          onSupprimer={etat.lieux.some((x) => x.id === lieu.id) ? () => setASupprimer(lieu) : undefined}
           onEnregistrer={(l) => {
             enregistrerLieu(l)
             setLieu(null)
@@ -262,6 +269,19 @@ export default function PageLieux() {
           }}
         />
       )}
+      <DialogueSuppression
+        cible={aSupprimer?.nom ?? null}
+        description="Le lieu disparaîtra de la carte des visiteurs et des zones de proximité. Les animations qui y sont rattachées doivent d’abord être supprimées ou déplacées. La suppression reste inscrite au journal."
+        onFermer={() => setASupprimer(null)}
+        onConfirmer={() => {
+          const r = supprimerLieu(aSupprimer!.id)
+          if (r.ok) {
+            setLieu(null)
+            toast.afficher(`Lieu « ${aSupprimer!.nomCourt || aSupprimer!.nom} » supprimé`)
+          }
+          return r
+        }}
+      />
       {toast.element}
     </>
   )
@@ -292,7 +312,7 @@ function ChoixPosition({ latitude, longitude, rayonM, onChange }: { latitude: nu
   )
 }
 
-function EditeurLieu({ lieu, onFermer, onEnregistrer }: { lieu: Lieu; onFermer: () => void; onEnregistrer: (l: Lieu) => void }) {
+function EditeurLieu({ lieu, onFermer, onEnregistrer, onSupprimer }: { lieu: Lieu; onFermer: () => void; onEnregistrer: (l: Lieu) => void; onSupprimer?: () => void }) {
   const [l, setL] = useState(lieu)
   const [langue, setLangue] = useState<keyof Texte3>('fr')
   const [photos, setPhotos] = useState<string[]>([])
@@ -309,6 +329,11 @@ function EditeurLieu({ lieu, onFermer, onEnregistrer }: { lieu: Lieu; onFermer: 
       onFermer={onFermer}
       pied={
         <>
+          {onSupprimer && (
+            <button type="button" className="btn btn-texte-danger" onClick={onSupprimer}>
+              <Icone nom="poubelle" taille={15} /> Supprimer
+            </button>
+          )}
           <button type="button" className="btn btn-fantome" onClick={onFermer}>
             Annuler
           </button>

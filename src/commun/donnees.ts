@@ -104,6 +104,8 @@ export const animationsInitiales: Animation[] = [
   },
   {
     id: 'anim-lumieres',
+    clipIndice: 0,
+    lecture: 'BOUCLE',
     proprietaireId: VILLE_ID,
     titre: 'La légende des lumières',
     type: 'LIEU',
@@ -125,6 +127,8 @@ export const animationsInitiales: Animation[] = [
   },
   {
     id: 'anim-bonal',
+    clipIndice: 1,
+    lecture: 'BOUCLE',
     proprietaireId: VILLE_ID,
     titre: 'Bonal en fête',
     type: 'LIEU',
@@ -161,6 +165,8 @@ export const animationsInitiales: Animation[] = [
   },
   {
     id: 'anim-porte',
+    clipIndice: 0,
+    lecture: 'UNE_FOIS',
     proprietaireId: VILLE_ID,
     titre: 'La porte du temps — Teaser 3D',
     type: 'AFFICHE',
@@ -181,6 +187,8 @@ export const animationsInitiales: Animation[] = [
   },
   {
     id: 'anim-momes',
+    clipIndice: 0,
+    lecture: 'UNE_FOIS',
     proprietaireId: 'p2',
     titre: 'La mascotte des Mômes',
     type: 'AFFICHE',
@@ -244,15 +252,15 @@ export const partenairesInitiaux: Partenaire[] = [
 ]
 
 export const fichiersInitiaux: Fichier[] = [
-  { id: 'f1', proprietaireId: VILLE_ID, type: 'MODELE_3D', nomOriginal: 'porte-du-temps.glb', tailleOctets: 3_350_000, nbTriangles: 24_800, textureMaxPx: 1024, statutControle: 'CONFORME', creeLe: '2026-10-29T10:00:00', usage: 'AFFICHE' },
-  { id: 'f2', proprietaireId: VILLE_ID, type: 'MODELE_3D', nomOriginal: 'legende-lumieres.glb', tailleOctets: 8_400_000, nbTriangles: 84_000, textureMaxPx: 2048, statutControle: 'CONFORME', creeLe: '2026-10-20T10:00:00', usage: 'LIEU' },
-  { id: 'f3', proprietaireId: VILLE_ID, type: 'MODELE_3D', nomOriginal: 'bonal-en-fete.glb', tailleOctets: 7_900_000, nbTriangles: 92_000, textureMaxPx: 2048, statutControle: 'CONFORME', creeLe: '2026-08-10T10:00:00', usage: 'LIEU' },
-  { id: 'f4', proprietaireId: VILLE_ID, type: 'MODELE_3D', nomOriginal: 'jardins-du-temps.glb', tailleOctets: 12_600_000, nbTriangles: 126_000, textureMaxPx: 4096, statutControle: 'REFUSE', raisonRefus: 'Poids 12,6 Mo (max. 10 Mo) · 126 000 triangles (max. 100 000) · texture 4096 px (max. 2048 px)', creeLe: '2026-11-02T11:00:00', usage: 'LIEU' },
+  { id: 'f1', proprietaireId: VILLE_ID, type: 'MODELE_3D', nomOriginal: 'porte-du-temps.glb', tailleOctets: 3_350_000, nbTriangles: 24_800, textureMaxPx: 1024, clips: [{ nom: 'Ouverture de la porte', dureeS: 4, pistes: 6 }, { nom: 'Flocons', dureeS: 8, pistes: 24 }], statutControle: 'CONFORME', creeLe: '2026-10-29T10:00:00', usage: 'AFFICHE' },
+  { id: 'f2', proprietaireId: VILLE_ID, type: 'MODELE_3D', nomOriginal: 'legende-lumieres.glb', tailleOctets: 8_400_000, nbTriangles: 84_000, textureMaxPx: 2048, clips: [{ nom: 'Arche de lumière', dureeS: 12.5, pistes: 18 }, { nom: 'Chute de neige', dureeS: 10, pistes: 40 }], statutControle: 'CONFORME', creeLe: '2026-10-20T10:00:00', usage: 'LIEU' },
+  { id: 'f3', proprietaireId: VILLE_ID, type: 'MODELE_3D', nomOriginal: 'bonal-en-fete.glb', tailleOctets: 7_900_000, nbTriangles: 92_000, textureMaxPx: 2048, clips: [{ nom: 'Logo qui tourne', dureeS: 6, pistes: 3 }, { nom: 'Tableau de score', dureeS: 3.5, pistes: 9 }], statutControle: 'CONFORME', creeLe: '2026-08-10T10:00:00', usage: 'LIEU' },
+  { id: 'f4', proprietaireId: VILLE_ID, type: 'MODELE_3D', nomOriginal: 'jardins-du-temps.glb', tailleOctets: 12_600_000, nbTriangles: 126_000, textureMaxPx: 4096, statutControle: 'REFUSE', raisonRefus: '126 000 triangles (max. 100 000) · texture 4096 px (max. 2048 px)', creeLe: '2026-11-02T11:00:00', usage: 'LIEU' },
   { id: 'f5', proprietaireId: VILLE_ID, type: 'SON', nomOriginal: 'cloches-noel.mp3', tailleOctets: 820_000, dureeS: 42, statutControle: 'CONFORME', creeLe: '2026-10-20T10:05:00', usage: 'LIEU' },
   { id: 'f6', proprietaireId: VILLE_ID, type: 'SON', nomOriginal: 'ambiance-stade.m4a', tailleOctets: 1_600_000, dureeS: 75, statutControle: 'CONFORME', creeLe: '2026-08-10T10:05:00', usage: 'LIEU' },
-  { id: 'f7', proprietaireId: 'p2', type: 'MODELE_3D', nomOriginal: 'mascotte-momes.glb', tailleOctets: 2_100_000, nbTriangles: 18_000, textureMaxPx: 1024, statutControle: 'CONFORME', creeLe: '2026-11-03T14:00:00', usage: 'AFFICHE' },
+  { id: 'f7', proprietaireId: 'p2', type: 'MODELE_3D', nomOriginal: 'mascotte-momes.glb', tailleOctets: 2_100_000, nbTriangles: 18_000, textureMaxPx: 1024, clips: [{ nom: 'Saut hors de l’affiche', dureeS: 2.2, pistes: 31 }, { nom: 'Salut', dureeS: 1.8, pistes: 31 }, { nom: 'Attente', dureeS: 3, pistes: 31 }], statutControle: 'CONFORME', creeLe: '2026-11-03T14:00:00', usage: 'AFFICHE' },
   { id: 'f8', proprietaireId: 'p2', type: 'SON', nomOriginal: 'fanfare.mp3', tailleOctets: 610_000, dureeS: 15, statutControle: 'EN_COURS', creeLe: '2026-11-09T08:58:00', usage: 'AFFICHE' },
-  { id: 'f9', proprietaireId: 'p3', type: 'MODELE_3D', nomOriginal: 'chalets.glb', tailleOctets: 2_800_000, nbTriangles: 21_500, textureMaxPx: 1024, statutControle: 'CONFORME', creeLe: '2026-11-04T09:00:00', usage: 'AFFICHE' },
+  { id: 'f9', proprietaireId: 'p3', type: 'MODELE_3D', nomOriginal: 'chalets.glb', tailleOctets: 2_800_000, nbTriangles: 21_500, textureMaxPx: 1024, clips: [{ nom: 'Illumination des chalets', dureeS: 5, pistes: 12 }], statutControle: 'CONFORME', creeLe: '2026-11-04T09:00:00', usage: 'AFFICHE' },
 ]
 
 export const affichesInitiales: Affiche[] = [

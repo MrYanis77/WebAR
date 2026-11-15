@@ -507,3 +507,59 @@ export function repondreDecision(decisionId: string, reponse: string, reexamen: 
     journal: [entree(auteurCourant(e), reexamen ? 'REEXAMEN_DEMANDE' : 'REPONSE_PARTENAIRE', 'Décision', decisionId, reponse.slice(0, 80)), ...e.journal],
   }))
 }
+
+// ---------------------------------------------------------------- suppressions
+// La suppression est refusée tant qu'un autre contenu dépend de l'élément ; elle reste tracée au journal (BNF-17).
+
+export type ResultatSuppression = { ok: true } | { ok: false; raison: string }
+
+/** Contenus qui empêchent de supprimer une animation (affiches qui l'utilisent). */
+export function dependancesAnimation(e: EtatDemo, id: string) {
+  return e.affiches.filter((a) => a.animationAfficheId === id || a.animationLieuId === id)
+}
+
+export function supprimerAnimation(id: string): ResultatSuppression {
+  const e = etat
+  const a = e.animations.find((x) => x.id === id)
+  if (!a) return { ok: false, raison: 'Animation introuvable.' }
+  const liees = dependancesAnimation(e, id)
+  if (liees.length)
+    return { ok: false, raison: `Utilisée par ${liees.length > 1 ? 'les affiches' : 'l’affiche'} ${liees.map((x) => `« ${x.nom} »`).join(', ')} : associez-leur une autre animation d’abord.` }
+  ecrire((s) => ({
+    ...s,
+    animations: s.animations.filter((x) => x.id !== id),
+    signalements: s.signalements.filter((x) => x.animationId !== id),
+    journal: [entree(auteurCourant(s), 'SUPPRESSION', 'Animation', a.titre), ...s.journal],
+  }))
+  return { ok: true }
+}
+
+export function supprimerAffiche(id: string): ResultatSuppression {
+  const a = etat.affiches.find((x) => x.id === id)
+  if (!a) return { ok: false, raison: 'Affiche introuvable.' }
+  ecrire((s) => ({
+    ...s,
+    affiches: s.affiches.filter((x) => x.id !== id),
+    signalements: s.signalements.filter((x) => x.afficheId !== id),
+    journal: [entree(auteurCourant(s), 'SUPPRESSION', 'Affiche', a.nom), ...s.journal],
+  }))
+  return { ok: true }
+}
+
+export function dependancesLieu(e: EtatDemo, id: string) {
+  return e.animations.filter((a) => a.lieuId === id)
+}
+
+export function supprimerLieu(id: string): ResultatSuppression {
+  const l = etat.lieux.find((x) => x.id === id)
+  if (!l) return { ok: false, raison: 'Lieu introuvable.' }
+  const liees = dependancesLieu(etat, id)
+  if (liees.length)
+    return { ok: false, raison: `Ce lieu porte ${liees.length > 1 ? 'les animations' : 'l’animation'} ${liees.map((x) => `« ${x.titre} »`).join(', ')} : ${liees.length > 1 ? "supprimez-les ou rattachez-les" : "supprimez-la ou rattachez-la"} à un autre lieu d’abord.` }
+  ecrire((s) => ({
+    ...s,
+    lieux: s.lieux.filter((x) => x.id !== id),
+    journal: [entree(auteurCourant(s), 'SUPPRESSION', 'Lieu', l.nom), ...s.journal],
+  }))
+  return { ok: true }
+}

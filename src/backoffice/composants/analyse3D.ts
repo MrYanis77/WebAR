@@ -6,6 +6,7 @@ export interface Analyse3D {
   triangles: number
   textureMax: number
   externe: boolean
+  clips: { indice: number; nom: string; dureeS: number; pistes: number }[]
 }
 
 export function compterScene(racine: Object3D): Analyse3D {
@@ -23,7 +24,7 @@ export function compterScene(racine: Object3D): Analyse3D {
       }
     }
   })
-  return { triangles: Math.round(triangles), textureMax, externe: false }
+  return { triangles: Math.round(triangles), textureMax, externe: false, clips: [] }
 }
 
 /** Lit l'en-tête binaire d'un GLB (« glTF », version 2) puis le charge pour compter triangles et textures. */
@@ -37,7 +38,11 @@ export async function analyserGLB(fichier: File): Promise<Analyse3D> {
   if (externe) throw new Error('Le modèle appelle une ressource externe : seuls les GLB autonomes sont acceptés.')
   const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js')
   const gltf = await new GLTFLoader().parseAsync(tampon, '')
-  return compterScene(gltf.scene)
+  // Animations intégrées au fichier (squelette, morphs, transformations).
+  const clips = gltf.animations
+    .map((c, i) => ({ indice: i, nom: c.name || `Animation ${i + 1}`, dureeS: Math.round(c.duration * 100) / 100, pistes: c.tracks.length }))
+    .filter((c) => c.dureeS > 0 && c.pistes > 0) // clips vides ignorés
+  return { ...compterScene(gltf.scene), clips }
 }
 
 export function dureeAudio(fichier: File): Promise<number> {
