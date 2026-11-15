@@ -3,7 +3,7 @@ import { Route, Routes, useLocation, useNavigate } from 'react-router'
 import { distanceM } from '../commun/geo'
 import { useLangue } from '../commun/i18n'
 import { Icone } from '../commun/Icone'
-import { useEtat } from '../commun/store'
+import { useDonneesPubliques } from './donneesPubliques'
 import { EcranContexte } from './composants/Couche'
 import { FournisseurPosition, usePosition } from './contexte/position'
 import { useCompatibilite, useEnLigne } from './hooks/capteurs'
@@ -21,7 +21,7 @@ const PageMentions = lazy(() => import('./pages/PageMentions'))
 /** Bandeau « Vous êtes arrivé » quand le visiteur entre dans le rayon d'un lieu (BF-08). */
 function MessageProximite() {
   const { t } = useLangue()
-  const etat = useEtat()
+  const etat = useDonneesPubliques()
   const { coords } = usePosition()
   const navigate = useNavigate()
   const { pathname } = useLocation()

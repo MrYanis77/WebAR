@@ -1,8 +1,9 @@
+import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { appelApi, messageErreur } from '../../commun/api'
 import { VERSION_CHARTE } from '../../commun/constantes'
 import { Icone } from '../../commun/Icone'
-import { accepterCharte, useEtat } from '../../commun/store'
-import { useSession } from '../session'
+import { accepterCharte } from '../../commun/store'
 import { EnTetePage, formaterDate, Panneau, useToast } from '../ui'
 
 const ARTICLES = [
@@ -18,12 +19,12 @@ const ARTICLES = [
 
 /** Acceptation de la charte avant tout import ou création (BF-41) ; la version acceptée est enregistrée. */
 export default function PageCharte() {
-  const etat = useEtat()
-  const session = useSession()
   const toast = useToast()
   const [lu, setLu] = useState(false)
-  const partenaire = etat.partenaires.find((p) => p.id === session.partenaireId)
-  const accepteeLe = session.role === 'AGENT' ? (etat.charteVilleAcceptee ? '2026-09-01T09:00:00' : undefined) : partenaire?.charteAccepteeLe
+  const [envoi, setEnvoi] = useState(false)
+  // Date d'acceptation de la version en vigueur, enregistrée par l'API (table acceptation_charte).
+  const charte = useQuery({ queryKey: ['charte'], queryFn: () => appelApi<{ version: string; accepteeLe: string | null }>('/charte') })
+  const accepteeLe = charte.data?.accepteeLe ?? undefined
 
   return (
     <>
@@ -55,10 +56,17 @@ export default function PageCharte() {
               <button
                 type="button"
                 className="btn btn-primaire"
-                disabled={!lu}
-                onClick={() => {
-                  accepterCharte()
-                  toast.afficher('Charte acceptée — vous pouvez importer et créer')
+                disabled={!lu || envoi || charte.isLoading}
+                onClick={async () => {
+                  setEnvoi(true)
+                  try {
+                    await accepterCharte()
+                    toast.afficher('Charte acceptée — vous pouvez importer et créer')
+                  } catch (e) {
+                    toast.afficher(messageErreur(e))
+                  } finally {
+                    setEnvoi(false)
+                  }
                 }}
               >
                 Accepter la charte

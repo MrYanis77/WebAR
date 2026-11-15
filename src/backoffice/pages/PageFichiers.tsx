@@ -2,17 +2,17 @@ import { lazy, Suspense, useRef, useState, type DragEvent } from 'react'
 import { Link } from 'react-router'
 import { BUDGETS_3D, FORMATS_ACCEPTES, MODELE_3D_MAX_MO } from '../../commun/constantes'
 import { Icone, type NomIcone } from '../../commun/Icone'
-import { ajouterFichier, majFichier, nomProprietaire, useEtat } from '../../commun/store'
+import { messageErreur } from '../../commun/api'
+import { importerFichier, nomProprietaire, supprimerFichier, useEtat, validerFichier } from '../../commun/store'
 import type { Fichier, TypeFichier } from '../../commun/types'
-import { enregistrerFichierBinaire } from '../../commun/imagesAffiches'
-import { analyserGLB, dimensionsImage, dureeAudio } from '../composants/analyse3D'
-import { peutCreer, proprietaireDe, useSession } from '../session'
+import { peutCreer, useSession } from '../session'
 import { BadgeStatut, EnTetePage, formaterDate, formaterPoids, Onglets, Panneau, useToast, Vide } from '../ui'
 
 const ApercuModele3D = lazy(() => import('../composants/ApercuModele3D'))
 
 const ICONES: Record<TypeFichier, NomIcone> = { MODELE_3D: 'cube', SON: 'musique', IMAGE: 'image' }
-const ETAPES = ['Réception et renommage', 'Type réel du fichier', 'Validation glTF / audio', 'Optimisation (Meshopt, KTX2)']
+/** Étapes du contrôle automatique exécuté par l'API (file-type, glTF-Validator, glTF-Transform, ffprobe, sharp). */
+const ETAPES = ['Envoi au serveur', 'Type réel du fichier (file-type)', 'Validation glTF / audio / image', 'Mesure : triangles, textures, animations']
 
 interface Verification {
   libelle: string
@@ -38,8 +38,9 @@ function rapport(f: Fichier): Verification[] {
     v.push({ libelle: 'Poids', ok: f.tailleOctets <= b.sonMo * 1_000_000, detail: `${formaterPoids(f.tailleOctets)} / ${b.sonMo} Mo` })
     v.push({ libelle: 'Durée', ok: (f.dureeS ?? 0) <= 120, detail: `${Math.round(f.dureeS ?? 0)} s` })
   } else {
-    v.push({ libelle: 'Poids', ok: f.tailleOctets <= 10_000_000, detail: `${formaterPoids(f.tailleOctets)} / 10 Mo` })
-    v.push({ libelle: 'Réencodage', ok: true, detail: 'sharp (WebP)' })
+    v.push({ libelle: 'Poids', ok: f.tailleOctets <= 30_000_000, detail: `${formaterPoids(f.tailleOctets)} / 30 Mo` })
+    v.push({ libelle: 'Dimensions', ok: true, detail: f.largeurPx ? `${f.largeurPx} × ${f.hauteurPx} px` : '—' })
+    v.push({ libelle: 'Réencodage', ok: true, detail: 'sharp (orientation, métadonnées retirées)' })
   }
   return v
 }
@@ -52,16 +53,21 @@ export default function PageFichiers() {
   const [onglet, setOnglet] = useState<'tous' | TypeFichier>('tous')
   const [usage, setUsage] = useState<'AFFICHE' | 'LIEU'>(agent ? 'LIEU' : 'AFFICHE')
   const [selection, setSelection] = useState<string | null>(null)
-  const [traitement, setTraitement] = useState<{ id: string; etape: number } | null>(null)
+  /** Envoi en cours : progression de 0 à 1. */
+  const [envoi, setEnvoi] = useState<{ nom: string; progression: number } | null>(null)
+  const [action, setAction] = useState(false)
   const [rejet, setRejet] = useState<string | null>(null)
   const [survol, setSurvol] = useState(false)
-  const originaux = useRef(new Map<string, File>())
   const entree = useRef<HTMLInputElement>(null)
   const autorise = peutCreer(etat, session)
 
   const fichiers = etat.fichiers.filter((f) => agent || f.proprietaireId === session.partenaireId).filter((f) => onglet === 'tous' || f.type === onglet)
   const courant = etat.fichiers.find((f) => f.id === selection) ?? fichiers[0]
 
+  /**
+   * Pré-contrôle du format et du poids dans le navigateur (message immédiat), puis envoi à l'API :
+   * le serveur refait toutes les vérifications et lance le contrôle automatique en arrière-plan.
+   */
   async function importer(fichier: File) {
     setRejet(null)
     const ext = fichier.name.split('.').pop()?.toLowerCase() ?? ''
@@ -73,30 +79,15 @@ export default function PageFichiers() {
       setRejet(`« ${fichier.name} » refusé : ${formaterPoids(fichier.size)}, le maximum pour un modèle 3D est de ${MODELE_3D_MAX_MO} Mo.`)
       return
     }
-    const type: TypeFichier = ext === 'glb' ? 'MODELE_3D' : ['mp3', 'm4a', 'aac'].includes(ext) ? 'SON' : 'IMAGE'
-    const id = ajouterFichier({ proprietaireId: proprietaireDe(session), type, nomOriginal: fichier.name, tailleOctets: fichier.size, statutControle: 'EN_COURS', usage })
-    originaux.current.set(id, fichier)
-    // Conservé pour l'aperçu de l'animation sur l'affiche (rechargement de page compris).
-    void enregistrerFichierBinaire(id, fichier).catch(() => {})
-    setSelection(id)
-    for (let i = 0; i < ETAPES.length; i++) {
-      setTraitement({ id, etape: i })
-      await new Promise((r) => setTimeout(r, 450))
-    }
+    setEnvoi({ nom: fichier.name, progression: 0 })
     try {
-      if (type === 'MODELE_3D') {
-        const a = await analyserGLB(fichier)
-        majFichier(id, { nbTriangles: a.triangles, textureMaxPx: a.textureMax, clips: a.clips })
-      } else if (type === 'SON') {
-        majFichier(id, { dureeS: Math.round(await dureeAudio(fichier)) })
-      } else {
-        const d = await dimensionsImage(fichier)
-        majFichier(id, { textureMaxPx: Math.max(d.l, d.h) })
-      }
+      const cree = await importerFichier(fichier, usage, (progression) => setEnvoi({ nom: fichier.name, progression }))
+      setSelection(cree.id)
     } catch (e) {
-      majFichier(id, { statutControle: 'REFUSE', raisonRefus: (e as Error).message })
+      setRejet(messageErreur(e))
+    } finally {
+      setEnvoi(null)
     }
-    setTraitement(null)
   }
 
   function deposer(e: DragEvent) {
@@ -108,6 +99,8 @@ export default function PageFichiers() {
 
   const verifs = courant ? rapport(courant) : []
   const controleOk = verifs.every((v) => v.ok)
+  /** Contrôle automatique encore en cours côté serveur. */
+  const enControle = (f: Fichier) => f.statutControle === 'EN_COURS' && !f.controleTermine
 
   return (
     <>
@@ -158,6 +151,12 @@ export default function PageFichiers() {
             }}
           />
         </div>
+        {envoi && (
+          <div className="envoi-fichier" role="status">
+            <span className="spinner" /> Envoi de « {envoi.nom} » : {Math.round(envoi.progression * 100)} %
+            <progress max={1} value={envoi.progression} />
+          </div>
+        )}
         {rejet && (
           <p className="erreur-acces" role="alert">
             <Icone nom="alerte" taille={15} />
@@ -198,7 +197,7 @@ export default function PageFichiers() {
                           {agent && f.proprietaireId !== 'ville' && ` · ${nomProprietaire(etat, f.proprietaireId)}`}
                         </small>
                       </div>
-                      {traitement?.id === f.id ? <span className="spinner" /> : <BadgeStatut statut={f.statutControle} />}
+                      {enControle(f) ? <span className="spinner" /> : <BadgeStatut statut={f.statutControle} />}
                     </button>
                   </li>
                 ))}
@@ -208,22 +207,23 @@ export default function PageFichiers() {
 
           {courant && (
             <Panneau titre={courant.nomOriginal} sousTitre="Rapport de contrôle automatique">
-              {courant.type === 'MODELE_3D' && (
+              {courant.type === 'MODELE_3D' && courant.statutControle !== 'REFUSE' && (
                 <Suspense fallback={<div className="apercu-3d" />}>
-                  <ApercuModele3D fichier={originaux.current.get(courant.id)} theme={courant.usage === 'AFFICHE' ? 'affiche' : courant.nomOriginal.includes('bonal') ? 'stade' : 'chateau'} />
+                  <ApercuModele3D url={courant.url} />
                 </Suspense>
               )}
               {courant.type === 'SON' && (
                 <div className="apercu-son">
                   <Icone nom="musique" taille={28} />
-                  {originaux.current.get(courant.id) ? <audio controls src={URL.createObjectURL(originaux.current.get(courant.id)!)} /> : <span>{courant.dureeS} s · sous-titres à renseigner dans l’animation</span>}
+                  <audio controls preload="metadata" src={courant.url} />
                 </div>
               )}
-              {traitement?.id === courant.id ? (
+              {courant.type === 'IMAGE' && <img className="apercu-image" src={courant.url} alt={`Aperçu de ${courant.nomOriginal}`} />}
+              {enControle(courant) ? (
                 <ol className="etapes-controle">
                   {ETAPES.map((e, i) => (
-                    <li key={e} className={i < traitement.etape ? 'fait' : i === traitement.etape ? 'courant' : ''}>
-                      {i < traitement.etape ? <Icone nom="check" taille={14} /> : i === traitement.etape ? <span className="spinner" /> : <span className="puce" />}
+                    <li key={e} className={i === 0 ? 'fait' : 'courant'}>
+                      {i === 0 ? <Icone nom="check" taille={14} /> : <span className="spinner" />}
                       {e}
                     </li>
                   ))}
@@ -247,17 +247,24 @@ export default function PageFichiers() {
                   )}
                   {courant.statutControle === 'EN_COURS' && (
                     <div className="validation-fichier">
-                      <p>{controleOk ? 'Contrôle réussi. Vérifiez l’aperçu puis validez l’enregistrement.' : 'Le fichier dépasse le budget : il sera refusé.'}</p>
+                      <p>{controleOk ? 'Contrôle réussi. Vérifiez l’aperçu puis validez l’enregistrement.' : 'Contrôle terminé avec des alertes.'}</p>
                       <button
                         type="button"
                         className="btn btn-primaire"
-                        onClick={() => {
-                          const ko = verifs.filter((v) => !v.ok)
-                          majFichier(courant.id, ko.length ? { statutControle: 'REFUSE', raisonRefus: ko.map((v) => `${v.libelle} ${v.detail}`).join(' · ') } : { statutControle: 'CONFORME' })
-                          toast.afficher(ko.length ? 'Fichier refusé' : 'Fichier conforme et enregistré')
+                        disabled={action}
+                        onClick={async () => {
+                          setAction(true)
+                          try {
+                            await validerFichier(courant.id)
+                            toast.afficher('Fichier conforme et enregistré')
+                          } catch (e) {
+                            toast.afficher(messageErreur(e))
+                          } finally {
+                            setAction(false)
+                          }
                         }}
                       >
-                        {controleOk ? 'Valider l’enregistrement' : 'Clore le contrôle'}
+                        Valider l’enregistrement
                       </button>
                     </div>
                   )}
@@ -266,6 +273,27 @@ export default function PageFichiers() {
                       <Icone nom="check" taille={15} /> Conforme. Toute modification d’un fichier déjà diffusé relance ce contrôle.
                     </p>
                   )}
+                  {/* Suppression refusée par l'API (409) tant que le fichier est utilisé par une animation, une affiche ou un lieu. */}
+                  <button
+                    type="button"
+                    className="btn-texte-danger supprimer-fichier"
+                    disabled={action}
+                    onClick={async () => {
+                      if (!window.confirm(`Supprimer « ${courant.nomOriginal} » ?`)) return
+                      setAction(true)
+                      try {
+                        await supprimerFichier(courant.id)
+                        setSelection(null)
+                        toast.afficher('Fichier supprimé')
+                      } catch (e) {
+                        toast.afficher(messageErreur(e))
+                      } finally {
+                        setAction(false)
+                      }
+                    }}
+                  >
+                    Supprimer le fichier
+                  </button>
                 </>
               )}
             </Panneau>

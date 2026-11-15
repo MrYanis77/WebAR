@@ -1,8 +1,9 @@
-import { animationActive, type EtatDemo } from '../commun/store'
+import { animationActive } from '../commun/store'
 import type { Animation, Lieu } from '../commun/types'
+import type { DonneesPubliques } from './donneesPubliques'
 
 /** Animations d'un lieu : celle en cours (l'événementielle prime sur la permanente) et les prochaines (BF-22). */
-export function animationsDuLieu(etat: EtatDemo, lieuId: string, date = new Date()) {
+export function animationsDuLieu(etat: DonneesPubliques, lieuId: string, date = new Date()) {
   const duLieu = etat.animations.filter((a) => a.type === 'LIEU' && a.lieuId === lieuId && a.statut === 'PUBLIEE')
   const actives = duLieu.filter((a) => animationActive(a, date)).sort((a, b) => Number(!!b.fin) - Number(!!a.fin))
   const prochaines = duLieu
@@ -11,7 +12,7 @@ export function animationsDuLieu(etat: EtatDemo, lieuId: string, date = new Date
   return { active: actives[0] as Animation | undefined, actives, prochaines }
 }
 
-export function lieuxVisibles(etat: EtatDemo): Lieu[] {
+export function lieuxVisibles(etat: DonneesPubliques): Lieu[] {
   return etat.lieux.filter((l) => l.actif)
 }
 

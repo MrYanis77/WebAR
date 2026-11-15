@@ -2,13 +2,13 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { CarteInteractive } from '../../commun/Carte'
 import { RAYON_PAR_DEFAUT_M } from '../../commun/constantes'
-import { VILLE_ID } from '../../commun/donnees'
 import { deprojeter, METRES_PAR_UNITE, projeter } from '../../commun/geo'
 import { Icone } from '../../commun/Icone'
-import { imageLieu } from '../../commun/images'
-import { attribuerZone, enregistrerLieu, enregistrerZone, nomProprietaire, supprimerLieu, uid, useEtat } from '../../commun/store'
+import { messageErreur } from '../../commun/api'
+import { ajouterPhotoFacade, attendreControle, attribuerZone, enregistrerLieu, enregistrerZone, importerFichier, nomProprietaire, supprimerLieu, useEtat } from '../../commun/store'
 import type { Lieu, Texte3, Zone } from '../../commun/types'
-import { BadgeStatut, DialogueSuppression, EnTetePage, Interrupteur, Onglets, Panneau, Tiroir, useToast } from '../ui'
+import { VILLE_ID } from '../session'
+import { BadgeStatut, DialogueSuppression, EnTetePage, executer, Interrupteur, Onglets, Panneau, Tiroir, useToast } from '../ui'
 
 type Onglet = 'lieux' | 'zones' | 'attributions'
 
@@ -25,7 +25,7 @@ export default function PageLieux() {
 
   function nouveauLieu() {
     const vide: Texte3 = { fr: '', en: '', de: '' }
-    setLieu({ id: uid('lieu'), nom: '', nomCourt: '', categorie: { ...vide }, adresse: '', description: { ...vide }, latitude: 47.5085, longitude: 6.8005, rayonM: RAYON_PAR_DEFAUT_M, photosFacade: 0, actif: false, accesLibre: true })
+    setLieu({ id: '', nom: '', nomCourt: '', categorie: { ...vide }, adresse: '', description: { ...vide }, latitude: 47.5085, longitude: 6.8005, rayonM: RAYON_PAR_DEFAUT_M, photosFacade: 0, actif: false, accesLibre: true })
   }
 
   return (
@@ -42,7 +42,7 @@ export default function PageLieux() {
             <button
               type="button"
               className="btn btn-primaire"
-              onClick={() => setZone({ id: uid('z'), nom: '', adresse: '', latitude: 47.5095, longitude: 6.8, regles: '', format: 'A2', active: true })}
+              onClick={() => setZone({ id: '', nom: '', adresse: '', latitude: 47.5095, longitude: 6.8, regles: '', format: 'A2', active: true })}
             >
               <Icone nom="plus" taille={16} /> Ajouter une zone
             </button>
@@ -66,7 +66,7 @@ export default function PageLieux() {
           <div className="grille-lieux">
             {etat.lieux.map((l) => (
               <article key={l.id} className="carte-lieu">
-                <div className="image-lieu">{imageLieu(l.image) ? <img src={imageLieu(l.image)} alt="" /> : <Icone nom="pin" taille={34} />}</div>
+                <div className="image-lieu">{l.image ? <img src={l.image} alt="" /> : <Icone nom="pin" taille={34} />}</div>
                 <div className="corps-lieu">
                   <div className="titre-animation">
                     <div>
@@ -76,10 +76,9 @@ export default function PageLieux() {
                     <Interrupteur
                       actif={l.actif}
                       libelle={l.actif ? 'Masquer le lieu' : 'Publier le lieu'}
-                      onChange={() => {
-                        enregistrerLieu({ ...l, actif: !l.actif })
-                        toast.afficher(l.actif ? `${l.nomCourt} masqué de la carte` : `${l.nomCourt} visible sur la carte des visiteurs`)
-                      }}
+                      onChange={() =>
+                        executer(toast, () => enregistrerLieu({ ...l, actif: !l.actif }), l.actif ? `${l.nomCourt} masqué de la carte` : `${l.nomCourt} visible sur la carte des visiteurs`)
+                      }
                     />
                   </div>
                   <ul className="faits-lieu">
@@ -144,7 +143,7 @@ export default function PageLieux() {
                       </small>
                       <small>{etat.affiches.filter((a) => a.zoneId === z.id).length} affiche(s) attribuée(s)</small>
                     </div>
-                    <Interrupteur actif={z.active} libelle={z.active ? 'Désactiver la zone' : 'Activer la zone'} onChange={() => enregistrerZone({ ...z, active: !z.active })} />
+                    <Interrupteur actif={z.active} libelle={z.active ? 'Désactiver la zone' : 'Activer la zone'} onChange={() => executer(toast, () => enregistrerZone({ ...z, active: !z.active }))} />
                     <button type="button" className="bo-icone" onClick={() => setZone(z)} aria-label={`Modifier ${z.nom}`}>
                       <Icone nom="crayon" taille={15} />
                     </button>
@@ -188,20 +187,14 @@ export default function PageLieux() {
                                 <button
                                   type="button"
                                   className="btn btn-primaire petit"
-                                  onClick={() => {
-                                    attribuerZone(a.id, proposee.id)
-                                    toast.afficher('Proposition acceptée — partenaire notifié')
-                                  }}
+                                  onClick={() => executer(toast, () => attribuerZone(a.id, proposee.id), 'Proposition acceptée — partenaire notifié')}
                                 >
                                   Accepter
                                 </button>
                                 <button
                                   type="button"
                                   className="btn btn-fantome petit"
-                                  onClick={() => {
-                                    attribuerZone(a.id, undefined, true)
-                                    toast.afficher('Proposition refusée — partenaire notifié')
-                                  }}
+                                  onClick={() => executer(toast, () => attribuerZone(a.id, undefined, true), 'Proposition refusée — partenaire notifié')}
                                 >
                                   Refuser
                                 </button>
@@ -226,10 +219,7 @@ export default function PageLieux() {
                                 type="button"
                                 className="btn btn-secondaire petit"
                                 disabled={!choix[a.id]}
-                                onClick={() => {
-                                  attribuerZone(a.id, choix[a.id])
-                                  toast.afficher('Zone attribuée — partenaire notifié')
-                                }}
+                                onClick={() => executer(toast, () => attribuerZone(a.id, choix[a.id]), 'Zone attribuée — partenaire notifié')}
                               >
                                 Attribuer
                               </button>
@@ -250,9 +240,11 @@ export default function PageLieux() {
         <EditeurLieu
           lieu={lieu}
           onFermer={() => setLieu(null)}
-          onSupprimer={etat.lieux.some((x) => x.id === lieu.id) ? () => setASupprimer(lieu) : undefined}
-          onEnregistrer={(l) => {
-            enregistrerLieu(l)
+          onSupprimer={lieu.id ? () => setASupprimer(lieu) : undefined}
+          onEnregistrer={async (l, photos) => {
+            // Le lieu est enregistré d'abord : les photos de façade sont rattachées à son identifiant.
+            const enregistre = await enregistrerLieu(l)
+            for (const photo of photos) await ajouterPhotoFacade(enregistre.id, photo.fichier, photo.moment)
             setLieu(null)
             toast.afficher(`Lieu « ${l.nomCourt || l.nom} » enregistré`)
           }}
@@ -262,10 +254,8 @@ export default function PageLieux() {
         <EditeurZone
           zone={zone}
           onFermer={() => setZone(null)}
-          onEnregistrer={(z) => {
-            enregistrerZone(z)
-            setZone(null)
-            toast.afficher(`Zone « ${z.nom} » enregistrée`)
+          onEnregistrer={async (z) => {
+            if (await executer(toast, () => enregistrerZone(z), `Zone « ${z.nom} » enregistrée`)) setZone(null)
           }}
         />
       )}
@@ -273,8 +263,8 @@ export default function PageLieux() {
         cible={aSupprimer?.nom ?? null}
         description="Le lieu disparaîtra de la carte des visiteurs et des zones de proximité. Les animations qui y sont rattachées doivent d’abord être supprimées ou déplacées. La suppression reste inscrite au journal."
         onFermer={() => setASupprimer(null)}
-        onConfirmer={() => {
-          const r = supprimerLieu(aSupprimer!.id)
+        onConfirmer={async () => {
+          const r = await supprimerLieu(aSupprimer!.id)
           if (r.ok) {
             setLieu(null)
             toast.afficher(`Lieu « ${aSupprimer!.nomCourt || aSupprimer!.nom} » supprimé`)
@@ -312,11 +302,47 @@ function ChoixPosition({ latitude, longitude, rayonM, onChange }: { latitude: nu
   )
 }
 
-function EditeurLieu({ lieu, onFermer, onEnregistrer, onSupprimer }: { lieu: Lieu; onFermer: () => void; onEnregistrer: (l: Lieu) => void; onSupprimer?: () => void }) {
+/** Photo de façade choisie, envoyée à l'API à l'enregistrement du lieu. */
+interface PhotoFacade {
+  fichier: File
+  apercu: string
+  moment: 'JOUR' | 'NUIT'
+}
+
+function EditeurLieu({
+  lieu,
+  onFermer,
+  onEnregistrer,
+  onSupprimer,
+}: {
+  lieu: Lieu
+  onFermer: () => void
+  onEnregistrer: (l: Lieu, photos: PhotoFacade[]) => Promise<void>
+  onSupprimer?: () => void
+}) {
   const [l, setL] = useState(lieu)
   const [langue, setLangue] = useState<keyof Texte3>('fr')
-  const [photos, setPhotos] = useState<string[]>([])
+  const [photos, setPhotos] = useState<PhotoFacade[]>([])
+  const [momentPhotos, setMomentPhotos] = useState<'JOUR' | 'NUIT'>('JOUR')
   const [tente, setTente] = useState(false)
+  const [envoi, setEnvoi] = useState<string | null>(null)
+  const [erreur, setErreur] = useState<string | null>(null)
+
+  /** Visuel de la fiche : image importée puis contrôlée par l'API (sharp). */
+  async function importerVisuel(fichier: File) {
+    setErreur(null)
+    setEnvoi('visuel')
+    try {
+      const cree = await importerFichier(fichier, 'LIEU')
+      const f = await attendreControle(cree.id)
+      if (f.statutControle === 'REFUSE') throw new Error(`Visuel refusé : ${f.raisonRefus ?? 'format non reconnu'}.`)
+      setL((x) => ({ ...x, visuelId: f.id, image: f.url }))
+    } catch (e) {
+      setErreur(messageErreur(e))
+    } finally {
+      setEnvoi(null)
+    }
+  }
   const maj = (p: Partial<Lieu>) => setL({ ...l, ...p })
   const valide = l.nom.trim() && l.nomCourt.trim() && l.adresse.trim() && l.description.fr.trim() && l.categorie.fr.trim()
 
@@ -340,12 +366,22 @@ function EditeurLieu({ lieu, onFermer, onEnregistrer, onSupprimer }: { lieu: Lie
           <button
             type="button"
             className="btn btn-primaire"
-            onClick={() => {
+            disabled={!!envoi}
+            onClick={async () => {
               setTente(true)
-              if (valide) onEnregistrer({ ...l, photosFacade: l.photosFacade + photos.length })
+              setErreur(null)
+              if (!valide) return
+              setEnvoi('enregistrement')
+              try {
+                await onEnregistrer(l, photos)
+              } catch (e) {
+                setErreur(messageErreur(e))
+              } finally {
+                setEnvoi(null)
+              }
             }}
           >
-            Enregistrer le lieu
+            {envoi === 'enregistrement' ? 'Enregistrement…' : 'Enregistrer le lieu'}
           </button>
         </>
       }
@@ -409,24 +445,66 @@ function EditeurLieu({ lieu, onFermer, onEnregistrer, onSupprimer }: { lieu: Lie
         </fieldset>
         <div className="photos-facade">
           <div>
+            <strong>Visuel de la fiche</strong>
+            <p>Photo affichée sur la carte et la fiche du lieu (PNG, JPEG ou WebP).</p>
+          </div>
+          <div className="vignettes">
+            {l.image && <img src={l.image} alt="" />}
+            <label className="ajout-photo" aria-label="Choisir le visuel">
+              {envoi === 'visuel' ? <span className="spinner" /> : <Icone nom={l.image ? 'crayon' : 'plus'} taille={18} />}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                disabled={!!envoi}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) void importerVisuel(f)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+          </div>
+        </div>
+        <div className="photos-facade">
+          <div>
             <strong>Photos de façade pour la reconnaissance</strong>
-            <p>Détails (entrée, tour, logo), de jour et de nuit. Compilées en un seul fichier de cible .mind. {l.photosFacade + photos.length} photo(s).</p>
+            <p>
+              Détails (entrée, tour, logo), de jour et de nuit. {l.photosFacade} photo(s) enregistrée(s)
+              {photos.length ? `, ${photos.length} à envoyer` : ''}.
+            </p>
+            <label className="select-compact">
+              Moment
+              <select value={momentPhotos} onChange={(e) => setMomentPhotos(e.target.value as 'JOUR' | 'NUIT')}>
+                <option value="JOUR">Jour</option>
+                <option value="NUIT">Nuit</option>
+              </select>
+            </label>
           </div>
           <div className="vignettes">
             {photos.map((p) => (
-              <img key={p} src={p} alt="" />
+              <img key={p.apercu} src={p.apercu} alt="" title={p.moment === 'NUIT' ? 'Nuit' : 'Jour'} />
             ))}
-            <label className="ajout-photo">
+            <label className="ajout-photo" aria-label="Ajouter des photos de façade">
               <Icone nom="plus" taille={18} />
               <input
                 type="file"
                 accept="image/png,image/jpeg"
                 multiple
-                onChange={(e) => setPhotos([...photos, ...Array.from(e.target.files ?? []).map((f) => URL.createObjectURL(f))])}
+                onChange={(e) => {
+                  const choisies = Array.from(e.target.files ?? []).map((fichier) => ({ fichier, apercu: URL.createObjectURL(fichier), moment: momentPhotos }))
+                  setPhotos([...photos, ...choisies])
+                  e.target.value = ''
+                }}
               />
             </label>
           </div>
         </div>
+        {erreur && (
+          <p className="erreur-acces" role="alert">
+            <Icone nom="alerte" taille={15} />
+            {erreur}
+          </p>
+        )}
       </div>
     </Tiroir>
   )

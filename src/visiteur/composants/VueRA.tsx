@@ -1,21 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { DELAI_AFFICHE_NON_RECONNUE_S, DELAI_MONUMENT_NON_RECONNU_S } from '../../commun/constantes'
 import { distanceM } from '../../commun/geo'
 import { useLangue } from '../../commun/i18n'
 import { Icone } from '../../commun/Icone'
-import { imageLieu } from '../../commun/images'
-import { compterLancement, nomProprietaire, useEtat } from '../../commun/store'
+import { compterLancement } from '../../commun/store'
 import type { Affiche, Animation, Lieu } from '../../commun/types'
 import { usePosition } from '../contexte/position'
 import { AfficheAvecQr, QR_DEFAUT } from '../../commun/AfficheQr'
-import { useImageAffiche } from '../../commun/imagesAffiches'
 import { useCamera, useLuminosite } from '../hooks/capteurs'
 import { capturerPhoto, partagerPhoto } from '../services/photo'
-import { arreterSon, couperSon, estMuet, jouerTheme } from '../services/son'
+import { useDonneesPubliques } from '../donneesPubliques'
+import { arreterSon, couperSon, estMuet, jouerFichier } from '../services/son'
 import { CoucheModale, EnteteFeuille } from './Couche'
 import { FormulaireSignalement, type CibleSignalement } from './FormulaireSignalement'
 
 type Phase = 'recherche' | 'detecte' | 'echec' | 'fin'
+
+// Rendu Three.js du modèle GLB : chargé seulement à l'ouverture de la réalité augmentée.
+const ModeleRA = lazy(() => import('./ModeleRA'))
 
 // Le moteur de reconnaissance (MindAR / LocAR) sera branché derrière cette vue. En démonstration,
 // la détection est simulée : succès automatique, ou forçage d'un état avec le sélecteur « Démo ».
@@ -26,6 +28,7 @@ export function VueRA({
   lieu,
   animation,
   affiche,
+  proprietaire,
   cameraAutorisee,
   onQuitter,
   onVoirLieu,
@@ -35,13 +38,15 @@ export function VueRA({
   lieu: Lieu
   animation: Animation
   affiche?: Affiche
+  /** Structure propriétaire de l'affiche (partenaire ou Ville), renvoyée par l'API publique. */
+  proprietaire?: string
   cameraAutorisee: boolean
   onQuitter: () => void
   onVoirLieu?: () => void
   onCameraRefusee: () => void
 }) {
   const { t, tr } = useLangue()
-  const etat = useEtat()
+  const etat = useDonneesPubliques()
   const position = usePosition()
   const lieuVivant = etat.lieux.find((l) => l.id === lieu.id) ?? lieu // score mis à jour en direct (BF-52)
   const { etat: etatCam, flux } = useCamera(cameraAutorisee)
@@ -60,7 +65,8 @@ export function VueRA({
   const simulee = etatCam !== 'active'
   const sombre = useLuminosite(video, etatCam === 'active' && phase === 'recherche')
   const delaiEchec = (mode === 'affiche' ? DELAI_AFFICHE_NON_RECONNUE_S : DELAI_MONUMENT_NON_RECONNU_S) * 1000
-  const theme = mode === 'affiche' ? 'affiche' : lieu.id === 'stade' ? 'stade' : lieu.id === 'chateau' ? 'chateau' : 'lieu'
+  // Habillage : tableau de score si le lieu en a un (BF-52), sinon décor lumineux.
+  const theme = mode === 'affiche' ? 'affiche' : lieuVivant.equipeDomicile ? 'stade' : 'lieu'
 
   useEffect(() => {
     if (etatCam === 'refusee') onCameraRefusee()
@@ -85,15 +91,17 @@ export function VueRA({
   // Animation : son, statistique anonyme de lancement, puis fin.
   useEffect(() => {
     if (phase !== 'detecte') return
-    compterLancement(animation.id)
-    jouerTheme(theme === 'stade' ? 'stade' : theme === 'affiche' ? 'affiche' : 'cloches')
+    compterLancement(animation.id, mode === 'affiche' ? 'AFFICHE' : manuel ? 'MANUEL' : 'MONUMENT')
+    // Son importé avec l'animation (facultatif), joué en boucle pendant sa durée.
+    if (animation.sonUrl) jouerFichier(animation.sonUrl, animation.lecture !== 'UNE_FOIS')
     const duree = Math.min(animation.dureeS, mode === 'affiche' ? 9 : 30) * 1000
     const id = window.setTimeout(() => setPhase('fin'), duree)
     return () => {
       window.clearTimeout(id)
       arreterSon()
     }
-  }, [phase, animation.id, animation.dureeS, mode, theme, cycle])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, animation.id, animation.dureeS, animation.sonUrl, mode, cycle])
 
   // Après l'animation d'affiche : la carte s'ouvre, centrée sur le lieu promu (BF-32).
   useEffect(() => {
@@ -165,13 +173,20 @@ export function VueRA({
         <video ref={setVideo} playsInline muted autoPlay className="video-camera" />
       ) : mode === 'affiche' ? (
         <>
-          <img ref={image} src={imageLieu('chateau')} alt="" className="video-camera floue" />
+          {lieu.image ? <img ref={image} src={lieu.image} alt="" className="video-camera floue" /> : <div className="video-camera fond-simule" />}
           <AfficheMaquette affiche={affiche} anime={enAnimation} />
         </>
+      ) : lieu.image ? (
+        <img ref={image} src={lieu.image} alt="" className="video-camera" />
       ) : (
-        <img ref={image} src={imageLieu(lieu.image) ?? imageLieu('chateau')} alt="" className="video-camera" />
+        <div className="video-camera fond-simule" />
       )}
       <div className="vignette-camera" />
+      {enAnimation && (
+        <Suspense fallback={null}>
+          <ModeleRA animation={animation} actif={enAnimation} cycle={cycle} />
+        </Suspense>
+      )}
     </div>
   )
 
@@ -349,11 +364,9 @@ export function VueRA({
               <p>
                 <strong>{affiche?.nom}</strong> — {affiche?.texte}
               </p>
-              {affiche && affiche.proprietaireId !== 'ville' && (
-                <p className="proprietaire">{t('affiche.parPartenaire', { nom: nomProprietaire(etat, affiche.proprietaireId) })}</p>
-              )}
+              {affiche && affiche.proprietaireId !== 'ville' && proprietaire && <p className="proprietaire">{t('affiche.parPartenaire', { nom: proprietaire })}</p>}
               <div className="invitation-lieu">
-                {imageLieu(lieu.image) && <img src={imageLieu(lieu.image)} alt="" />}
+                {lieu.image && <img src={lieu.image} alt="" />}
                 <div>
                   <small>{t('affiche.invite')}</small>
                   <strong>{lieu.nom}</strong>
@@ -510,7 +523,7 @@ export function VueRA({
 
 /** Affiche imprimée vue par la caméra simulée (maquette « poster-mock »). */
 function AfficheMaquette({ affiche, anime }: { affiche?: Affiche; anime: boolean }) {
-  const image = useImageAffiche(affiche?.id)
+  const image = affiche?.image?.url
   if (affiche && image) {
     const ratio = affiche.image ? affiche.image.largeur / affiche.image.hauteur : 297 / 420
     return (
@@ -521,8 +534,8 @@ function AfficheMaquette({ affiche, anime }: { affiche?: Affiche; anime: boolean
   }
   return (
     <div className={`affiche-maquette ${anime ? 'anime' : ''}`} aria-hidden="true">
-      <small>{affiche?.accroche ?? 'Montbéliard présente'}</small>
-      <strong>{affiche?.nom ?? 'Noël au château'}</strong>
+      <small>{affiche?.accroche}</small>
+      <strong>{affiche?.nom}</strong>
       <span>{anime ? '✦ ✦ ✦' : 'Une histoire prend vie'}</span>
       <div className="faux-qr">
         <Icone nom="qr" taille={34} />

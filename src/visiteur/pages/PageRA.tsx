@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { useLangue } from '../../commun/i18n'
-import { useEtat } from '../../commun/store'
+import { useDonneesPubliques } from '../donneesPubliques'
 import { Consignes } from '../composants/Consignes'
 import { MessageErreur } from '../composants/MessageErreur'
 import { VueRA } from '../composants/VueRA'
@@ -14,7 +14,7 @@ export default function PageRA() {
   const { id } = useParams()
   const { t, date } = useLangue()
   const navigate = useNavigate()
-  const etat = useEtat()
+  const etat = useDonneesPubliques()
   const compat = useCompatibilite()
   const [simulee, setSimulee] = useState(false)
   const [etape, setEtape] = useState<'consignes' | 'ra' | 'refus' | 'incompatible'>(() =>
@@ -23,6 +23,13 @@ export default function PageRA() {
   const lieu = etat.lieux.find((l) => l.id === id && l.actif)
   const quitter = useCallback(() => navigate(id ? `/?lieu=${id}` : '/'), [navigate, id])
   const refus = useCallback(() => setEtape('refus'), [])
+
+  if (etat.chargement)
+    return (
+      <div className="page page-centree">
+        <span className="spinner" />
+      </div>
+    )
 
   if (!lieu) {
     return (

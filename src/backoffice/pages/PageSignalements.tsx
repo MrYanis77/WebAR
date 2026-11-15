@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Icone } from '../../commun/Icone'
 import { decider, nomProprietaire, prendreEnCharge, useEtat } from '../../commun/store'
 import type { ActionDecision, MotifSignalement, Signalement } from '../../commun/types'
-import { BadgeStatut, DialogueMotif, EnTetePage, formaterDate, Onglets, Panneau, useToast, Vide } from '../ui'
+import { BadgeStatut, DialogueMotif, EnTetePage, executer, formaterDate, Onglets, Panneau, useToast, Vide } from '../ui'
 
 export const LIBELLES_MOTIF: Record<MotifSignalement, string> = {
   ILLICITE: 'Contenu illicite',
@@ -119,7 +119,7 @@ export default function PageSignalements() {
                     </p>
                   </div>
                   {courant.statut === 'NOUVEAU' && (
-                    <button type="button" className="btn btn-fantome" onClick={() => prendreEnCharge(ouverts)}>
+                    <button type="button" className="btn btn-fantome" onClick={() => void executer(toast, () => prendreEnCharge(ouverts), 'Signalements pris en charge')}>
                       Prendre en charge
                     </button>
                   )}
@@ -197,10 +197,8 @@ export default function PageSignalements() {
         }
         onFermer={() => setAction(null)}
         onConfirmer={(motif) => {
-          if (courant && action) {
-            decider(courant.type, courant.id, action, motif, ouverts)
-            toast.afficher(`Décision enregistrée — ${nomProprietaire(etat, courant.proprietaireId)} notifié par mail`)
-          }
+          if (courant && action)
+            void executer(toast, () => decider(courant.type, courant.id, action, motif, ouverts), `Décision enregistrée — ${nomProprietaire(etat, courant.proprietaireId)} notifié par mail`)
           setAction(null)
         }}
       />

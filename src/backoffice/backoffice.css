@@ -25,16 +25,12 @@
 .bo-logo small { margin-top: 2px; color: #aaa9a5; font-size: 9px; letter-spacing: 2px; }
 .bo-espace { position: relative; margin-bottom: 14px; padding: 14px 2px; border-top: 1px solid var(--ink-3); border-bottom: 1px solid var(--ink-3); }
 .bo-espace > span { color: #8e8f91; font-size: 9px; letter-spacing: 1.3px; }
-.bo-espace > button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 0 0; border: 0; background: none; color: var(--chalk); text-align: left; }
-.bo-espace > button > i { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 9px; background: var(--wine); font-size: 11px; font-style: normal; font-weight: 700; }
-.bo-espace > button div { flex: 1; min-width: 0; }
+.bo-espace > .bo-espace-actuel { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 0 0; border: 0; background: none; color: var(--chalk); text-align: left; }
+.bo-espace > .bo-espace-actuel > i { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 9px; background: var(--wine); font-size: 11px; font-style: normal; font-weight: 700; }
+.bo-espace > .bo-espace-actuel div { flex: 1; min-width: 0; }
 .bo-espace strong, .bo-espace small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .bo-espace strong { font-size: 12.5px; }
 .bo-espace small { margin-top: 2px; color: #949598; font-size: 11px; }
-.bo-espaces-liste { display: grid; gap: 4px; margin-top: 10px; padding: 8px; border-radius: 10px; background: var(--ink-2); }
-.bo-espaces-liste small { color: var(--cyan); font-size: 10px; }
-.bo-espaces-liste button { padding: 8px; border: 0; border-radius: 7px; background: #3b3d41; color: #fff; font-size: 12px; text-align: left; }
-.bo-espaces-liste button:hover { background: var(--wine); }
 .bo-nav { display: flex; flex-direction: column; gap: 2px; }
 .bo-groupe { display: block; margin: 12px 10px 4px; color: #77787b; font-size: 10px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; }
 .bo-nav a {
@@ -540,14 +536,10 @@ i.cyan { background: var(--cyan); }
 .carte-acces .champ .etiquette a { color: var(--wine); font-weight: 600; }
 .lien-acces { color: var(--muted); font-size: 13px; text-align: center; }
 .lien-acces a { color: var(--wine); font-weight: 650; }
-.demo-acces { display: grid; gap: 6px; padding: 14px; border: 1px dashed #c9c2b6; border-radius: 12px; background: #fff; }
-.demo-acces strong { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
-.demo-acces button { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border: 0; border-radius: 8px; background: var(--sand-2); font-size: 12.5px; text-align: left; }
-.demo-acces button:hover { background: var(--wine-soft); color: var(--wine); }
 .retour-acces { display: flex; align-items: center; gap: 4px; width: fit-content; padding: 0; }
 .icone-acces { display: grid; place-items: center; width: 60px; height: 60px; border-radius: 50%; background: var(--wine-soft); color: var(--wine); }
 .icone-acces.succes { background: var(--green-soft); color: var(--green); }
-.code-totp { padding: 14px; border: 1px solid #d6d1c9; border-radius: 12px; background: #fff; font: 600 28px var(--font-titre); letter-spacing: 12px; text-align: center; }
+.code-connexion { padding: 14px; border: 1px solid #d6d1c9; border-radius: 12px; background: #fff; font: 600 28px var(--font-titre); letter-spacing: 12px; text-align: center; }
 .frise { display: grid; gap: 8px; }
 .frise li { display: flex; align-items: center; gap: 10px; color: var(--muted-2); font-size: 13px; }
 .frise li span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: #e9e5de; font-size: 11px; font-weight: 700; }
@@ -558,11 +550,7 @@ i.cyan { background: var(--cyan); }
 .rgpd { display: flex; gap: 8px; padding: 12px; border-radius: 10px; background: var(--sand-2); color: var(--muted); font-size: 12px; line-height: 1.5; }
 .rgpd svg { flex: none; color: var(--wine); }
 .case.erreur { color: #b42318; }
-.anti-robot-bo { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: #fff; font-size: 13px; text-align: left; }
-.anti-robot-bo small { margin-left: auto; color: var(--muted-2); font-size: 10.5px; }
 .case-robot { display: grid; place-items: center; width: 22px; height: 22px; border: 2px solid #c9c2b6; border-radius: 5px; color: var(--green); }
-.anti-robot-bo.ok { border-color: #bfdccc; color: var(--green); }
-.anti-robot-bo.ok .case-robot { border-color: var(--green); background: var(--green-soft); }
 
 /* =============================================================== Responsive */
 
@@ -669,3 +657,37 @@ i.cyan { background: var(--cyan); }
 .btn-texte-danger { margin-right: auto; padding: 0 10px; border: 0; background: none; color: #b42318; font-weight: 600; }
 .btn-texte-danger:hover { background: #fdecea; }
 .bo-entete-actions .btn-texte-danger { margin-right: 0; }
+
+/* Fichiers : envoi vers l'API et aperçu des images importées. */
+.envoi-fichier { display: flex; align-items: center; gap: 10px; margin: 12px 0; padding: 10px 14px; border-radius: 10px; background: var(--sand-2); font-size: 13px; }
+.envoi-fichier progress { flex: 1; height: 6px; accent-color: var(--wine); }
+.apercu-image { display: block; max-width: 100%; max-height: 260px; margin: 0 auto; border-radius: 11px; object-fit: contain; background: var(--sand-2); }
+.supprimer-fichier { margin-top: 14px; min-height: 36px; border-radius: 8px; }
+.altcha-chargement { padding: 12px; border: 1px dashed var(--border); border-radius: 10px; color: var(--muted); font-size: 12px; }
+.choix-lieu-score { margin-bottom: 14px; }
+.info-acces { margin: 0; padding: 10px 12px; border-radius: 10px; background: #e7f6f4; color: #116b62; font-size: 13px; }
+
+/* Import d'un fichier directement depuis le formulaire d'animation. */
+.bouton-import-champ { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 3px 9px; border: 1px solid var(--wine); border-radius: 999px; color: var(--wine); font-size: 11px; font-weight: 600; cursor: pointer; }
+.bouton-import-champ:hover { background: var(--wine-soft); }
+.bouton-import-champ.inactif { opacity: 0.6; cursor: wait; }
+.bouton-import-champ .spinner { width: 11px; height: 11px; }
+
+/* Affiche en plein écran, à scanner avec un téléphone. */
+.voir-affiche { display: flex; flex-direction: column; gap: 12px; min-height: 100dvh; padding: 14px 16px; background: #1e2024; color: #fff; }
+.voir-affiche.vide { align-items: center; justify-content: center; }
+.voir-affiche > header { display: flex; align-items: center; gap: 12px; }
+.voir-affiche > header strong { flex: 1; font-size: 16px; text-align: center; }
+.voir-affiche .btn-fantome { color: #fff; }
+.alerte-voir { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 14px; border-radius: 10px; background: #4a3a1a; color: #ffe2a8; font-size: 13px; }
+.alerte-voir a { color: #fff; text-decoration: underline; }
+.scene-affiche { display: grid; flex: 1; place-items: center; min-height: 0; background: #1e2024; }
+.affiche-ecran { width: auto; height: min(calc(100dvh - 140px), 100%); max-width: 100%; box-shadow: 0 20px 60px rgb(0 0 0 / 0.5); }
+.scene-affiche:fullscreen .affiche-ecran { height: 100dvh; }
+.affiche-ecran .affiche-qr-cadre { width: 100%; height: 100%; }
+.url-voir { margin: 0; color: #b9bbbf; font-size: 12px; text-align: center; word-break: break-all; }
+.url-voir code { color: #4fd1c5; }
+.liste-affiches-accueil { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.liste-affiches-accueil li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.liste-affiches-accueil li > div { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; }
+.liste-affiches-accueil .vignette img { width: 34px; height: 46px; object-fit: cover; border-radius: 4px; }

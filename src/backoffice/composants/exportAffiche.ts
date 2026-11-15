@@ -1,7 +1,7 @@
-// Fichier prêt à imprimer : l'affiche importée, à sa résolution d'origine, avec le QR code incrusté
-// (BF-15, BF-38, BF-42). En production, le même rendu est produit par le serveur avec pdf-lib + qrcode.
+// Composition dans le navigateur de l'affiche importée et de son QR code (aperçu RA, export PNG).
+// Le PDF à imprimer est produit par l'API (pdf-lib + qrcode, BF-15, BF-38, BF-42).
 import QRCode from 'qrcode'
-import { FORMATS_MM, MENTION_QR, urlQr } from '../../commun/AfficheQr'
+import { MENTION_QR, urlQr } from '../../commun/AfficheQr'
 import type { PlacementQr } from '../../commun/types'
 
 const COTE_MAX = 7000
@@ -72,26 +72,4 @@ export async function exporterPng(fichier: Blob, code: string, qr: PlacementQr, 
   const c = await composerAffiche(fichier, code, qr)
   const blob = await new Promise<Blob>((ok, ko) => c.toBlob((b) => (b ? ok(b) : ko(new Error('Export impossible'))), 'image/png'))
   telecharger(blob, `${nomFichier(nom)}-qr.png`)
-}
-
-/** PDF au format d'impression choisi (A4 à A0), orienté selon l'affiche, image ajustée sans déformation. */
-export async function exporterPdf(fichier: Blob, code: string, qr: PlacementQr, nom: string, format: string) {
-  const [{ PDFDocument }, c] = await Promise.all([import('pdf-lib'), composerAffiche(fichier, code, qr)])
-  const jpeg = await new Promise<Blob>((ok, ko) => c.toBlob((b) => (b ? ok(b) : ko(new Error('Export impossible'))), 'image/jpeg', 0.95))
-  const pdf = await PDFDocument.create()
-  pdf.setTitle(nom)
-  pdf.setCreator('Montbéliard Expériences')
-  const image = await pdf.embedJpg(await jpeg.arrayBuffer())
-  const mmEnPt = 72 / 25.4
-  const [l, h] = FORMATS_MM[format] ?? FORMATS_MM.A3
-  const paysage = c.width > c.height
-  const pageL = (paysage ? h : l) * mmEnPt
-  const pageH = (paysage ? l : h) * mmEnPt
-  const page = pdf.addPage([pageL, pageH])
-  const ech = Math.min(pageL / c.width, pageH / c.height)
-  const w = c.width * ech
-  const hh = c.height * ech
-  page.drawImage(image, { x: (pageL - w) / 2, y: (pageH - hh) / 2, width: w, height: hh })
-  const octets = await pdf.save()
-  telecharger(new Blob([octets as BlobPart], { type: 'application/pdf' }), `${nomFichier(nom)}-${format}.pdf`)
 }

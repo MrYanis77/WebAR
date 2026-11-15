@@ -1,142 +1,123 @@
-// Store de démonstration partagé par l'application visiteur et le back-office.
-// Il joue le rôle de l'API (routes /public et /admin) : une action faite dans le back-office
-// (score, suspension, zone…) est visible immédiatement côté visiteur, et inversement pour les signalements.
-import { useSyncExternalStore } from 'react'
-import {
-  VILLE_ID,
-  affichesInitiales,
-  animationsInitiales,
-  decisionsInitiales,
-  fichiersInitiaux,
-  journalInitial,
-  lieuxInitiaux,
-  modelesInitiaux,
-  partenairesInitiaux,
-  signalementsInitiaux,
-  zonesInitiales,
-} from './donnees'
-import { LIMITE_SIGNALEMENTS_PAR_HEURE, VERSION_CHARTE } from './constantes'
+// Données du back-office, chargées depuis l'API (TanStack Query), et actions qui les modifient.
+// Chaque action appelle une route de l'API puis invalide le cache : les écrans se mettent à jour
+// avec l'état réel de la base. Les règles métier font foi côté serveur ; les fonctions pures
+// ci-dessous ne servent qu'à l'affichage.
+import { useQuery } from '@tanstack/react-query'
+import { useMemo } from 'react'
+import { appelApi, clientRequetes, envoyerFichier, oublierJetonCsrf } from './api'
 import type {
   ActionDecision,
   Affiche,
+  ConditionsPublication,
   Animation,
   Decision,
   EntreeJournal,
   Fichier,
   Lieu,
-  ModeleAffiche,
   MotifSignalement,
   Partenaire,
+  PointStat,
   Session,
   Signalement,
   StatutCompte,
-  StatutContenu,
   Zone,
 } from './types'
 
-export interface EtatDemo {
+export interface EtatDonnees {
+  session: Session | null
   lieux: Lieu[]
   animations: Animation[]
   affiches: Affiche[]
   partenaires: Partenaire[]
   zones: Zone[]
-  modeles: ModeleAffiche[]
   fichiers: Fichier[]
   signalements: Signalement[]
   decisions: Decision[]
   journal: EntreeJournal[]
-  session: Session | null
-  charteVilleAcceptee: boolean
+  /** Premier chargement en cours. */
+  chargement: boolean
 }
 
-const CLE = 'montbeliard-demo-v1'
+const vide: never[] = []
 
-function etatInitial(): EtatDemo {
-  return {
-    lieux: lieuxInitiaux,
-    animations: animationsInitiales,
-    affiches: affichesInitiales,
-    partenaires: partenairesInitiaux,
-    zones: zonesInitiales,
-    modeles: modelesInitiaux,
-    fichiers: fichiersInitiaux,
-    signalements: signalementsInitiaux,
-    decisions: decisionsInitiales,
-    journal: journalInitial,
-    session: null,
-    charteVilleAcceptee: true,
-  }
+/** Session courante (null si personne n'est connecté). */
+export function useSessionApi() {
+  return useQuery({ queryKey: ['session'], queryFn: () => appelApi<{ session: Session | null }>('/auth/session').then((r) => r.session) })
 }
 
-function charger(): EtatDemo {
-  try {
-    const brut = localStorage.getItem(CLE)
-    if (brut) return { ...etatInitial(), ...(JSON.parse(brut) as Partial<EtatDemo>) }
-  } catch {
-    /* stockage indisponible : on repart des données de démonstration */
-  }
-  return etatInitial()
+/** Toutes les données visibles par l'utilisateur connecté (filtrées par l'API selon son rôle). */
+export function useEtat(): EtatDonnees {
+  const s = useSessionApi()
+  const connecte = !!s.data
+  const agent = s.data?.role === 'AGENT'
+  const q = <T,>(cle: string, chemin: string, actif = connecte, options: { refetchInterval?: (d: T[] | undefined) => number | false } = {}) =>
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useQuery({
+      queryKey: [cle],
+      queryFn: () => appelApi<T[]>(chemin),
+      enabled: actif,
+      refetchInterval: options.refetchInterval ? (query) => options.refetchInterval!(query.state.data) : undefined,
+    })
+  const lieux = q<Lieu>('lieux', '/lieux')
+  const animations = q<Animation>('animations', '/animations')
+  const affiches = q<Affiche>('affiches', '/affiches')
+  const partenaires = q<Partenaire>('partenaires', '/partenaires')
+  const zones = q<Zone>('zones', '/zones')
+  // Les fichiers en cours de contrôle sont relus toutes les 2 s jusqu'au résultat.
+  const fichiers = q<Fichier>('fichiers', '/fichiers', connecte, {
+    refetchInterval: (d) => (d?.some((f) => f.statutControle === 'EN_COURS' && !f.controleTermine) ? 2000 : false),
+  })
+  const signalements = q<Signalement>('signalements', '/signalements')
+  const decisions = q<Decision>('decisions', '/decisions')
+  const journal = q<EntreeJournal>('journal', '/admin/journal', connecte && agent)
+  const chargement = s.isLoading || (connecte && (lieux.isLoading || animations.isLoading || affiches.isLoading))
+  // Objet stable tant qu'aucune donnée ne change (TanStack Query conserve les mêmes références) :
+  // les mémos et effets des pages qui en dépendent ne sont pas relancés à chaque rendu.
+  return useMemo(
+    () => ({
+      session: s.data ?? null,
+      lieux: lieux.data ?? vide,
+      animations: animations.data ?? vide,
+      affiches: affiches.data ?? vide,
+      partenaires: partenaires.data ?? vide,
+      zones: zones.data ?? vide,
+      fichiers: fichiers.data ?? vide,
+      signalements: signalements.data ?? vide,
+      decisions: decisions.data ?? vide,
+      journal: journal.data ?? vide,
+      chargement,
+    }),
+    [s.data, lieux.data, animations.data, affiches.data, partenaires.data, zones.data, fichiers.data, signalements.data, decisions.data, journal.data, chargement],
+  )
 }
 
-let etat: EtatDemo = charger()
-const abonnes = new Set<() => void>()
-
-function sauver() {
-  try {
-    localStorage.setItem(CLE, JSON.stringify(etat))
-  } catch {
-    /* navigation privée : l'état reste en mémoire */
-  }
+/** Statistiques anonymes sur N jours (BF-28, BF-43). */
+export interface Statistiques {
+  serie: PointStat[]
+  precedent: { scans: number; lancements: number }
+  parAffiche: { libelle: string; valeur: number }[]
+  parAnimation: { libelle: string; valeur: number }[]
+  parLieu: { libelle: string; valeur: number }[]
+  parDeclencheur: { libelle: string; valeur: number }[]
 }
 
-function ecrire(maj: (e: EtatDemo) => EtatDemo) {
-  etat = maj(etat)
-  sauver()
-  abonnes.forEach((f) => f())
+export function useStatistiques(jours: number) {
+  return useQuery({ queryKey: ['statistiques', jours], queryFn: () => appelApi<Statistiques>(`/statistiques?jours=${jours}`) })
 }
 
-function abonner(f: () => void) {
-  abonnes.add(f)
-  return () => abonnes.delete(f)
+export function useNotifications(actif: boolean) {
+  return useQuery({ queryKey: ['notifications'], queryFn: () => appelApi<EntreeJournal[]>('/notifications'), enabled: actif, refetchInterval: 60_000 })
 }
 
-export function useEtat(): EtatDemo {
-  return useSyncExternalStore(abonner, () => etat, () => etat)
+/** Après une modification : relit les données concernées. */
+const rafraichir = (...cles: string[]) => Promise.all((cles.length ? cles : ['']).map((c) => clientRequetes.invalidateQueries(c ? { queryKey: [c] } : undefined)))
+
+// ---------------------------------------------------------------- règles d'affichage
+
+export function nomProprietaire(e: Pick<EtatDonnees, 'partenaires'>, id: string) {
+  if (id === 'ville') return 'Ville de Montbéliard'
+  return e.partenaires.find((p) => p.id === id)?.nomStructure ?? 'Partenaire'
 }
-
-export function lireEtat(): EtatDemo {
-  return etat
-}
-
-// ---------------------------------------------------------------- utilitaires
-
-export function uid(prefixe: string) {
-  return `${prefixe}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-}
-
-/** Code unique de 128 bits en base64url (22 caractères), comme le QR code d'une affiche. */
-export function genererCodeQr(): string {
-  const octets = new Uint8Array(16)
-  crypto.getRandomValues(octets)
-  return btoa(String.fromCharCode(...octets)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
-
-const maintenant = () => new Date().toISOString().slice(0, 19)
-
-function entree(auteur: string, action: string, objetType: string, objet: string, details?: string): EntreeJournal {
-  return { id: uid('j'), date: maintenant(), auteur, action, objetType, objet, details }
-}
-
-function auteurCourant(e: EtatDemo) {
-  return e.session ? (e.session.role === 'AGENT' ? e.session.nom : e.session.structure) : 'Système'
-}
-
-export function nomProprietaire(e: EtatDemo, id: string) {
-  if (id === VILLE_ID) return 'Ville de Montbéliard'
-  return e.partenaires.find((p) => p.id === id)?.nomStructure ?? 'Partenaire inconnu'
-}
-
-// ---------------------------------------------------------------- règles métier
 
 export function animationActive(a: Animation, date = new Date()): boolean {
   if (a.statut !== 'PUBLIEE') return false
@@ -145,421 +126,291 @@ export function animationActive(a: Animation, date = new Date()): boolean {
   return true
 }
 
-export interface ConditionsPublication {
-  compteVerifie: boolean
-  fichiersConformes: boolean
-  charteAcceptee: boolean
-  zoneAttribuee: boolean
-}
+export type { ConditionsPublication }
 
-/** Seul endroit qui vérifie les 4 conditions de BF-42 (service reglePublication). */
-export function reglePublication(e: EtatDemo, a: Affiche): ConditionsPublication {
-  const ville = a.proprietaireId === VILLE_ID
-  const partenaire = e.partenaires.find((p) => p.id === a.proprietaireId)
-  const anim = e.animations.find((x) => x.id === a.animationAfficheId)
-  const fichiers = [anim?.modeleId, anim?.sonId].filter(Boolean) as string[]
-  return {
-    compteVerifie: ville || partenaire?.statut === 'VERIFIE',
-    fichiersConformes:
-      !!anim && fichiers.every((id) => e.fichiers.find((f) => f.id === id)?.statutControle === 'CONFORME'),
-    charteAcceptee: ville ? e.charteVilleAcceptee : !!partenaire?.charteAccepteeLe,
-    zoneAttribuee: !!a.zoneId,
-  }
+/** Conditions calculées par l'API (service reglePublication) ; brouillon non enregistré : rien n'est acquis. */
+export function reglePublication(_e: unknown, a: Affiche): ConditionsPublication {
+  return a.conditions ?? { compteVerifie: false, fichiersConformes: false, charteAcceptee: false, zoneAttribuee: !!a.zoneId }
 }
 
 export function publiable(c: ConditionsPublication) {
   return c.compteVerifie && c.fichiersConformes && c.charteAcceptee && c.zoneAttribuee
 }
 
-/** Ce que renverrait GET /public/affiches/:code : l'affiche si elle est diffusable, sinon la raison. */
-export function afficheDiffusee(
-  e: EtatDemo,
-  code: string,
-): { affiche: Affiche; raison: null } | { affiche: Affiche | undefined; raison: 'INCONNUE' | 'RETIREE' | 'EXPIREE' } {
-  const affiche = e.affiches.find((a) => a.codeQr === code)
-  if (!affiche) return { affiche, raison: 'INCONNUE' }
-  if (affiche.statut === 'SUSPENDUE' || affiche.statut === 'RETIREE') return { affiche, raison: 'RETIREE' }
-  const now = new Date()
-  if (new Date(affiche.fin) < now || affiche.statut !== 'PUBLIEE' || !publiable(reglePublication(e, affiche)))
-    return { affiche, raison: 'EXPIREE' }
-  return { affiche, raison: null }
-}
-
-// ---------------------------------------------------------------- actions publiques (visiteur)
-
-const CLE_LIMITE = 'montbeliard-signalements'
-
-export function signaler(cible: { afficheId?: string; animationId?: string }, motif: MotifSignalement, commentaire: string) {
-  // Limitation par appareil (BF-51) : seuls des horodatages restent dans l'appareil, rien n'identifie l'auteur.
-  let horodatages: number[] = []
-  try {
-    horodatages = (JSON.parse(localStorage.getItem(CLE_LIMITE) ?? '[]') as number[]).filter(
-      (t) => Date.now() - t < 3_600_000,
-    )
-  } catch {
-    horodatages = []
-  }
-  if (horodatages.length >= LIMITE_SIGNALEMENTS_PAR_HEURE) return { ok: false as const, raison: 'LIMITE' as const }
-  try {
-    localStorage.setItem(CLE_LIMITE, JSON.stringify([...horodatages, Date.now()]))
-  } catch {
-    /* ignoré */
-  }
-  ecrire((e) => {
-    const s: Signalement = { id: uid('s'), ...cible, motif, commentaire: commentaire || undefined, statut: 'NOUVEAU', creeLe: maintenant() }
-    const nom = cible.afficheId
-      ? e.affiches.find((a) => a.id === cible.afficheId)?.nom
-      : e.animations.find((a) => a.id === cible.animationId)?.titre
-    return {
-      ...e,
-      signalements: [s, ...e.signalements],
-      journal: [entree('Visiteur anonyme', 'SIGNALEMENT', cible.afficheId ? 'Affiche' : 'Animation', nom ?? '—', `Motif : ${motif.toLowerCase()}`), ...e.journal],
-    }
-  })
-  return { ok: true as const }
-}
-
-export function compterScan(afficheId: string) {
-  ecrire((e) => ({ ...e, affiches: e.affiches.map((a) => (a.id === afficheId ? { ...a, scans: a.scans + 1 } : a)) }))
-}
-
-export function compterLancement(animationId: string) {
-  ecrire((e) => ({
-    ...e,
-    animations: e.animations.map((a) => (a.id === animationId ? { ...a, lancements: a.lancements + 1 } : a)),
-  }))
-}
-
 // ---------------------------------------------------------------- session
 
-export function connexion(session: Session) {
-  ecrire((e) => ({ ...e, session, journal: [entree(session.role === 'AGENT' ? session.nom : session.structure, 'CONNEXION', 'Compte', session.email), ...e.journal] }))
+export async function connexion(email: string, motDePasse: string) {
+  // « CODE » : agent, un code à 6 chiffres vient d'être envoyé par mail (double authentification).
+  const r = await appelApi<{ etape: 'CODE' | 'CONNECTE' }>('/auth/connexion', { methode: 'POST', corps: { email, motDePasse }, publique: true })
+  if (r.etape === 'CONNECTE') await finConnexion()
+  return r.etape
 }
 
-export function deconnexion() {
-  ecrire((e) => ({ ...e, session: null }))
+/** 2e étape de connexion d'un agent : code reçu par mail. */
+export async function validerCode(code: string) {
+  await appelApi('/auth/code', { methode: 'POST', corps: { code }, publique: true })
+  await finConnexion()
 }
 
-export function reinitialiserDemo() {
-  const session = etat.session
-  ecrire(() => ({ ...etatInitial(), session }))
+/** Demande un nouveau code par mail (30 s au moins après le précédent). */
+export async function renvoyerCode() {
+  await appelApi('/auth/code/renvoi', { methode: 'POST', publique: true })
 }
 
-// ---------------------------------------------------------------- partenaires & comptes
-
-export function inscrirePartenaire(p: Omit<Partenaire, 'id' | 'compteId' | 'statut' | 'creeLe'>) {
-  const id = uid('p')
-  ecrire((e) => ({
-    ...e,
-    partenaires: [...e.partenaires, { ...p, id, compteId: uid('c'), statut: 'EN_ATTENTE', creeLe: maintenant() }],
-    journal: [entree(p.nomStructure, 'INSCRIPTION', 'Compte', p.nomStructure), ...e.journal],
-  }))
-  return id
+async function finConnexion() {
+  oublierJetonCsrf()
+  clientRequetes.clear()
+  await clientRequetes.fetchQuery({ queryKey: ['session'], queryFn: () => appelApi<{ session: Session | null }>('/auth/session').then((r) => r.session) })
 }
 
-export function deciderCompte(partenaireId: string, statut: StatutCompte, motif?: string) {
-  ecrire((e) => {
-    const p = e.partenaires.find((x) => x.id === partenaireId)
-    const action = statut === 'VERIFIE' ? (p?.statut === 'SUSPENDU' ? 'REACTIVATION' : 'COMPTE_VERIFIE') : statut === 'REFUSE' ? 'COMPTE_REFUSE' : 'SUSPENSION'
-    const decisions =
-      statut === 'SUSPENDU' || (statut === 'VERIFIE' && p?.statut === 'SUSPENDU')
-        ? [
-            {
-              id: uid('d'),
-              agent: auteurCourant(e),
-              signalementIds: [],
-              contenuType: 'COMPTE' as const,
-              contenuId: partenaireId,
-              action: (statut === 'SUSPENDU' ? 'SUSPENDRE' : 'REACTIVER') as ActionDecision,
-              motif: motif ?? 'Compte conforme',
-              decideLe: maintenant(),
-              reexamenDemande: false,
-            },
-            ...e.decisions,
-          ]
-        : e.decisions
-    return {
-      ...e,
-      decisions,
-      partenaires: e.partenaires.map((x) => (x.id === partenaireId ? { ...x, statut, motifStatut: motif } : x)),
-      journal: [entree(auteurCourant(e), action, 'Compte', p?.nomStructure ?? partenaireId, motif), ...e.journal],
-    }
-  })
+export async function deconnexion() {
+  await appelApi('/auth/deconnexion', { methode: 'POST', publique: true })
+  oublierJetonCsrf()
+  clientRequetes.clear()
 }
 
-export function accepterCharte() {
-  ecrire((e) => {
-    const s = e.session
-    if (!s) return e
-    if (s.role === 'AGENT') return { ...e, charteVilleAcceptee: true }
-    return {
-      ...e,
-      partenaires: e.partenaires.map((p) => (p.id === s.partenaireId ? { ...p, charteAccepteeLe: maintenant() } : p)),
-      journal: [entree(s.structure, 'CHARTE_ACCEPTEE', 'Compte', s.structure, `Version ${VERSION_CHARTE}`), ...e.journal],
-    }
-  })
+export interface DonneesInscription {
+  nomStructure: string
+  secteur: string
+  adresse: string
+  contactNom: string
+  contactTelephone?: string
+  email: string
+  motDePasse: string
+  rgpd: true
+  altcha: string
+}
+
+export function inscrirePartenaire(d: DonneesInscription) {
+  return appelApi('/auth/inscription', { methode: 'POST', corps: d, publique: true })
+}
+
+// ---------------------------------------------------------------- partenaires et charte
+
+export async function deciderCompte(partenaireId: string, statut: StatutCompte, motif?: string) {
+  await appelApi(`/admin/comptes/${partenaireId}`, { methode: 'PATCH', corps: { statut, motif } })
+  await rafraichir('partenaires', 'decisions', 'journal')
+}
+
+export async function accepterCharte() {
+  await appelApi('/charte/acceptation', { methode: 'POST' })
+  await rafraichir('partenaires', 'charte', 'affiches')
 }
 
 // ---------------------------------------------------------------- fichiers
 
-export function ajouterFichier(f: Omit<Fichier, 'id' | 'creeLe'>) {
-  const id = uid('f')
-  ecrire((e) => ({
-    ...e,
-    fichiers: [{ ...f, id, creeLe: maintenant() }, ...e.fichiers],
-    journal: [entree(auteurCourant(e), 'IMPORT_FICHIER', 'Fichier', f.nomOriginal, 'Contrôle automatique lancé'), ...e.journal],
-  }))
-  return id
+export async function importerFichier(fichier: File, usage: 'AFFICHE' | 'LIEU', progression?: (p: number) => void) {
+  const f = new FormData()
+  f.append('usage', usage)
+  f.append('fichier', fichier)
+  const cree = await envoyerFichier<Fichier>('/fichiers', f, progression)
+  await rafraichir('fichiers')
+  return cree
 }
 
-export function majFichier(id: string, patch: Partial<Fichier>) {
-  ecrire((e) => ({ ...e, fichiers: e.fichiers.map((f) => (f.id === id ? { ...f, ...patch } : f)) }))
+export async function validerFichier(id: string) {
+  await appelApi(`/fichiers/${id}/valider`, { methode: 'PATCH' })
+  await rafraichir('fichiers', 'affiches')
+}
+
+export async function supprimerFichier(id: string) {
+  await appelApi(`/fichiers/${id}`, { methode: 'DELETE' })
+  await rafraichir('fichiers')
+}
+
+/** Attend la fin du contrôle automatique d'un fichier (image d'affiche, visuel de lieu). */
+export async function attendreControle(id: string, delaiMs = 60_000): Promise<Fichier> {
+  const debut = Date.now()
+  for (;;) {
+    const liste = await appelApi<Fichier[]>('/fichiers')
+    const f = liste.find((x) => x.id === id)
+    if (f && (f.controleTermine || f.statutControle !== 'EN_COURS')) {
+      clientRequetes.setQueryData(['fichiers'], liste)
+      return f
+    }
+    if (Date.now() - debut > delaiMs) throw new Error('Le contrôle du fichier prend trop de temps.')
+    await new Promise((r) => setTimeout(r, 800))
+  }
 }
 
 // ---------------------------------------------------------------- animations
 
-export function enregistrerAnimation(a: Animation) {
-  ecrire((e) => {
-    const existe = e.animations.some((x) => x.id === a.id)
-    return {
-      ...e,
-      animations: existe ? e.animations.map((x) => (x.id === a.id ? a : x)) : [a, ...e.animations],
-      journal: [entree(auteurCourant(e), existe ? 'MODIFICATION' : 'CREATION', 'Animation', a.titre), ...e.journal],
-    }
-  })
+/** Création (id vide) ou modification d'une animation ; « publier » l'active à ses dates. */
+export async function enregistrerAnimation(a: Animation, publier: boolean) {
+  const corps = {
+    titre: a.titre,
+    type: a.type,
+    lieuId: a.type === 'LIEU' ? a.lieuId : null,
+    modeleId: a.modeleId,
+    sonId: a.sonId ?? null,
+    clipIndice: a.clipIndice ?? null,
+    lecture: a.lecture ?? 'BOUCLE',
+    declencheur: a.declencheur,
+    dureeS: a.dureeS,
+    debut: a.debut,
+    fin: a.fin ?? null,
+    transcription: a.transcription,
+    publier,
+  }
+  const r = a.id ? await appelApi<Animation>(`/animations/${a.id}`, { methode: 'PATCH', corps }) : await appelApi<Animation>('/animations', { methode: 'POST', corps })
+  await rafraichir('animations', 'journal')
+  return r
 }
 
-export function basculerAnimation(id: string) {
-  ecrire((e) => {
-    const a = e.animations.find((x) => x.id === id)
-    if (!a || a.statut === 'RETIREE' || a.statut === 'SUSPENDUE') return e
-    const statut: StatutContenu = a.statut === 'PUBLIEE' ? 'BROUILLON' : 'PUBLIEE'
-    return {
-      ...e,
-      animations: e.animations.map((x) => (x.id === id ? { ...x, statut, modifieLe: maintenant() } : x)),
-      journal: [entree(auteurCourant(e), statut === 'PUBLIEE' ? 'ACTIVATION' : 'DESACTIVATION', 'Animation', a.titre), ...e.journal],
-    }
-  })
+export async function basculerAnimation(id: string) {
+  await appelApi(`/animations/${id}/statut`, { methode: 'PATCH' })
+  await rafraichir('animations', 'journal')
 }
-
-// ---------------------------------------------------------------- affiches & zones
-
-export function enregistrerAffiche(a: Affiche) {
-  ecrire((e) => {
-    const existe = e.affiches.some((x) => x.id === a.id)
-    return {
-      ...e,
-      affiches: existe ? e.affiches.map((x) => (x.id === a.id ? a : x)) : [a, ...e.affiches],
-      journal: [entree(auteurCourant(e), existe ? 'MODIFICATION' : 'CREATION', 'Affiche', a.nom), ...e.journal],
-    }
-  })
-}
-
-export function publierAffiche(id: string) {
-  ecrire((e) => {
-    const a = e.affiches.find((x) => x.id === id)
-    if (!a || !publiable(reglePublication(e, a))) return e
-    return {
-      ...e,
-      affiches: e.affiches.map((x) => (x.id === id ? { ...x, statut: 'PUBLIEE', modifieLe: maintenant() } : x)),
-      journal: [entree(auteurCourant(e), 'PUBLICATION', 'Affiche', a.nom), ...e.journal],
-    }
-  })
-}
-
-export function attribuerZone(afficheId: string, zoneId: string | undefined, refusProposition = false) {
-  ecrire((e) => {
-    const a = e.affiches.find((x) => x.id === afficheId)
-    const z = e.zones.find((x) => x.id === zoneId)
-    return {
-      ...e,
-      affiches: e.affiches.map((x) =>
-        x.id === afficheId ? { ...x, zoneId: refusProposition ? x.zoneId : zoneId, zoneProposeeId: undefined } : x,
-      ),
-      journal: [
-        entree(auteurCourant(e), refusProposition ? 'ZONE_PROPOSEE_REFUSEE' : 'ZONE_ATTRIBUEE', 'Affiche', a?.nom ?? afficheId, z?.nom),
-        ...e.journal,
-      ],
-    }
-  })
-}
-
-export function proposerZone(afficheId: string, zoneId: string) {
-  ecrire((e) => ({
-    ...e,
-    affiches: e.affiches.map((x) => (x.id === afficheId ? { ...x, zoneProposeeId: zoneId } : x)),
-    journal: [entree(auteurCourant(e), 'ZONE_PROPOSEE', 'Affiche', e.affiches.find((x) => x.id === afficheId)?.nom ?? '', e.zones.find((z) => z.id === zoneId)?.nom), ...e.journal],
-  }))
-}
-
-export function enregistrerZone(z: Zone) {
-  ecrire((e) => ({
-    ...e,
-    zones: e.zones.some((x) => x.id === z.id) ? e.zones.map((x) => (x.id === z.id ? z : x)) : [...e.zones, z],
-    journal: [entree(auteurCourant(e), 'ZONE_MAJ', 'Zone', z.nom), ...e.journal],
-  }))
-}
-
-export function enregistrerModele(m: ModeleAffiche) {
-  ecrire((e) => ({
-    ...e,
-    modeles: e.modeles.some((x) => x.id === m.id) ? e.modeles.map((x) => (x.id === m.id ? m : x)) : [...e.modeles, m],
-  }))
-}
-
-// ---------------------------------------------------------------- lieux & score
-
-export function enregistrerLieu(l: Lieu) {
-  ecrire((e) => {
-    const existe = e.lieux.some((x) => x.id === l.id)
-    return {
-      ...e,
-      lieux: existe ? e.lieux.map((x) => (x.id === l.id ? l : x)) : [...e.lieux, l],
-      journal: [entree(auteurCourant(e), existe ? 'LIEU_MAJ' : 'LIEU_CREE', 'Lieu', l.nom), ...e.journal],
-    }
-  })
-}
-
-export function majScore(lieuId: string, patch: Pick<Lieu, 'scoreDomicile' | 'scoreExterieur' | 'equipeDomicile' | 'equipeExterieur' | 'competition' | 'minute'>) {
-  ecrire((e) => ({
-    ...e,
-    lieux: e.lieux.map((l) => (l.id === lieuId ? { ...l, ...patch, scoreMajLe: maintenant() } : l)),
-    journal: [
-      entree(auteurCourant(e), 'SCORE_MAJ', 'Lieu', e.lieux.find((l) => l.id === lieuId)?.nom ?? lieuId, `${patch.equipeDomicile} ${patch.scoreDomicile} – ${patch.scoreExterieur} ${patch.equipeExterieur}`),
-      ...e.journal,
-    ],
-  }))
-}
-
-// ---------------------------------------------------------------- signalements & modération
-
-export function prendreEnCharge(ids: string[]) {
-  ecrire((e) => ({
-    ...e,
-    signalements: e.signalements.map((s) => (ids.includes(s.id) && s.statut === 'NOUVEAU' ? { ...s, statut: 'EN_COURS' } : s)),
-  }))
-}
-
-const statutApres: Record<ActionDecision, StatutContenu | null> = {
-  MAINTENIR: null,
-  SUSPENDRE: 'SUSPENDUE',
-  SUPPRIMER: 'RETIREE',
-  REACTIVER: 'PUBLIEE',
-}
-
-/** Décision d'un agent sur un contenu (affiche ou animation), avec ou sans signalement (BF-44, BF-49). */
-export function decider(
-  contenuType: 'AFFICHE' | 'ANIMATION',
-  contenuId: string,
-  action: ActionDecision,
-  motif: string,
-  signalementIds: string[] = [],
-) {
-  ecrire((e) => {
-    const nouveau = statutApres[action]
-    const nom =
-      contenuType === 'AFFICHE'
-        ? e.affiches.find((a) => a.id === contenuId)?.nom
-        : e.animations.find((a) => a.id === contenuId)?.titre
-    const decision: Decision = {
-      id: uid('d'),
-      agent: auteurCourant(e),
-      signalementIds,
-      contenuType,
-      contenuId,
-      action,
-      motif,
-      decideLe: maintenant(),
-      reexamenDemande: false,
-    }
-    return {
-      ...e,
-      decisions: [decision, ...e.decisions],
-      signalements: e.signalements.map((s) => (signalementIds.includes(s.id) ? { ...s, statut: 'TRAITE' } : s)),
-      affiches:
-        contenuType === 'AFFICHE' && nouveau
-          ? e.affiches.map((a) => (a.id === contenuId ? { ...a, statut: nouveau, modifieLe: maintenant() } : a))
-          : e.affiches,
-      animations:
-        contenuType === 'ANIMATION' && nouveau
-          ? e.animations.map((a) => (a.id === contenuId ? { ...a, statut: nouveau, modifieLe: maintenant() } : a))
-          : e.animations,
-      journal: [
-        entree(auteurCourant(e), `DECISION_${action}`, contenuType === 'AFFICHE' ? 'Affiche' : 'Animation', nom ?? contenuId, motif),
-        ...e.journal,
-      ],
-    }
-  })
-}
-
-export function cloreReexamen(decisionId: string, conclusion: string) {
-  ecrire((e) => ({
-    ...e,
-    decisions: e.decisions.map((d) => (d.id === decisionId ? { ...d, reexamenDemande: false } : d)),
-    journal: [entree(auteurCourant(e), 'REEXAMEN_CLOS', 'Décision', decisionId, conclusion), ...e.journal],
-  }))
-}
-
-export function repondreDecision(decisionId: string, reponse: string, reexamen: boolean) {
-  ecrire((e) => ({
-    ...e,
-    decisions: e.decisions.map((d) => (d.id === decisionId ? { ...d, reponsePartenaire: reponse, reexamenDemande: reexamen } : d)),
-    journal: [entree(auteurCourant(e), reexamen ? 'REEXAMEN_DEMANDE' : 'REPONSE_PARTENAIRE', 'Décision', decisionId, reponse.slice(0, 80)), ...e.journal],
-  }))
-}
-
-// ---------------------------------------------------------------- suppressions
-// La suppression est refusée tant qu'un autre contenu dépend de l'élément ; elle reste tracée au journal (BNF-17).
 
 export type ResultatSuppression = { ok: true } | { ok: false; raison: string }
 
-/** Contenus qui empêchent de supprimer une animation (affiches qui l'utilisent). */
-export function dependancesAnimation(e: EtatDemo, id: string) {
-  return e.affiches.filter((a) => a.animationAfficheId === id || a.animationLieuId === id)
+async function supprimer(chemin: string, cles: string[]): Promise<ResultatSuppression> {
+  try {
+    await appelApi(chemin, { methode: 'DELETE' })
+    await rafraichir(...cles, 'journal')
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, raison: (e as Error).message }
+  }
 }
 
-export function supprimerAnimation(id: string): ResultatSuppression {
-  const e = etat
-  const a = e.animations.find((x) => x.id === id)
-  if (!a) return { ok: false, raison: 'Animation introuvable.' }
-  const liees = dependancesAnimation(e, id)
-  if (liees.length)
-    return { ok: false, raison: `Utilisée par ${liees.length > 1 ? 'les affiches' : 'l’affiche'} ${liees.map((x) => `« ${x.nom} »`).join(', ')} : associez-leur une autre animation d’abord.` }
-  ecrire((s) => ({
-    ...s,
-    animations: s.animations.filter((x) => x.id !== id),
-    signalements: s.signalements.filter((x) => x.animationId !== id),
-    journal: [entree(auteurCourant(s), 'SUPPRESSION', 'Animation', a.titre), ...s.journal],
-  }))
-  return { ok: true }
+export const supprimerAnimation = (id: string) => supprimer(`/animations/${id}`, ['animations'])
+export const supprimerAffiche = (id: string) => supprimer(`/affiches/${id}`, ['affiches', 'signalements'])
+export const supprimerLieu = (id: string) => supprimer(`/lieux/${id}`, ['lieux'])
+
+// ---------------------------------------------------------------- affiches et zones
+
+/** Création (id vide) ou modification d'une affiche ; le QR code est généré par le serveur. */
+export async function enregistrerAffiche(a: Affiche) {
+  const corps = {
+    imageId: a.imageId,
+    animationAfficheId: a.animationAfficheId,
+    lieuId: a.lieuId,
+    animationLieuId: a.animationLieuId || null,
+    nom: a.nom,
+    accroche: a.accroche,
+    texte: a.texte,
+    format: a.format ?? 'A3',
+    qr: a.qr,
+    debut: a.debut,
+    fin: a.fin,
+  }
+  const r = a.id ? await appelApi<Affiche>(`/affiches/${a.id}`, { methode: 'PATCH', corps }) : await appelApi<Affiche>('/affiches', { methode: 'POST', corps })
+  await rafraichir('affiches', 'journal')
+  return r
 }
 
-export function supprimerAffiche(id: string): ResultatSuppression {
-  const a = etat.affiches.find((x) => x.id === id)
-  if (!a) return { ok: false, raison: 'Affiche introuvable.' }
-  ecrire((s) => ({
-    ...s,
-    affiches: s.affiches.filter((x) => x.id !== id),
-    signalements: s.signalements.filter((x) => x.afficheId !== id),
-    journal: [entree(auteurCourant(s), 'SUPPRESSION', 'Affiche', a.nom), ...s.journal],
-  }))
-  return { ok: true }
+export async function publierAffiche(id: string) {
+  await appelApi(`/affiches/${id}/publier`, { methode: 'POST' })
+  await rafraichir('affiches', 'journal')
 }
 
-export function dependancesLieu(e: EtatDemo, id: string) {
-  return e.animations.filter((a) => a.lieuId === id)
+export async function attribuerZone(afficheId: string, zoneId: string | undefined, refusProposition = false) {
+  await appelApi(`/affiches/${afficheId}/zone`, { methode: 'PUT', corps: { zoneId: zoneId ?? null, refusProposition } })
+  await rafraichir('affiches', 'journal')
 }
 
-export function supprimerLieu(id: string): ResultatSuppression {
-  const l = etat.lieux.find((x) => x.id === id)
-  if (!l) return { ok: false, raison: 'Lieu introuvable.' }
-  const liees = dependancesLieu(etat, id)
-  if (liees.length)
-    return { ok: false, raison: `Ce lieu porte ${liees.length > 1 ? 'les animations' : 'l’animation'} ${liees.map((x) => `« ${x.titre} »`).join(', ')} : ${liees.length > 1 ? "supprimez-les ou rattachez-les" : "supprimez-la ou rattachez-la"} à un autre lieu d’abord.` }
-  ecrire((s) => ({
-    ...s,
-    lieux: s.lieux.filter((x) => x.id !== id),
-    journal: [entree(auteurCourant(s), 'SUPPRESSION', 'Lieu', l.nom), ...s.journal],
-  }))
-  return { ok: true }
+export async function proposerZone(afficheId: string, zoneId: string) {
+  await appelApi(`/affiches/${afficheId}/zone-proposee`, { methode: 'POST', corps: { zoneId } })
+  await rafraichir('affiches')
+}
+
+/** Télécharge le PDF prêt à imprimer généré par l'API (pdf-lib + qrcode). */
+export async function telechargerPdf(a: Affiche) {
+  const blob = await appelApi<Blob>(`/affiches/${a.id}/pdf`)
+  const url = URL.createObjectURL(blob)
+  const lien = document.createElement('a')
+  lien.href = url
+  lien.download = `${a.nom.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase()}-${a.format ?? 'A3'}.pdf`
+  lien.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+export async function enregistrerZone(z: Zone) {
+  const corps = { nom: z.nom, adresse: z.adresse, latitude: z.latitude, longitude: z.longitude, format: z.format, regles: z.regles, active: z.active }
+  if (z.id) await appelApi(`/zones/${z.id}`, { methode: 'PATCH', corps })
+  else await appelApi('/zones', { methode: 'POST', corps })
+  await rafraichir('zones')
+}
+
+// ---------------------------------------------------------------- lieux et score
+
+export async function enregistrerLieu(l: Lieu) {
+  const corps = {
+    nom: l.nom,
+    nomCourt: l.nomCourt,
+    categorie: l.categorie,
+    adresse: l.adresse,
+    description: l.description,
+    latitude: l.latitude,
+    longitude: l.longitude,
+    rayonM: l.rayonM,
+    visuelId: l.visuelId ?? null,
+    accesLibre: l.accesLibre,
+    actif: l.actif,
+  }
+  const r = l.id ? await appelApi<Lieu>(`/lieux/${l.id}`, { methode: 'PATCH', corps }) : await appelApi<Lieu>('/lieux', { methode: 'POST', corps })
+  await rafraichir('lieux', 'public-lieux', 'journal')
+  return r
+}
+
+export async function ajouterPhotoFacade(lieuId: string, fichier: File, moment: 'JOUR' | 'NUIT' = 'JOUR') {
+  const f = new FormData()
+  f.append('moment', moment)
+  f.append('fichier', fichier)
+  await envoyerFichier(`/lieux/${lieuId}/photos`, f)
+  await rafraichir('lieux')
+}
+
+export async function majScore(
+  lieuId: string,
+  s: { equipeDomicile: string; equipeExterieur: string; scoreDomicile: number; scoreExterieur: number; competition: string; minute: string },
+) {
+  await appelApi(`/lieux/${lieuId}/score`, { methode: 'PUT', corps: s })
+  await rafraichir('lieux', 'public-lieux', 'journal')
+}
+
+// ---------------------------------------------------------------- signalements et modération
+
+export async function prendreEnCharge(ids: string[]) {
+  await appelApi('/signalements/prise-en-charge', { methode: 'PATCH', corps: { ids } })
+  await rafraichir('signalements')
+}
+
+/** Décision d'un agent sur une affiche ou une animation (BF-44, BF-49). */
+export async function decider(contenuType: 'AFFICHE' | 'ANIMATION', contenuId: string, action: ActionDecision, motif: string, signalementIds: string[] = []) {
+  await appelApi(`/admin/contenus/${contenuType.toLowerCase()}/${contenuId}/decision`, { methode: 'POST', corps: { action, motif, signalementIds } })
+  await rafraichir('signalements', 'decisions', 'affiches', 'animations', 'journal')
+}
+
+export async function repondreDecision(decisionId: string, reponse: string, reexamen: boolean) {
+  await appelApi(`/decisions/${decisionId}/reponse`, { methode: 'POST', corps: { reponse, reexamen } })
+  await rafraichir('decisions')
+}
+
+/** Clôture d'un réexamen : « lever » réactive le contenu ou le compte visé. */
+export async function cloreReexamen(decisionId: string, conclusion: string, lever: boolean) {
+  await appelApi(`/admin/decisions/${decisionId}/cloture`, { methode: 'POST', corps: { conclusion, lever } })
+  await rafraichir('decisions', 'partenaires', 'affiches', 'animations', 'journal')
+}
+
+// ---------------------------------------------------------------- API publique (application visiteur)
+
+export interface CibleSignalementApi {
+  afficheId?: string
+  animationId?: string
+}
+
+/** Signalement anonyme avec la preuve ALTCHA du widget (BF-45 à BF-51). */
+export async function signaler(cible: CibleSignalementApi, motif: MotifSignalement, commentaire: string, altcha: string) {
+  await appelApi('/public/signalements', { methode: 'POST', corps: { ...cible, motif, commentaire, altcha }, publique: true })
+}
+
+/** Statistiques anonymes : aucune erreur n'est remontée au visiteur. */
+export function compterScan(afficheId: string) {
+  void appelApi('/public/statistiques', { methode: 'POST', corps: { type: 'SCAN', afficheId }, publique: true }).catch(() => {})
+}
+
+export function compterLancement(animationId: string, declencheur: 'AFFICHE' | 'MONUMENT' | 'MANUEL') {
+  void appelApi('/public/statistiques', { methode: 'POST', corps: { type: 'LANCEMENT', animationId, declencheur }, publique: true }).catch(() => {})
 }

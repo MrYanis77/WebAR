@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Icone, type NomIcone } from '../commun/Icone'
 import type { StatutCompte, StatutContenu, StatutControle, StatutSignalement } from '../commun/types'
+import { messageErreur } from '../commun/api'
 
 // Composants d'affichage du back-office : données reçues par les props, aucune logique métier.
 
@@ -244,8 +245,10 @@ function chemin(points: number[], w: number, h: number, max: number) {
 export function GraphiqueLignes({ series, etiquettes, hauteur = 190 }: { series: { nom: string; couleur: 'wine' | 'cyan'; valeurs: number[] }[]; etiquettes: string[]; hauteur?: number }) {
   const w = 600
   const h = 180
-  const brut = Math.max(10, ...series.flatMap((s) => s.valeurs))
-  const max = Math.ceil(brut / 100) * 100
+  // Échelle arrondie adaptée aux petites valeurs (4, 8, 20, 40…) comme aux grandes (centaines).
+  const brut = Math.max(4, ...series.flatMap((s) => s.valeurs))
+  const pasEchelle = brut <= 20 ? 4 : brut <= 100 ? 20 : 100
+  const max = Math.ceil(brut / pasEchelle) * pasEchelle
   const [survol, setSurvol] = useState<number | null>(null)
   const n = series[0]?.valeurs.length ?? 0
   return (
@@ -269,8 +272,9 @@ export function GraphiqueLignes({ series, etiquettes, hauteur = 190 }: { series:
         {[0.25, 0.5, 0.75].map((k) => (
           <line key={k} x1={0} x2={w} y1={h * k} y2={h * k} className="grille-graphique" />
         ))}
-        {series[0] && <path d={`${chemin(series[0].valeurs, w, h, max)} L${w} ${h} L0 ${h} Z`} className="aire" />}
-        {series.map((s) => (
+        {/* Aucun tracé tant que la série n'est pas chargée (chemin SVG vide invalide). */}
+        {n > 0 && series[0] && <path d={`${chemin(series[0].valeurs, w, h, max)} L${w} ${h} L0 ${h} Z`} className="aire" />}
+        {n > 0 && series.map((s) => (
           <path key={s.nom} d={chemin(s.valeurs, w, h, max)} className={`ligne-${s.couleur}`} />
         ))}
         {survol !== null && survol >= 0 && survol < n && <line x1={(survol * w) / (n - 1)} x2={(survol * w) / (n - 1)} y1={0} y2={h} className="curseur-graphique" />}
@@ -308,6 +312,7 @@ export function Legende({ elements }: { elements: { nom: string; couleur: 'wine'
 
 export function Barres({ donnees, unite = '' }: { donnees: { libelle: string; valeur: number; secondaire?: number }[]; unite?: string }) {
   const max = Math.max(1, ...donnees.map((d) => d.valeur))
+  if (donnees.length === 0) return <p className="cellule-vide">Aucune donnée pour le moment.</p>
   return (
     <ul className="barres">
       {donnees.map((d) => (
@@ -344,10 +349,12 @@ export function DialogueSuppression({
 }: {
   cible: string | null
   description: string
-  onConfirmer: () => { ok: true } | { ok: false; raison: string }
+  /** Suppression demandée à l'API ; un refus (409, contenu utilisé) est affiché dans le dialogue. */
+  onConfirmer: () => Promise<{ ok: true } | { ok: false; raison: string }>
   onFermer: () => void
 }) {
   const [refus, setRefus] = useState<string | null>(null)
+  const [envoi, setEnvoi] = useState(false)
   useEffect(() => setRefus(null), [cible])
   if (!cible) return null
   return createPortal(
@@ -369,8 +376,11 @@ export function DialogueSuppression({
             <button
               type="button"
               className="btn btn-danger"
-              onClick={() => {
-                const r = onConfirmer()
+              disabled={envoi}
+              onClick={async () => {
+                setEnvoi(true)
+                const r = await onConfirmer()
+                setEnvoi(false)
                 if (r.ok) onFermer()
                 else setRefus(r.raison)
               }}
@@ -384,4 +394,25 @@ export function DialogueSuppression({
     </div>,
     document.body,
   )
+}
+
+/** Date et heure locales « AAAA-MM-JJTHH:mm:ss » (format échangé avec l'API, heure de Paris). */
+export function maintenantLocal(decalageMs = 0) {
+  const d = new Date(Date.now() + decalageMs)
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 19)
+}
+
+/**
+ * Exécute une action de l'API : message de succès facultatif, ou message d'erreur renvoyé par le
+ * serveur (droits, validation, conflit). Renvoie true si l'action a réussi.
+ */
+export async function executer(toast: { afficher: (m: string) => void }, action: () => Promise<unknown>, succes?: string) {
+  try {
+    await action()
+    if (succes) toast.afficher(succes)
+    return true
+  } catch (e) {
+    toast.afficher(messageErreur(e))
+    return false
+  }
 }

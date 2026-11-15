@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Icone } from '../../commun/Icone'
 import { repondreDecision, useEtat } from '../../commun/store'
 import { signalementsDuPartenaire, useSession } from '../session'
-import { BadgeStatut, EnTetePage, formaterDate, Panneau, useToast, Vide } from '../ui'
+import { BadgeStatut, EnTetePage, executer, formaterDate, Panneau, useToast, Vide } from '../ui'
 import { LIBELLES_MOTIF } from './PageSignalements'
 
 /** Signalements reçus par le partenaire, en lecture seule (BF-50, BNF-25), et réponse aux décisions. */
@@ -81,10 +81,7 @@ export default function PageMesSignalements() {
                             type="button"
                             className="btn btn-fantome"
                             disabled={!reponses[d.id]?.trim()}
-                            onClick={() => {
-                              repondreDecision(d.id, reponses[d.id].trim(), false)
-                              toast.afficher('Réponse envoyée à la mairie')
-                            }}
+                            onClick={() => void executer(toast, () => repondreDecision(d.id, reponses[d.id].trim(), false), 'Réponse envoyée à la mairie')}
                           >
                             Répondre
                           </button>
@@ -92,10 +89,7 @@ export default function PageMesSignalements() {
                             type="button"
                             className="btn btn-primaire"
                             disabled={!reponses[d.id]?.trim()}
-                            onClick={() => {
-                              repondreDecision(d.id, reponses[d.id].trim(), true)
-                              toast.afficher('Demande de réexamen envoyée')
-                            }}
+                            onClick={() => void executer(toast, () => repondreDecision(d.id, reponses[d.id].trim(), true), 'Demande de réexamen envoyée')}
                           >
                             Demander un réexamen
                           </button>

@@ -1,4 +1,4 @@
-// Types partagés entre l'application visiteur et le back-office.
+// Types partagés entre l'application visiteur, le back-office et l'API (réponses JSON).
 // Ils reprennent les tables du cahier des charges technique (section 7).
 
 export type Langue = 'fr' | 'en' | 'de'
@@ -25,6 +25,8 @@ export interface Lieu {
   latitude: number
   longitude: number
   rayonM: number
+  /** Fichier image de la fiche (identifiant et URL servie par l'API). */
+  visuelId?: string
   image?: string
   photosFacade: number
   scoreDomicile?: number
@@ -64,6 +66,7 @@ export interface Partenaire {
 
 /** Animation intégrée à un fichier GLB (gltf.animations). */
 export interface ClipGlb {
+  id?: string
   /** Position du clip dans le fichier GLB (par défaut : son rang dans la liste). */
   indice?: number
   nom: string
@@ -85,6 +88,12 @@ export interface Fichier {
   raisonRefus?: string
   creeLe: string
   usage: 'AFFICHE' | 'LIEU'
+  /** URL du fichier servi par l'API (/uploads/...). */
+  url: string
+  largeurPx?: number
+  hauteurPx?: number
+  /** Contrôle automatique terminé : aperçu prêt, en attente de validation par l'éditeur. */
+  controleTermine?: boolean
 }
 
 export interface Animation {
@@ -106,6 +115,9 @@ export interface Animation {
   transcription: Texte3
   lancements: number
   modifieLe: string
+  /** URL du modèle GLB et du son, pour l'aperçu et l'application visiteur. */
+  modeleUrl?: string
+  sonUrl?: string
 }
 
 export interface Zone {
@@ -119,13 +131,11 @@ export interface Zone {
   active: boolean
 }
 
-export interface ModeleAffiche {
-  id: string
-  nom: string
-  description: string
-  format: string
-  variante: 0 | 1 | 2
-  actif: boolean
+export interface ConditionsPublication {
+  compteVerifie: boolean
+  fichiersConformes: boolean
+  charteAcceptee: boolean
+  zoneAttribuee: boolean
 }
 
 /** Position du QR code sur l'affiche, en fractions de la largeur et de la hauteur. */
@@ -142,17 +152,22 @@ export interface ImageAffiche {
   largeur: number
   hauteur: number
   octets: number
+  url?: string
 }
 
 export interface Affiche {
   id: string
   proprietaireId: string
-  modeleId?: string
+  /** Fichier IMAGE de l'affiche importée. */
+  imageId?: string
   image?: ImageAffiche
   qr?: PlacementQr
   format?: string
   animationAfficheId: string
-  animationLieuId: string
+  /** Lieu promu : la carte s'ouvre dessus après l'animation de l'affiche. */
+  lieuId: string
+  /** Spectacle du lieu mis en avant (facultatif). */
+  animationLieuId?: string
   nom: string
   accroche: string
   texte: string
@@ -163,6 +178,8 @@ export interface Affiche {
   fin: string
   statut: StatutContenu
   fichiersConformes: boolean
+  /** Les 4 conditions de publication calculées par le serveur (BF-42). */
+  conditions?: ConditionsPublication
   scans: number
   modifieLe: string
 }

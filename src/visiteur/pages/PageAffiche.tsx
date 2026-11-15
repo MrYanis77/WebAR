@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { useLangue } from '../../commun/i18n'
-import { afficheDiffusee, compterScan, useEtat } from '../../commun/store'
+import { compterScan } from '../../commun/store'
 import { Consignes } from '../composants/Consignes'
 import { MessageErreur } from '../composants/MessageErreur'
 import { VueRA } from '../composants/VueRA'
+import { useAffichePublique } from '../donneesPubliques'
 import { useCompatibilite } from '../hooks/capteurs'
 import { deverrouillerSon } from '../services/son'
 import { consignesVues, marquerConsignesVues } from '../utils'
@@ -17,13 +18,12 @@ export default function PageAffiche() {
   const { code = '' } = useParams()
   const { t } = useLangue()
   const navigate = useNavigate()
-  const etat = useEtat()
   const compat = useCompatibilite()
-  const resultat = afficheDiffusee(etat, code)
-  const affiche = resultat.affiche
-  const animAffiche = etat.animations.find((a) => a.id === affiche?.animationAfficheId)
-  const animLieu = etat.animations.find((a) => a.id === affiche?.animationLieuId)
-  const lieu = etat.lieux.find((l) => l.id === animLieu?.lieuId)
+  // L'API vérifie la diffusion (publiée, dans sa période, 4 conditions) : 404 inconnue, 410 retirée ou expirée.
+  const resultat = useAffichePublique(code)
+  const affiche = resultat.donnees?.affiche
+  const animAffiche = resultat.donnees?.animationAffiche
+  const lieu = resultat.donnees?.lieu
   const [etape, setEtape] = useState<'consignes' | 'ra' | 'refus'>(() => (consignesVues() ? 'ra' : 'consignes'))
   const [simulee, setSimulee] = useState(false)
   const compte = useRef(false)
@@ -47,6 +47,20 @@ export default function PageAffiche() {
     if (!resultat.raison && !compat.compatible) voirLieu()
   }, [resultat.raison, compat.compatible, voirLieu])
 
+  if (resultat.chargement)
+    return (
+      <div className="page page-centree">
+        <span className="spinner" />
+      </div>
+    )
+
+  if (resultat.erreurReseau)
+    return (
+      <div className="page page-centree">
+        <MessageErreur cas="reseau" onAction={() => window.location.reload()} />
+      </div>
+    )
+
   if (resultat.raison) {
     const cas = resultat.raison === 'EXPIREE' ? 'expiree' : resultat.raison === 'RETIREE' ? 'retiree' : 'inconnue'
     return (
@@ -60,7 +74,7 @@ export default function PageAffiche() {
     )
   }
 
-  if (!affiche || !animAffiche || !lieu || !animLieu) return null
+  if (!affiche || !animAffiche || !lieu) return null
 
   if (etape === 'consignes') {
     return (
@@ -92,6 +106,7 @@ export default function PageAffiche() {
       lieu={lieu}
       animation={animAffiche}
       affiche={affiche}
+      proprietaire={resultat.donnees?.proprietaire}
       cameraAutorisee={!simulee}
       onQuitter={voirLieu}
       onVoirLieu={voirLieu}

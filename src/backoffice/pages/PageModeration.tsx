@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Icone } from '../../commun/Icone'
-import { cloreReexamen, decider, deciderCompte, nomProprietaire, useEtat } from '../../commun/store'
+import { cloreReexamen, decider, nomProprietaire, useEtat } from '../../commun/store'
 import type { ActionDecision, Decision } from '../../commun/types'
-import { BadgeStatut, DialogueMotif, EnTetePage, formaterDate, Onglets, Panneau, Recherche, useToast } from '../ui'
+import { BadgeStatut, DialogueMotif, EnTetePage, executer, formaterDate, Onglets, Panneau, Recherche, useToast } from '../ui'
 
 interface Cible {
   type: 'AFFICHE' | 'ANIMATION'
@@ -31,8 +31,8 @@ export default function PageModeration() {
     d.contenuType === 'COMPTE'
       ? `Compte ${nomProprietaire(etat, d.contenuId)}`
       : d.contenuType === 'AFFICHE'
-        ? `Affiche « ${etat.affiches.find((a) => a.id === d.contenuId)?.nom} »`
-        : `Animation « ${etat.animations.find((a) => a.id === d.contenuId)?.titre} »`
+        ? `Affiche « ${etat.affiches.find((a) => a.id === d.contenuId)?.nom ?? 'supprimée'} »`
+        : `Animation « ${etat.animations.find((a) => a.id === d.contenuId)?.titre ?? 'supprimée'} »`
 
   return (
     <>
@@ -177,10 +177,7 @@ export default function PageModeration() {
         suggestions={cible?.action === 'REACTIVER' ? ['Corrections apportées par le partenaire.'] : ['Non-conformité à la charte (article 2).', 'Évolution des règles d’affichage de la Ville.']}
         onFermer={() => setCible(null)}
         onConfirmer={(motif) => {
-          if (cible) {
-            decider(cible.type, cible.id, cible.action, motif)
-            toast.afficher('Décision enregistrée et notifiée')
-          }
+          if (cible) void executer(toast, () => decider(cible.type, cible.id, cible.action, motif), 'Décision enregistrée et notifiée')
           setCible(null)
         }}
       />
@@ -192,13 +189,9 @@ export default function PageModeration() {
         onFermer={() => setReexamen(null)}
         onConfirmer={(motif) => {
           if (reexamen) {
+            // « Lever la mesure » : l'API réactive le contenu ou le compte visé dans la même transaction.
             const { d, accepte } = reexamen
-            if (accepte) {
-              if (d.contenuType === 'COMPTE') deciderCompte(d.contenuId, 'VERIFIE', motif)
-              else if (d.contenuType !== 'FICHIER') decider(d.contenuType, d.contenuId, 'REACTIVER', motif)
-            }
-            cloreReexamen(d.id, motif)
-            toast.afficher('Réexamen clos — partenaire notifié')
+            void executer(toast, () => cloreReexamen(d.id, motif, accepte), 'Réexamen clos — partenaire notifié')
           }
           setReexamen(null)
         }}

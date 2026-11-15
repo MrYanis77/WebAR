@@ -2,8 +2,9 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { SECTEURS } from '../../commun/constantes'
 import { Icone } from '../../commun/Icone'
-import { connexion, inscrirePartenaire, useEtat } from '../../commun/store'
-import { SESSION_AGENT } from '../session'
+import { Altcha } from '../../commun/Altcha'
+import { messageErreur } from '../../commun/api'
+import { connexion, inscrirePartenaire, renvoyerCode, validerCode } from '../../commun/store'
 
 function CadreAcces({ children }: { children: ReactNode }) {
   return (
@@ -28,7 +29,7 @@ function CadreAcces({ children }: { children: ReactNode }) {
             <Icone nom="cadenas" taille={16} /> Connexion chiffrée (HTTPS) et mots de passe hachés
           </li>
           <li>
-            <Icone nom="bouclier" taille={16} /> Double authentification pour les agents
+            <Icone nom="bouclier" taille={16} /> Double authentification des agents par code envoyé par mail
           </li>
           <li>
             <Icone nom="check" taille={16} /> Publication après contrôle automatique des fichiers
@@ -40,48 +41,65 @@ function CadreAcces({ children }: { children: ReactNode }) {
   )
 }
 
-/** Connexion + code à usage unique pour les agents (BNF-10), blocage après 5 échecs. */
+/**
+ * Connexion par l'API : mot de passe vérifié par Argon2id, blocage 15 min après 5 échecs (BNF-10),
+ * puis, pour les agents, code à 6 chiffres envoyé par mail (double authentification).
+ */
 export function PageConnexion() {
-  const etat = useEtat()
   const navigate = useNavigate()
   const location = useLocation()
   const depuis = (location.state as { depuis?: string } | null)?.depuis ?? '/backoffice'
   const [email, setEmail] = useState('')
   const [mdp, setMdp] = useState('')
-  const [etape, setEtape] = useState<'identifiants' | 'totp'>('identifiants')
+  const [etape, setEtape] = useState<'identifiants' | 'code'>('identifiants')
+  const [info, setInfo] = useState<string | null>(null)
   const [code, setCode] = useState('')
   const [erreur, setErreur] = useState<string | null>(null)
-  const [echecs, setEchecs] = useState(0)
+  const [envoi, setEnvoi] = useState(false)
 
-  function soumettre(e: FormEvent) {
+  async function soumettre(e: FormEvent) {
     e.preventDefault()
     setErreur(null)
-    if (echecs >= 5) return
-    const mail = email.trim().toLowerCase()
-    if (!mail || mdp.length < 8) {
-      const n = echecs + 1
-      setEchecs(n)
-      setErreur(n >= 5 ? 'Compte temporairement bloqué après 5 essais. Réessayez dans 15 minutes.' : `Identifiants incorrects (${n}/5). Le mot de passe compte au moins 8 caractères.`)
-      return
+    if (!email.trim() || !mdp) return setErreur('Saisissez votre adresse e-mail et votre mot de passe.')
+    setEnvoi(true)
+    try {
+      const suite = await connexion(email.trim().toLowerCase(), mdp)
+      if (suite === 'CODE') setEtape('code')
+      else navigate(depuis, { replace: true })
+    } catch (err) {
+      setErreur(messageErreur(err))
+    } finally {
+      setEnvoi(false)
     }
-    if (mail.endsWith('@montbeliard.fr')) {
-      setEtape('totp')
-      return
-    }
-    const p = etat.partenaires.find((x) => x.email.toLowerCase() === mail)
-    if (!p) return setErreur('Aucun compte ne correspond à cette adresse. Créez un compte partenaire.')
-    if (p.statut === 'EN_ATTENTE') return setErreur('Votre compte est en attente de vérification par la mairie. Vous serez prévenu par mail.')
-    if (p.statut === 'REFUSE') return setErreur(`Inscription refusée : ${p.motifStatut ?? 'motif communiqué par mail'}.`)
-    if (p.statut === 'SUSPENDU') return setErreur(`Compte suspendu : ${p.motifStatut ?? 'motif communiqué par mail'}. Vous pouvez demander un réexamen.`)
-    connexion({ role: 'PARTENAIRE', nom: p.contactNom, email: p.email, structure: p.nomStructure, partenaireId: p.id })
-    navigate(depuis, { replace: true })
   }
 
-  function valider(e: FormEvent) {
+  async function valider(e: FormEvent) {
     e.preventDefault()
-    if (!/^\d{6}$/.test(code)) return setErreur('Saisissez les 6 chiffres affichés par votre application d’authentification.')
-    connexion({ ...SESSION_AGENT, email: email.trim().toLowerCase() || SESSION_AGENT.email })
-    navigate(depuis, { replace: true })
+    setErreur(null)
+    if (!/^\d{6}$/.test(code)) return setErreur('Saisissez les 6 chiffres reçus par mail.')
+    setEnvoi(true)
+    try {
+      await validerCode(code)
+      navigate(depuis, { replace: true })
+    } catch (err) {
+      setErreur(messageErreur(err))
+      setCode('')
+      // Après 5 essais ou à l'expiration, le serveur annule le code : retour au mot de passe.
+      if (/reprenez la connexion/.test(messageErreur(err))) setEtape('identifiants')
+    } finally {
+      setEnvoi(false)
+    }
+  }
+
+  async function renvoyer() {
+    setErreur(null)
+    setInfo(null)
+    try {
+      await renvoyerCode()
+      setInfo('Un nouveau code vient de vous être envoyé.')
+    } catch (err) {
+      setErreur(messageErreur(err))
+    }
   }
 
   return (
@@ -96,7 +114,7 @@ export function PageConnexion() {
           </label>
           <label className="champ">
             <span className="etiquette">
-              Mot de passe <Link to="#" onClick={(e) => e.preventDefault()}>Oublié ?</Link>
+              Mot de passe
             </span>
             <input type="password" autoComplete="current-password" value={mdp} onChange={(e) => setMdp(e.target.value)} required />
           </label>
@@ -106,37 +124,27 @@ export function PageConnexion() {
               {erreur}
             </p>
           )}
-          <button type="submit" className="btn btn-primaire btn-bloc" disabled={echecs >= 5}>
-            Se connecter
+          <button type="submit" className="btn btn-primaire btn-bloc" disabled={envoi}>
+            {envoi ? 'Connexion…' : 'Se connecter'}
           </button>
           <p className="lien-acces">
             Vous êtes un partenaire ? <Link to="/backoffice/inscription">Créer un compte</Link>
           </p>
-          <div className="demo-acces">
-            <strong>Comptes de démonstration</strong>
-            <button type="button" onClick={() => { setEmail('c.martin@montbeliard.fr'); setMdp('demo-montbeliard') }}>
-              <Icone nom="bouclier" taille={15} /> Agente : c.martin@montbeliard.fr
-            </button>
-            <button type="button" onClick={() => { setEmail('hugo@festival-momes.test'); setMdp('demo-partenaire') }}>
-              <Icone nom="utilisateurs" taille={15} /> Partenaire : hugo@festival-momes.test
-            </button>
-            <button type="button" onClick={() => { setEmail('thomas@pages-or.test'); setMdp('demo-partenaire') }}>
-              <Icone nom="horloge" taille={15} /> Partenaire en attente : thomas@pages-or.test
-            </button>
-          </div>
         </form>
       ) : (
         <form onSubmit={valider} className="carte-acces" noValidate>
-          <button type="button" className="btn-texte retour-acces" onClick={() => setEtape('identifiants')}>
+          <button type="button" className="btn-texte retour-acces" onClick={() => { setEtape('identifiants'); setErreur(null); setInfo(null) }}>
             <Icone nom="gauche" taille={15} /> Retour
           </button>
           <span className="icone-acces">
             <Icone nom="bouclier" taille={26} />
           </span>
-          <h2>Double authentification</h2>
-          <p className="aide-acces">Saisissez le code à 6 chiffres de votre application d’authentification (TOTP). En démonstration, tout code à 6 chiffres est accepté.</p>
+          <h2>Vérifiez votre boîte mail</h2>
+          <p className="aide-acces">
+            Un code à 6 chiffres vient d’être envoyé à <strong>{email.trim().toLowerCase()}</strong>. Il est valable 10 minutes et ne sert qu’une fois.
+          </p>
           <input
-            className="code-totp"
+            className="code-connexion"
             inputMode="numeric"
             autoComplete="one-time-code"
             maxLength={6}
@@ -152,8 +160,12 @@ export function PageConnexion() {
               {erreur}
             </p>
           )}
-          <button type="submit" className="btn btn-primaire btn-bloc">
-            Valider
+          {info && <p className="info-acces" role="status">{info}</p>}
+          <button type="submit" className="btn btn-primaire btn-bloc" disabled={envoi}>
+            {envoi ? 'Vérification…' : 'Valider'}
+          </button>
+          <button type="button" className="btn-texte btn-bloc" onClick={() => void renvoyer()}>
+            Je n’ai pas reçu le code : le renvoyer
           </button>
         </form>
       )}
@@ -164,7 +176,9 @@ export function PageConnexion() {
 /** Inscription d'un partenaire : compte inactif tant qu'un agent ne l'a pas vérifié (BF-34, BNF-20, BNF-23). */
 export function PageInscription() {
   const [envoye, setEnvoye] = useState(false)
-  const [robot, setRobot] = useState<'non' | 'calcul' | 'ok'>('non')
+  const [altcha, setAltcha] = useState<string | null>(null)
+  const [erreurServeur, setErreurServeur] = useState<string | null>(null)
+  const [envoi, setEnvoi] = useState(false)
   const [tente, setTente] = useState(false)
   const [f, setF] = useState({ nomStructure: '', secteur: '', adresse: '', contactNom: '', contactTelephone: '', email: '', mdp: '', rgpd: false })
   const maj = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
@@ -177,21 +191,33 @@ export function PageInscription() {
     mdp: f.mdp.length < 12,
     rgpd: !f.rgpd,
   }
-  const valide = !Object.values(erreurs).some(Boolean) && robot === 'ok'
+  const valide = !Object.values(erreurs).some(Boolean) && !!altcha
 
-  function soumettre(e: FormEvent) {
+  /** Envoi à l'API : le compte est créé « en attente » et les agents sont prévenus par mail. */
+  async function soumettre(e: FormEvent) {
     e.preventDefault()
     setTente(true)
-    if (!valide) return
-    inscrirePartenaire({
-      nomStructure: f.nomStructure.trim(),
-      secteur: f.secteur,
-      adresse: f.adresse.trim(),
-      contactNom: f.contactNom.trim(),
-      contactTelephone: f.contactTelephone.trim() || undefined,
-      email: f.email.trim().toLowerCase(),
-    })
-    setEnvoye(true)
+    setErreurServeur(null)
+    if (!valide || !altcha) return
+    setEnvoi(true)
+    try {
+      await inscrirePartenaire({
+        nomStructure: f.nomStructure.trim(),
+        secteur: f.secteur,
+        adresse: f.adresse.trim(),
+        contactNom: f.contactNom.trim(),
+        contactTelephone: f.contactTelephone.trim() || undefined,
+        email: f.email.trim().toLowerCase(),
+        motDePasse: f.mdp,
+        rgpd: true,
+        altcha,
+      })
+      setEnvoye(true)
+    } catch (err) {
+      setErreurServeur(messageErreur(err))
+    } finally {
+      setEnvoi(false)
+    }
   }
 
   const champ = (k: keyof typeof erreurs, libelle: string, input: ReactNode, aide?: string) => (
@@ -271,27 +297,21 @@ export function PageInscription() {
           <input type="checkbox" checked={f.rgpd} onChange={(e) => setF({ ...f, rgpd: e.target.checked })} />
           J’ai pris connaissance de l’information sur le traitement de mes données.
         </label>
-        <button
-          type="button"
-          className={`anti-robot-bo ${robot}`}
-          onClick={() => {
-            if (robot !== 'non') return
-            setRobot('calcul')
-            window.setTimeout(() => setRobot('ok'), 1100)
-          }}
-        >
-          <span className="case-robot">{robot === 'calcul' ? <span className="spinner" /> : robot === 'ok' ? <Icone nom="check" taille={14} /> : null}</span>
-          {robot === 'ok' ? 'Vérifié — vous n’êtes pas un robot' : 'Je ne suis pas un robot'}
-          <small>ALTCHA · sans cookie</small>
-        </button>
+        <Altcha onChange={setAltcha} />
         {tente && !valide && (
           <p className="erreur-acces" role="alert">
             <Icone nom="alerte" taille={15} />
-            Complétez les champs signalés{robot !== 'ok' ? ' et la vérification anti-robot' : ''}.
+            Complétez les champs signalés{!altcha ? ' et la vérification anti-robot' : ''}.
           </p>
         )}
-        <button type="submit" className="btn btn-primaire btn-bloc">
-          Envoyer ma demande
+        {erreurServeur && (
+          <p className="erreur-acces" role="alert">
+            <Icone nom="alerte" taille={15} />
+            {erreurServeur}
+          </p>
+        )}
+        <button type="submit" className="btn btn-primaire btn-bloc" disabled={envoi}>
+          {envoi ? 'Envoi…' : 'Envoyer ma demande'}
         </button>
         <p className="lien-acces">
           Déjà inscrit ? <Link to="/backoffice/connexion">Se connecter</Link>

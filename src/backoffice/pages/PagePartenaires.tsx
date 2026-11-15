@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Icone } from '../../commun/Icone'
 import { deciderCompte, useEtat } from '../../commun/store'
 import type { Partenaire, StatutCompte } from '../../commun/types'
-import { BadgeStatut, DialogueMotif, EnTetePage, formaterDate, Onglets, Panneau, Recherche, Tiroir, useToast } from '../ui'
+import { BadgeStatut, DialogueMotif, EnTetePage, executer, formaterDate, Onglets, Panneau, Recherche, Tiroir, useToast } from '../ui'
 
 type Filtre = 'tous' | StatutCompte
 
@@ -20,9 +20,9 @@ export default function PagePartenaires() {
   const n = (s: StatutCompte) => etat.partenaires.filter((p) => p.statut === s).length
   const courant = detail ? etat.partenaires.find((p) => p.id === detail.id) : undefined
 
+  /** Vérification (ou réactivation) du compte : l'API envoie le mail de décision au partenaire. */
   function accepter(p: Partenaire) {
-    deciderCompte(p.id, 'VERIFIE')
-    toast.afficher(`${p.nomStructure} : compte ${p.statut === 'SUSPENDU' ? 'réactivé' : 'vérifié'} — mail envoyé`)
+    void executer(toast, () => deciderCompte(p.id, 'VERIFIE'), `${p.nomStructure} : compte ${p.statut === 'SUSPENDU' ? 'réactivé' : 'vérifié'} — mail envoyé`)
   }
 
   const actions = (p: Partenaire) => (
@@ -160,10 +160,7 @@ export default function PagePartenaires() {
         suggestions={dialogue?.statut === 'REFUSE' ? ['Structure introuvable au registre du commerce.', 'Informations de contact incomplètes.'] : ['Manquements répétés à la charte.', 'Contenu illicite signalé et avéré.']}
         onFermer={() => setDialogue(null)}
         onConfirmer={(motif) => {
-          if (dialogue) {
-            deciderCompte(dialogue.p.id, dialogue.statut, motif)
-            toast.afficher(`${dialogue.p.nomStructure} : décision notifiée par mail`)
-          }
+          if (dialogue) void executer(toast, () => deciderCompte(dialogue.p.id, dialogue.statut, motif), `${dialogue.p.nomStructure} : décision notifiée par mail`)
           setDialogue(null)
         }}
       />

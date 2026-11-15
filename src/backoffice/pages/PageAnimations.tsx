@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { BUDGETS_3D } from '../../commun/constantes'
+import { BUDGETS_3D, MODELE_3D_MAX_MO } from '../../commun/constantes'
 import { Icone } from '../../commun/Icone'
-import { imageLieu } from '../../commun/images'
-import { animationActive, basculerAnimation, enregistrerAnimation, nomProprietaire, supprimerAnimation, uid, useEtat } from '../../commun/store'
+import { messageErreur } from '../../commun/api'
+import { animationActive, attendreControle, basculerAnimation, enregistrerAnimation, importerFichier, nomProprietaire, supprimerAnimation, useEtat, validerFichier } from '../../commun/store'
 import type { Animation, Declencheur, TypeAnimation } from '../../commun/types'
 import { peutCreer, proprietaireDe, useSession } from '../session'
-import { BadgeStatut, DialogueSuppression, EnTetePage, formaterDate, formaterPoids, Interrupteur, Onglets, Recherche, Tiroir, useToast, Vide } from '../ui'
+import { BadgeStatut, DialogueSuppression, EnTetePage, formaterDate, formaterPoids, Interrupteur, maintenantLocal, Onglets, Recherche, Tiroir, useToast, Vide } from '../ui'
 
 type Filtre = 'toutes' | 'actives' | 'programmees' | 'brouillons' | 'archivees'
 
@@ -40,20 +40,21 @@ export default function PageAnimations() {
     .filter((a) => a.titre.toLowerCase().includes(texte.toLowerCase()))
   const compte = (f: Filtre) => visibles.filter((a) => etatAnimation(a).cle === f).length
 
+  /** Brouillon d'une nouvelle animation : identifiant vide tant que l'API ne l'a pas créée. */
   function nouvelle() {
     setEdition({
-      id: uid('anim'),
+      id: '',
       proprietaireId: proprietaireDe(session),
       titre: '',
       type: agent ? 'LIEU' : 'AFFICHE',
       lieuId: agent ? etat.lieux[0]?.id : undefined,
       declencheur: agent ? 'MONUMENT' : 'AFFICHE',
       dureeS: agent ? 300 : 15,
-      debut: new Date().toISOString().slice(0, 16) + ':00',
+      debut: maintenantLocal(),
       statut: 'BROUILLON',
       transcription: { fr: '', en: '', de: '' },
       lancements: 0,
-      modifieLe: new Date().toISOString().slice(0, 19),
+      modifieLe: maintenantLocal(),
     })
   }
 
@@ -103,7 +104,7 @@ export default function PageAnimations() {
               const lieu = etat.lieux.find((l) => l.id === a.lieuId)
               const modele = etat.fichiers.find((f) => f.id === a.modeleId)
               const e = etatAnimation(a)
-              const image = imageLieu(lieu?.image)
+              const image = lieu?.image
               const verrou = a.statut === 'SUSPENDUE' || a.statut === 'RETIREE'
               return (
                 <article key={a.id} className="carte-animation">
@@ -128,7 +129,8 @@ export default function PageAnimations() {
                         libelle={a.statut === 'PUBLIEE' ? 'Désactiver' : 'Activer'}
                         onChange={() => {
                           basculerAnimation(a.id)
-                          toast.afficher(a.statut === 'PUBLIEE' ? `« ${a.titre} » désactivée` : `« ${a.titre} » activée`)
+                            .then(() => toast.afficher(a.statut === 'PUBLIEE' ? `« ${a.titre} » désactivée` : `« ${a.titre} » activée`))
+                            .catch((err) => toast.afficher(messageErreur(err)))
                         }}
                       />
                     </div>
@@ -177,11 +179,11 @@ export default function PageAnimations() {
         <EditeurAnimation
           animation={edition}
           onFermer={() => setEdition(null)}
-          onSupprimer={etat.animations.some((x) => x.id === edition.id) ? () => setASupprimer(edition) : undefined}
-          onEnregistrer={(a) => {
-            enregistrerAnimation(a)
+          onSupprimer={edition.id ? () => setASupprimer(edition) : undefined}
+          onEnregistrer={async (a, publier) => {
+            await enregistrerAnimation(a, publier)
             setEdition(null)
-            toast.afficher(`Animation « ${a.titre} » enregistrée`)
+            toast.afficher(`Animation « ${a.titre} » enregistrée${publier ? ' et activée' : ''}`)
           }}
         />
       )}
@@ -189,8 +191,8 @@ export default function PageAnimations() {
         cible={aSupprimer?.titre ?? null}
         description={`L’animation ne sera plus proposée aux visiteurs. Les affiches qui l’utilisent doivent d’abord en changer. La suppression reste inscrite au journal.`}
         onFermer={() => setASupprimer(null)}
-        onConfirmer={() => {
-          const r = supprimerAnimation(aSupprimer!.id)
+        onConfirmer={async () => {
+          const r = await supprimerAnimation(aSupprimer!.id)
           if (r.ok) {
             setEdition(null)
             toast.afficher(`Animation « ${aSupprimer!.titre} » supprimée`)
@@ -203,14 +205,85 @@ export default function PageAnimations() {
   )
 }
 
-function EditeurAnimation({ animation, onFermer, onEnregistrer, onSupprimer }: { animation: Animation; onFermer: () => void; onEnregistrer: (a: Animation) => void; onSupprimer?: () => void }) {
+function EditeurAnimation({
+  animation,
+  onFermer,
+  onEnregistrer,
+  onSupprimer,
+}: {
+  animation: Animation
+  onFermer: () => void
+  /** Envoi à l'API ; une erreur (validation zod, droits, fichier non conforme) est affichée dans le tiroir. */
+  onEnregistrer: (a: Animation, publier: boolean) => Promise<void>
+  onSupprimer?: () => void
+}) {
   const etat = useEtat()
   const session = useSession()
   const agent = session.role === 'AGENT'
   const [a, setA] = useState<Animation>(animation)
   const [langue, setLangue] = useState<'fr' | 'en' | 'de'>('fr')
   const [tente, setTente] = useState(false)
-  const maj = (p: Partial<Animation>) => setA({ ...a, ...p })
+  const [envoi, setEnvoi] = useState(false)
+  const [erreurServeur, setErreurServeur] = useState<string | null>(null)
+  /** Import en cours depuis le formulaire : type de fichier et progression de l'envoi (0 à 1). */
+  const [importEnCours, setImportEnCours] = useState<{ type: 'MODELE_3D' | 'SON'; progression: number; etape: string } | null>(null)
+  const [erreurImport, setErreurImport] = useState<string | null>(null)
+  const maj = (p: Partial<Animation>) => setA((x) => ({ ...x, ...p }))
+
+  /**
+   * Import direct d'un modèle GLB (ou d'un son) depuis le formulaire : envoi à l'API, contrôle
+   * automatique (glTF-Validator, triangles, animations / ffprobe), puis validation et sélection.
+   * L'aperçu 3D détaillé reste disponible dans « Fichiers 3D & sons ».
+   */
+  async function importerDepuisFormulaire(fichier: File, type: 'MODELE_3D' | 'SON') {
+    setErreurImport(null)
+    const ext = fichier.name.split('.').pop()?.toLowerCase() ?? ''
+    if (type === 'MODELE_3D' && ext !== 'glb') return setErreurImport('Le modèle 3D doit être un fichier GLB (glTF 2.0 binaire).')
+    if (type === 'SON' && !['mp3', 'm4a', 'aac'].includes(ext)) return setErreurImport('Le son doit être un fichier MP3 ou AAC (M4A).')
+    if (type === 'MODELE_3D' && fichier.size > MODELE_3D_MAX_MO * 1_000_000)
+      return setErreurImport(`Fichier de ${formaterPoids(fichier.size)} : ${MODELE_3D_MAX_MO} Mo maximum pour un modèle 3D.`)
+    try {
+      setImportEnCours({ type, progression: 0, etape: 'Envoi' })
+      const cree = await importerFichier(fichier, a.type, (progression) => setImportEnCours({ type, progression, etape: 'Envoi' }))
+      setImportEnCours({ type, progression: 1, etape: 'Contrôle automatique' })
+      const controle = await attendreControle(cree.id, 5 * 60_000)
+      if (controle.statutControle === 'REFUSE') throw new Error(`« ${fichier.name} » refusé : ${controle.raisonRefus ?? 'fichier non conforme'}.`)
+      if (controle.statutControle !== 'CONFORME') await validerFichier(cree.id)
+      if (type === 'MODELE_3D') maj({ modeleId: cree.id, clipIndice: undefined })
+      else maj({ sonId: cree.id })
+    } catch (e) {
+      setErreurImport(messageErreur(e))
+    } finally {
+      setImportEnCours(null)
+    }
+  }
+
+  /** Bouton « Importer » associé à une liste de fichiers (input caché). */
+  const boutonImport = (type: 'MODELE_3D' | 'SON') => (
+    <label className={`bouton-import-champ ${importEnCours ? 'inactif' : ''}`}>
+      {importEnCours?.type === type ? (
+        <>
+          <span className="spinner" /> {importEnCours.etape}
+          {importEnCours.etape === 'Envoi' ? ` ${Math.round(importEnCours.progression * 100)} %` : '…'}
+        </>
+      ) : (
+        <>
+          <Icone nom="import" taille={14} /> {type === 'MODELE_3D' ? 'Importer un GLB' : 'Importer un son'}
+        </>
+      )}
+      <input
+        type="file"
+        hidden
+        disabled={!!importEnCours}
+        accept={type === 'MODELE_3D' ? '.glb,model/gltf-binary' : '.mp3,.m4a,.aac,audio/*'}
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          if (f) void importerDepuisFormulaire(f, type)
+          e.target.value = ''
+        }}
+      />
+    </label>
+  )
 
   const fichiers = useMemo(
     () => etat.fichiers.filter((f) => f.statutControle === 'CONFORME' && (agent || f.proprietaireId === session.partenaireId)),
@@ -233,10 +306,18 @@ function EditeurAnimation({ animation, onFermer, onEnregistrer, onSupprimer }: {
   }
   const valide = !Object.values(erreurs).some(Boolean)
 
-  function enregistrer(publier: boolean) {
+  async function enregistrer(publier: boolean) {
     setTente(true)
+    setErreurServeur(null)
     if (!valide) return
-    onEnregistrer({ ...a, statut: publier ? 'PUBLIEE' : a.statut === 'PUBLIEE' ? 'PUBLIEE' : 'BROUILLON', modifieLe: new Date().toISOString().slice(0, 19) })
+    setEnvoi(true)
+    try {
+      await onEnregistrer(a, publier)
+    } catch (e) {
+      setErreurServeur(messageErreur(e))
+    } finally {
+      setEnvoi(false)
+    }
   }
 
   return (
@@ -255,10 +336,10 @@ function EditeurAnimation({ animation, onFermer, onEnregistrer, onSupprimer }: {
           <button type="button" className="btn btn-fantome" onClick={onFermer}>
             Annuler
           </button>
-          <button type="button" className="btn btn-secondaire" onClick={() => enregistrer(false)}>
+          <button type="button" className="btn btn-secondaire" onClick={() => enregistrer(false)} disabled={envoi}>
             Enregistrer
           </button>
-          <button type="button" className="btn btn-primaire" onClick={() => enregistrer(true)}>
+          <button type="button" className="btn btn-primaire" onClick={() => enregistrer(true)} disabled={envoi}>
             Enregistrer et activer
           </button>
         </>
@@ -285,6 +366,12 @@ function EditeurAnimation({ animation, onFermer, onEnregistrer, onSupprimer }: {
             </button>
           ))}
         </div>
+        {erreurImport && (
+          <p className="erreur-acces" role="alert">
+            <Icone nom="alerte" taille={15} />
+            {erreurImport}
+          </p>
+        )}
         <div className="grille-champs">
           {a.type === 'LIEU' && (
             <label className={`champ ${tente && erreurs.lieu ? 'erreur' : ''}`}>
@@ -313,7 +400,9 @@ function EditeurAnimation({ animation, onFermer, onEnregistrer, onSupprimer }: {
             </select>
           </label>
           <label className={`champ ${tente && erreurs.modele ? 'erreur' : ''}`}>
-            <span className="etiquette">Modèle 3D</span>
+            <span className="etiquette">
+              Modèle 3D {boutonImport('MODELE_3D')}
+            </span>
             <select value={a.modeleId ?? ''} onChange={(e) => maj({ modeleId: e.target.value || undefined, clipIndice: undefined })}>
               <option value="">Choisir un modèle conforme…</option>
               {modeles.map((f) => (
@@ -350,7 +439,7 @@ function EditeurAnimation({ animation, onFermer, onEnregistrer, onSupprimer }: {
           )}
           <label className="champ">
             <span className="etiquette">
-              Son <small>Facultatif</small>
+              Son <small>Facultatif</small> {boutonImport('SON')}
             </span>
             <select value={a.sonId ?? ''} onChange={(e) => maj({ sonId: e.target.value || undefined })}>
               <option value="">Aucun son</option>
@@ -410,6 +499,12 @@ function EditeurAnimation({ animation, onFermer, onEnregistrer, onSupprimer }: {
           <p className="erreur-acces" role="alert">
             <Icone nom="alerte" taille={15} />
             {erreurs.budget ? 'Les fichiers dépassent le budget 3D de ce type d’animation.' : 'Complétez les champs signalés (titre, modèle, transcription française…).'}
+          </p>
+        )}
+        {erreurServeur && (
+          <p className="erreur-acces" role="alert">
+            <Icone nom="alerte" taille={15} />
+            {erreurServeur}
           </p>
         )}
       </div>

@@ -1,5 +1,7 @@
+import { QueryClientProvider } from '@tanstack/react-query'
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router'
+import { clientRequetes } from './commun/api'
 import { FournisseurLangue } from './commun/i18n'
 import { Icone } from './commun/Icone'
 import Visiteur from './visiteur/Visiteur'
@@ -27,6 +29,8 @@ function BasculePrototype() {
 
 export default function App() {
   return (
+    // Cache des requêtes vers l'API (TanStack Query) partagé par les deux applications.
+    <QueryClientProvider client={clientRequetes}>
     <BrowserRouter>
       <FournisseurLangue>
         <BasculePrototype />
@@ -43,5 +47,6 @@ export default function App() {
         </Routes>
       </FournisseurLangue>
     </BrowserRouter>
+    </QueryClientProvider>
   )
 }

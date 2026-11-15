@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router'
 import { distanceM, formaterDistance } from '../../commun/geo'
 import { useLangue } from '../../commun/i18n'
 import { Icone } from '../../commun/Icone'
-import { imageLieu } from '../../commun/images'
-import { afficheDiffusee, useEtat } from '../../commun/store'
+import { useAffichesDiffusees, useDonneesPubliques } from '../donneesPubliques'
 import { BoutonLangue } from '../composants/Feuilles'
 import { NavBas } from '../composants/NavBas'
 import { usePosition } from '../contexte/position'
@@ -14,10 +13,12 @@ import { animationsDuLieu, lieuxVisibles } from '../utils'
 export default function PageScanner() {
   const { t, tr } = useLangue()
   const navigate = useNavigate()
-  const etat = useEtat()
+  const etat = useDonneesPubliques()
   const { coords } = usePosition()
   const lieux = useMemo(() => lieuxVisibles(etat), [etat])
-  const afficheDemo = etat.affiches.find((a) => !afficheDiffusee(etat, a.codeQr).raison)
+  // En attendant la reconnaissance MindAR, le scanner ouvre une affiche diffusée (même parcours que le QR code).
+  const diffusees = useAffichesDiffusees()
+  const afficheDemo = diffusees[0]
 
   return (
     <div className="page page-defilante page-scanner">
@@ -45,7 +46,7 @@ export default function PageScanner() {
           const { active } = animationsDuLieu(etat, l.id)
           return (
             <button key={l.id} type="button" className="choix-scan" disabled={!active} onClick={() => navigate(`/lieux/${l.id}/ra`)}>
-              {imageLieu(l.image) ? <img src={imageLieu(l.image)} alt="" /> : <span className="icone-choix"><Icone nom="pin" taille={24} /></span>}
+              {l.image ? <img src={l.image} alt="" /> : <span className="icone-choix"><Icone nom="pin" taille={24} /></span>}
               <div>
                 <strong>{l.nom}</strong>
                 <small>

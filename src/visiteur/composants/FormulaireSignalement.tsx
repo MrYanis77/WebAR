@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useLangue } from '../../commun/i18n'
 import { Icone } from '../../commun/Icone'
 import { COMMENTAIRE_MAX, MOTIFS_SIGNALEMENT } from '../../commun/constantes'
+import { Altcha } from '../../commun/Altcha'
+import { ErreurApi } from '../../commun/api'
 import { signaler } from '../../commun/store'
 import type { MotifSignalement } from '../../commun/types'
 import { CoucheModale, EnteteFeuille } from './Couche'
@@ -12,37 +14,53 @@ export interface CibleSignalement {
   nom: string
 }
 
-/** Formulaire anonyme (BF-45 à BF-47, BF-51) : motif, commentaire, preuve anti-robot invisible. */
+/**
+ * Formulaire anonyme (BF-45 à BF-47, BF-51) : motif, commentaire et preuve anti-robot ALTCHA
+ * calculée en arrière-plan. L'API limite à 5 signalements par heure (réponse 429).
+ */
 export function FormulaireSignalement({ cible, onFermer }: { cible: CibleSignalement | null; onFermer: () => void }) {
-  const { t } = useLangue()
+  const { t, langue } = useLangue()
   const [motif, setMotif] = useState<MotifSignalement | ''>('')
   const [commentaire, setCommentaire] = useState('')
-  const [robot, setRobot] = useState<'calcul' | 'ok'>('calcul')
-  const [etat, setEtat] = useState<'saisie' | 'envoye' | 'limite'>('saisie')
+  const [preuve, setPreuve] = useState<string | null>(null)
+  const robot = preuve ? 'ok' : 'calcul'
+  const [etat, setEtat] = useState<'saisie' | 'envoi' | 'envoye' | 'limite' | 'erreur'>('saisie')
+  const [erreur, setErreur] = useState<string | null>(null)
+  // Nouveau widget (nouveau défi) à chaque ouverture : une preuve ne sert qu'une fois.
+  const [cleWidget, setCleWidget] = useState(0)
   const [tente, setTente] = useState(false)
 
-  // Simulation de la preuve de travail ALTCHA : invisible, sans cookie.
   useEffect(() => {
     if (!cible) return
     setMotif('')
     setCommentaire('')
     setEtat('saisie')
     setTente(false)
-    setRobot('calcul')
-    const id = window.setTimeout(() => setRobot('ok'), 900)
-    return () => window.clearTimeout(id)
+    setPreuve(null)
+    setErreur(null)
+    setCleWidget((c) => c + 1)
   }, [cible])
 
   const commentaireRequis = motif === 'AUTRE'
   const erreurMotif = tente && !motif
   const erreurCommentaire = tente && commentaireRequis && !commentaire.trim()
 
-  function envoyer(e: FormEvent) {
+  async function envoyer(e: FormEvent) {
     e.preventDefault()
     setTente(true)
-    if (!cible || !motif || (commentaireRequis && !commentaire.trim()) || robot !== 'ok') return
-    const r = signaler({ afficheId: cible.afficheId, animationId: cible.animationId }, motif, commentaire.trim())
-    setEtat(r.ok ? 'envoye' : 'limite')
+    if (!cible || !motif || (commentaireRequis && !commentaire.trim()) || !preuve) return
+    setEtat('envoi')
+    setErreur(null)
+    try {
+      await signaler({ afficheId: cible.afficheId, animationId: cible.animationId }, motif, commentaire.trim(), preuve)
+      setEtat('envoye')
+    } catch (err) {
+      setEtat(err instanceof ErreurApi && err.statut === 429 ? 'limite' : 'erreur')
+      setErreur((err as Error).message)
+      // La preuve a été consommée : un nouveau défi est demandé.
+      setPreuve(null)
+      setCleWidget((c) => c + 1)
+    }
   }
 
   return (
@@ -116,6 +134,7 @@ export function FormulaireSignalement({ cible, onFermer }: { cible: CibleSignale
             </span>
           </label>
 
+          <Altcha key={cleWidget} onChange={setPreuve} langue={langue} invisible />
           <div className={`anti-robot ${robot}`} aria-live="polite">
             {robot === 'calcul' ? <span className="spinner" /> : <Icone nom="check" taille={15} />}
             <span>{t('sig.robot')}</span>
@@ -127,8 +146,13 @@ export function FormulaireSignalement({ cible, onFermer }: { cible: CibleSignale
               {t('sig.limite')}
             </p>
           )}
+          {etat === 'erreur' && (
+            <p className="message-limite" role="alert">
+              {erreur}
+            </p>
+          )}
 
-          <button type="submit" className="btn btn-primaire btn-bloc" disabled={robot !== 'ok'}>
+          <button type="submit" className="btn btn-primaire btn-bloc" disabled={robot !== 'ok' || etat === 'envoi'}>
             <Icone nom="drapeau" taille={16} />
             {t('sig.envoyer')}
           </button>

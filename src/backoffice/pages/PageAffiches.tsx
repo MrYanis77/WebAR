@@ -3,13 +3,13 @@ import { Link, useNavigate } from 'react-router'
 import { Icone } from '../../commun/Icone'
 import { nomProprietaire, publiable, reglePublication, supprimerAffiche, useEtat } from '../../commun/store'
 import { AfficheAvecQr, QR_DEFAUT } from '../../commun/AfficheQr'
-import { supprimerImageAffiche, useImageAffiche } from '../../commun/imagesAffiches'
 import type { Affiche } from '../../commun/types'
 import { peutCreer, useSession } from '../session'
 import { BadgeStatut, DialogueSuppression, EnTetePage, formaterDate, Onglets, Recherche, useToast, Vide } from '../ui'
 
+/** Miniature : le fichier importé (servi par l'API) et le QR code à sa place. */
 function Miniature({ affiche }: { affiche: Affiche }) {
-  const image = useImageAffiche(affiche.id)
+  const image = affiche.image?.url
   const ratio = affiche.image ? affiche.image.largeur / affiche.image.hauteur : 297 / 420
   return <AfficheAvecQr image={image} ratio={ratio} code={affiche.codeQr} qr={affiche.qr ?? QR_DEFAUT} nom={affiche.nom} className="miniature" />
 }
@@ -93,8 +93,8 @@ export default function PageAffiches() {
                       </div>
                     </dl>
                     <div className="actions-affiche">
-                      <Link to={`/a/${a.codeQr}`} className="lien-panneau" title="Ouvre le parcours visiteur de cette affiche">
-                        <Icone nom="qr" taille={14} /> Tester le QR
+                      <Link to={`/backoffice/affiches/${a.id}/voir`} className="lien-panneau" title="Affiche en plein écran, QR code à scanner avec un téléphone">
+                        <Icone nom="qr" taille={14} /> Voir l’affiche
                       </Link>
                       <span className="actions-carte">
                         <button type="button" className="supprimer" onClick={() => setASupprimer(a)} aria-label={`Supprimer ${a.nom}`} title="Supprimer">
@@ -116,10 +116,9 @@ export default function PageAffiches() {
         cible={aSupprimer?.nom ?? null}
         description="Son QR code ne mènera plus à l’animation (le visiteur verra « QR code inconnu »). Pensez à retirer l’affiche imprimée. La suppression reste inscrite au journal."
         onFermer={() => setASupprimer(null)}
-        onConfirmer={() => {
-          const r = supprimerAffiche(aSupprimer!.id)
+        onConfirmer={async () => {
+          const r = await supprimerAffiche(aSupprimer!.id)
           if (r.ok) {
-            void supprimerImageAffiche(aSupprimer!.id)
             toast.afficher(`Affiche « ${aSupprimer!.nom} » supprimée`)
           }
           return r

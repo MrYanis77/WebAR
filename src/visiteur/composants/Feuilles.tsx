@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { LANGUES, useLangue, type CleTexte } from '../../commun/i18n'
 import { Icone } from '../../commun/Icone'
-import { useEtat } from '../../commun/store'
+import { useAffichesDiffusees, useDonneesPubliques } from '../donneesPubliques'
+import { animationsDuLieu, lieuxVisibles } from '../utils'
 import { usePosition } from '../contexte/position'
 import { marquerConsignesVues } from '../utils'
 import { CoucheModale, EnteteFeuille } from './Couche'
@@ -58,9 +59,11 @@ export function FeuilleEtats({ ouverte, onFermer }: { ouverte: boolean; onFermer
   const { t } = useLangue()
   const navigate = useNavigate()
   const { simuler, simulee } = usePosition()
-  const etat = useEtat()
+  const etat = useDonneesPubliques()
   const [cas, setCas] = useState<CasErreur | null>(null)
-  const afficheVille = etat.affiches.find((a) => a.id === 'af1')
+  const afficheVille = useAffichesDiffusees()[0]
+  // Arrivée simulée devant le premier lieu qui a une animation en cours.
+  const lieuAnime = lieuxVisibles(etat).find((l) => animationsDuLieu(etat, l.id).active) ?? lieuxVisibles(etat)[0]
   const fermer = () => {
     setCas(null)
     onFermer()
@@ -79,10 +82,11 @@ export function FeuilleEtats({ ouverte, onFermer }: { ouverte: boolean; onFermer
             <li>
               <button
                 type="button"
+                disabled={!lieuAnime && !simulee}
                 onClick={() => {
-                  simuler(simulee ? null : { latitude: 47.50985, longitude: 6.79845 })
+                  simuler(simulee || !lieuAnime ? null : { latitude: lieuAnime.latitude, longitude: lieuAnime.longitude })
                   fermer()
-                  navigate('/?lieu=chateau')
+                  navigate(lieuAnime ? `/?lieu=${lieuAnime.id}` : '/')
                 }}
               >
                 <span className="cyan">

@@ -779,3 +779,10 @@
 
 .affiche-maquette.importee { padding: 0; background: #e7e2da; }
 .affiche-maquette.importee .affiche-qr-cadre { box-shadow: none; }
+
+/* Modèle 3D de l'animation (Three.js) superposé à la caméra. */
+.modele-ra { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.modele-ra canvas { display: block; width: 100% !important; height: 100% !important; }
+.erreur-modele-ra { position: absolute; left: 50%; top: 50%; padding: 6px 10px; border-radius: 8px; background: rgb(30 32 36 / 0.75); color: #fff; font-size: 12px; transform: translate(-50%, -50%); }
+/* Caméra simulée sans visuel du lieu : fond neutre. */
+.fond-simule { background: radial-gradient(circle at 50% 35%, #4a4d53, #1e2024); }

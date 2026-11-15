@@ -1,10 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { genererStatistiques, VILLE_ID } from '../../commun/donnees'
 import { Icone } from '../../commun/Icone'
-import { imageLieu } from '../../commun/images'
-import { animationActive, publiable, reglePublication, useEtat } from '../../commun/store'
-import { proprietaireDe, signalementsDuPartenaire, useSession } from '../session'
+import { animationActive, publiable, reglePublication, useEtat, useStatistiques } from '../../commun/store'
+import { proprietaireDe, signalementsDuPartenaire, useSession, VILLE_ID } from '../session'
 import { BadgeStatut, CarteStat, EnTetePage, formaterDate, GraphiqueLignes, Legende, Panneau } from '../ui'
 
 export default function PageTableauDeBord() {
@@ -14,15 +12,15 @@ export default function PageTableauDeBord() {
   const [jours, setJours] = useState(30)
   const agent = session.role === 'AGENT'
   const proprio = proprietaireDe(session)
-  const facteur = agent ? 1 : 0.07
 
-  const stats = useMemo(() => genererStatistiques(jours).map((p) => ({ ...p, scans: Math.round(p.scans * facteur), lancements: Math.round(p.lancements * facteur) })), [jours, facteur])
-  const precedent = useMemo(() => genererStatistiques(jours * 2).slice(0, jours), [jours])
+  // Statistiques anonymes réelles (API) ; la période précédente sert au calcul de l'évolution.
+  const donneesStats = useStatistiques(jours).data
+  const stats = donneesStats?.serie ?? []
   const totalScans = stats.reduce((s, p) => s + p.scans, 0)
   const totalLanc = stats.reduce((s, p) => s + p.lancements, 0)
-  const evol = (a: number, b: number) => `${a >= b ? '+' : ''}${(((a - b) / Math.max(1, b)) * 100).toFixed(1).replace('.', ',')} %`
-  const scansPrec = precedent.reduce((s, p) => s + p.scans, 0) * facteur
-  const lancPrec = precedent.reduce((s, p) => s + p.lancements, 0) * facteur
+  const evol = (a: number, b: number) => (b ? `${a >= b ? '+' : ''}${(((a - b) / b) * 100).toFixed(1).replace('.', ',')} %` : undefined)
+  const scansPrec = donneesStats?.precedent.scans ?? 0
+  const lancPrec = donneesStats?.precedent.lancements ?? 0
 
   const animations = etat.animations.filter((a) => agent || a.proprietaireId === proprio)
   const affiches = etat.affiches.filter((a) => agent || a.proprietaireId === proprio)
@@ -184,7 +182,7 @@ export default function PageTableauDeBord() {
                         <tr key={a.id}>
                           <td>
                             <div className="cellule-titre">
-                              <span className="vignette">{imageLieu(lieu?.image) ? <img src={imageLieu(lieu?.image)} alt="" /> : <Icone nom={a.type === 'AFFICHE' ? 'affiche' : 'cube'} taille={16} />}</span>
+                              <span className="vignette">{lieu?.image ? <img src={lieu?.image} alt="" /> : <Icone nom={a.type === 'AFFICHE' ? 'affiche' : 'cube'} taille={16} />}</span>
                               <div>
                                 <strong>{a.titre}</strong>
                                 <small>{a.type === 'LIEU' ? 'Animation de lieu' : 'Animation d’affiche'}</small>
@@ -213,6 +211,7 @@ export default function PageTableauDeBord() {
                     <th>Conditions</th>
                     <th>Zone</th>
                     <th>Scans</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -232,6 +231,18 @@ export default function PageTableauDeBord() {
                         </td>
                         <td>{etat.zones.find((z) => z.id === a.zoneId)?.nom ?? (a.zoneProposeeId ? 'Proposition en attente' : 'Non attribuée')}</td>
                         <td>{a.scans.toLocaleString('fr-FR')}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn btn-secondaire petit"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              navigate(`/backoffice/affiches/${a.id}/voir`)
+                            }}
+                          >
+                            <Icone nom="qr" taille={14} /> Voir l’affiche
+                          </button>
+                        </td>
                       </tr>
                     )
                   })}
@@ -240,6 +251,39 @@ export default function PageTableauDeBord() {
             )}
           </div>
         </Panneau>
+
+        {/* Affiches de la Ville et des partenaires : ouverture en plein écran pour scanner le QR code. */}
+        {agent && (
+          <Panneau
+            titre="Affiches"
+            sousTitre="Affichez une affiche à l’écran et scannez son QR code avec un téléphone"
+            className="marge-haut"
+            action={
+              <Link to="/backoffice/affiches" className="lien-panneau">
+                Voir toutes les affiches <Icone nom="droite" taille={14} />
+              </Link>
+            }
+          >
+            {affiches.length === 0 ? (
+              <p className="cellule-vide">Aucune affiche pour le moment.</p>
+            ) : (
+              <ul className="liste-affiches-accueil">
+                {affiches.slice(0, 6).map((a) => (
+                  <li key={a.id}>
+                    <span className="vignette">{a.image?.url ? <img src={a.image.url} alt="" /> : <Icone nom="affiche" taille={16} />}</span>
+                    <div>
+                      <strong>{a.nom}</strong>
+                      <BadgeStatut statut={a.statut} />
+                    </div>
+                    <button type="button" className="btn btn-secondaire petit" onClick={() => navigate(`/backoffice/affiches/${a.id}/voir`)}>
+                      <Icone nom="qr" taille={14} /> Voir l’affiche
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panneau>
+        )}
       </div>
     </>
   )

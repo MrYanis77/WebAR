@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { Icone, type NomIcone } from '../commun/Icone'
-import { connexion, deconnexion, reinitialiserDemo, useEtat, type EtatDemo } from '../commun/store'
+import { deconnexion, useEtat, useNotifications, type EtatDonnees } from '../commun/store'
 import type { Role, Session } from '../commun/types'
 import './backoffice.css'
-import { SESSION_AGENT, SESSION_PARTENAIRE, signalementsDuPartenaire } from './session'
+import { signalementsDuPartenaire } from './session'
 import { PageConnexion, PageInscription } from './pages/Acces'
 import PageAffiches from './pages/PageAffiches'
 import PageAnimations from './pages/PageAnimations'
@@ -20,13 +20,14 @@ import PageScore from './pages/PageScore'
 import PageSignalements from './pages/PageSignalements'
 import PageStatistiques from './pages/PageStatistiques'
 import PageTableauDeBord from './pages/PageTableauDeBord'
+import PageVoirAffiche from './pages/PageVoirAffiche'
 
 interface ElementNav {
   to: string
   libelle: string
   icone: NomIcone
   role?: Role
-  badge?: (e: EtatDemo, s: Session) => number
+  badge?: (e: EtatDonnees, s: Session) => number
 }
 
 const NAVIGATION: { groupe?: string; elements: ElementNav[] }[] = [
@@ -65,20 +66,10 @@ const NAVIGATION: { groupe?: string; elements: ElementNav[] }[] = [
   { groupe: 'Suivi', elements: [{ to: '/backoffice/statistiques', libelle: 'Statistiques', icone: 'graphique' }] },
 ]
 
-function Notifications({ session }: { session: Session }) {
-  const etat = useEtat()
+/** Dernières notifications du compte (journal filtré par l'API) ; elles sont aussi envoyées par mail. */
+function Notifications() {
   const [ouvert, setOuvert] = useState(false)
-  const elements = useMemo(() => {
-    if (session.role === 'AGENT')
-      return etat.journal.filter((j) => ['SIGNALEMENT', 'INSCRIPTION', 'REEXAMEN_DEMANDE', 'ZONE_PROPOSEE', 'IMPORT_FICHIER'].includes(j.action)).slice(0, 6)
-    const nom = session.structure
-    const mesContenus = new Set([
-      ...etat.affiches.filter((a) => a.proprietaireId === session.partenaireId).map((a) => a.nom),
-      ...etat.animations.filter((a) => a.proprietaireId === session.partenaireId).map((a) => a.titre),
-      nom,
-    ])
-    return etat.journal.filter((j) => mesContenus.has(j.objet) && j.auteur !== nom).slice(0, 6)
-  }, [etat, session])
+  const elements = useNotifications(true).data ?? []
   return (
     <div className="notifications">
       <button type="button" className="bo-icone notif" onClick={() => setOuvert(!ouvert)} aria-expanded={ouvert} aria-label="Notifications">
@@ -113,7 +104,6 @@ function MiseEnPage({ session, children }: { session: Session; children: ReactNo
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const [menuOuvert, setMenuOuvert] = useState(false)
-  const [espaces, setEspaces] = useState(false)
   const partenaire = etat.partenaires.find((p) => p.id === session.partenaireId)
   const initiales = session.nom
     .split(' ')
@@ -135,25 +125,13 @@ function MiseEnPage({ session, children }: { session: Session; children: ReactNo
         </Link>
         <div className="bo-espace">
           <span>ESPACE</span>
-          <button type="button" onClick={() => setEspaces(!espaces)} aria-expanded={espaces}>
+          <div className="bo-espace-actuel">
             <i>{session.role === 'AGENT' ? 'VM' : initiales}</i>
             <div>
               <strong>{session.structure}</strong>
               <small>{session.role === 'AGENT' ? 'Agent municipal' : 'Partenaire'}</small>
             </div>
-            <Icone nom={espaces ? 'haut' : 'droite'} taille={16} />
-          </button>
-          {espaces && (
-            <div className="bo-espaces-liste">
-              <small>Démonstration : changer de rôle</small>
-              <button type="button" onClick={() => { connexion(SESSION_AGENT); setEspaces(false); navigate('/backoffice') }}>
-                Ville de Montbéliard — agent
-              </button>
-              <button type="button" onClick={() => { connexion(SESSION_PARTENAIRE); setEspaces(false); navigate('/backoffice') }}>
-                Festival des Mômes — partenaire
-              </button>
-            </div>
-          )}
+          </div>
         </div>
         <nav className="bo-nav" aria-label="Back-office">
           {NAVIGATION.map((g, gi) => {
@@ -179,24 +157,20 @@ function MiseEnPage({ session, children }: { session: Session; children: ReactNo
         <div className="bo-aide">
           <Icone nom="info" taille={18} />
           <strong>Besoin d’aide ?</strong>
-          <p>Données de démonstration stockées dans ce navigateur.</p>
-          <button type="button" onClick={() => reinitialiserDemo()}>
-            Réinitialiser la démo
-          </button>
+          <p>Les décisions et alertes sont aussi envoyées par mail. Contact : service communication de la Ville.</p>
         </div>
         <div className="bo-utilisateur">
           <span>{initiales}</span>
           <div>
             <strong>{session.nom}</strong>
-            <small>{session.role === 'AGENT' ? 'Administratrice · 2FA' : partenaire?.secteur}</small>
+            <small>{session.role === 'AGENT' ? 'Agent · double authentification' : partenaire?.secteur}</small>
           </div>
           <button
             type="button"
             className="bo-icone sombre"
             aria-label="Se déconnecter"
             onClick={() => {
-              deconnexion()
-              navigate('/backoffice/connexion')
+              void deconnexion().finally(() => navigate('/backoffice/connexion'))
             }}
           >
             <Icone nom="sortie" taille={16} />
@@ -209,10 +183,10 @@ function MiseEnPage({ session, children }: { session: Session; children: ReactNo
             <Icone nom="menu" taille={20} />
           </button>
           <strong>Montbéliard Expériences</strong>
-          <Notifications session={session} />
+          <Notifications />
         </div>
         <div className="bo-notif-bureau">
-          <Notifications session={session} />
+          <Notifications />
         </div>
         {session.role === 'PARTENAIRE' && partenaire && !partenaire.charteAccepteeLe && !pathname.endsWith('/charte') && (
           <div className="bo-alerte">
@@ -248,10 +222,13 @@ function PageInterdite() {
   )
 }
 
-function Protegee({ role, children }: { role?: Role; children: ReactNode }) {
-  const { session } = useEtat()
+/** Pages réservées : la session est lue auprès de l'API (cookie httpOnly) avant tout affichage. */
+function Protegee({ role, sansMenu, children }: { role?: Role; sansMenu?: boolean; children: ReactNode }) {
+  const { session, chargement } = useEtat()
   const { pathname } = useLocation()
+  if (chargement && !session) return <div className="chargement-plein">Chargement…</div>
   if (!session) return <Navigate to="/backoffice/connexion" replace state={{ depuis: pathname }} />
+  if (sansMenu) return <>{children}</>
   return <MiseEnPage session={session}>{role && session.role !== role ? <PageInterdite /> : children}</MiseEnPage>
 }
 
@@ -271,6 +248,7 @@ export default function BackOffice() {
       <Route path="affiches" element={<Protegee><PageAffiches /></Protegee>} />
       <Route path="affiches/nouvelle" element={<Protegee><PageEditeurAffiche /></Protegee>} />
       <Route path="affiches/:id" element={<Protegee><PageEditeurAffiche /></Protegee>} />
+      <Route path="affiches/:id/voir" element={<Protegee sansMenu><PageVoirAffiche /></Protegee>} />
       <Route path="fichiers" element={<Protegee><PageFichiers /></Protegee>} />
       <Route path="statistiques" element={<Protegee><PageStatistiques /></Protegee>} />
       <Route path="charte" element={<Protegee><PageCharte /></Protegee>} />

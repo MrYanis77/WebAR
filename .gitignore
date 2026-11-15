@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Configuration locale et fichiers importés
+.env
+uploads/
+api/generated/
+uploads-test/

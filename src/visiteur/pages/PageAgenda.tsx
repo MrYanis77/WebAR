@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useLangue } from '../../commun/i18n'
 import { Icone } from '../../commun/Icone'
-import { imageLieu } from '../../commun/images'
-import { animationActive, useEtat } from '../../commun/store'
+import { animationActive } from '../../commun/store'
+import { useDonneesPubliques } from '../donneesPubliques'
 import { BoutonLangue } from '../composants/Feuilles'
 import { NavBas } from '../composants/NavBas'
 import { lieuxVisibles } from '../utils'
@@ -11,7 +11,7 @@ import { lieuxVisibles } from '../utils'
 /** Agenda : animations de lieu en cours et à venir, selon leur période de validité (BF-22, BF-26). */
 export default function PageAgenda() {
   const { t, date } = useLangue()
-  const etat = useEtat()
+  const etat = useDonneesPubliques()
   const navigate = useNavigate()
   const lieux = useMemo(() => lieuxVisibles(etat), [etat])
   const [filtre, setFiltre] = useState<string>('tous')
@@ -48,7 +48,7 @@ export default function PageAgenda() {
         {elements.length === 0 && <p className="note-vide">{t('agenda.vide')}</p>}
         {elements.map(({ a, lieu, enCours }) => (
           <button key={a.id} type="button" className="carte-agenda" onClick={() => navigate(`/lieux/${lieu.id}`)}>
-            {imageLieu(lieu.image) ? <img src={imageLieu(lieu.image)} alt="" /> : <div className="image-vide" />}
+            {lieu.image ? <img src={lieu.image} alt="" /> : <div className="image-vide" />}
             <div>
               <span className={`pill ${enCours ? 'pill-cyan' : 'pill-wine'}`}>
                 {enCours ? t('agenda.enCours') : date(a.debut, { day: 'numeric', month: 'short' })}

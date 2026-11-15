@@ -3,8 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { distanceM, formaterDistance, minutesAPied, type Coordonnees } from '../../commun/geo'
 import { useLangue } from '../../commun/i18n'
 import { Icone } from '../../commun/Icone'
-import { imageLieu } from '../../commun/images'
-import { useEtat } from '../../commun/store'
+import { useAffichePublique, useDonneesPubliques } from '../donneesPubliques'
 import type { Lieu } from '../../commun/types'
 import type { CentrageCarte } from '../composants/CarteLieux'
 import { CoucheModale } from '../composants/Couche'
@@ -41,7 +40,7 @@ function useLarge() {
 
 export default function PageCarte() {
   const { t, tr, date, langue } = useLangue()
-  const etat = useEtat()
+  const etat = useDonneesPubliques()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const position = usePosition()
@@ -49,7 +48,8 @@ export default function PageCarte() {
 
   const lieuParam = params.get('lieu')
   const codeAffiche = params.get('affiche')
-  const affichePromo = codeAffiche ? etat.affiches.find((a) => a.codeQr === codeAffiche) : undefined
+  // Arrivée depuis une affiche : son nom est relu dans le cache de la requête publique.
+  const affichePromo = useAffichePublique(codeAffiche).donnees?.affiche
 
   const [selection, setSelection] = useState<string | null>(() => lieuParam ?? lieux[0]?.id ?? null)
   const [centrage, setCentrage] = useState<CentrageCarte | null>(null)
@@ -304,7 +304,7 @@ export default function PageCarte() {
                 <span className="poignee" aria-hidden="true" />
               </button>
               <div className="fiche-carte-image">
-                {imageLieu(lieu.image) ? <img src={imageLieu(lieu.image)} alt="" /> : <div className="image-vide" />}
+                {lieu.image ? <img src={lieu.image} alt="" /> : <div className="image-vide" />}
                 {active && !repliee && <span className="pill pill-cyan">{t('carte.experienceRA')}</span>}
               </div>
               <div className="fiche-carte-texte">

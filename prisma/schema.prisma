@@ -1,0 +1,487 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../api/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model acceptation_charte {
+  id             Int      @id @default(autoincrement()) @db.UnsignedInt
+  compte_id      Int      @db.UnsignedInt
+  version_charte String   @db.VarChar(20)
+  acceptee_le    DateTime @default(now()) @db.DateTime(0)
+  compte         compte   @relation(fields: [compte_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_charte_compte")
+
+  @@unique([compte_id, version_charte], map: "uk_charte_compte_version")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model affiche {
+  id                                                      Int             @id @default(autoincrement()) @db.UnsignedInt
+  proprietaire_id                                         Int             @db.UnsignedInt
+  image_id                                                Int             @db.UnsignedInt
+  cible_id                                                Int?            @unique(map: "uk_affiche_cible") @db.UnsignedInt
+  animation_affiche_id                                    Int             @db.UnsignedInt
+  lieu_id                                                 Int             @db.UnsignedInt
+  animation_lieu_id                                       Int?            @db.UnsignedInt
+  nom                                                     String          @db.VarChar(60)
+  accroche                                                String?         @db.VarChar(40)
+  texte                                                   String          @db.VarChar(300)
+  code_qr                                                 String          @unique(map: "uk_affiche_code_qr") @db.Char(22)
+  format                                                  affiche_format  @default(A3)
+  qr_x                                                    Decimal         @default(0.7400) @db.Decimal(5, 4)
+  qr_y                                                    Decimal         @default(0.7600) @db.Decimal(5, 4)
+  qr_taille                                               Decimal         @default(0.2000) @db.Decimal(5, 4)
+  qr_fond                                                 Boolean         @default(true)
+  qr_mention                                              Boolean         @default(true)
+  zone_id                                                 Int?            @db.UnsignedInt
+  zone_proposee_id                                        Int?            @db.UnsignedInt
+  debut                                                   DateTime        @db.DateTime(0)
+  fin                                                     DateTime        @db.DateTime(0)
+  statut                                                  affiche_statut  @default(BROUILLON)
+  chemin_pdf                                              String?         @db.VarChar(255)
+  cree_le                                                 DateTime        @default(now()) @db.DateTime(0)
+  modifie_le                                              DateTime        @default(now()) @db.DateTime(0)
+  animation_affiche_animation_affiche_idToanimation       animation       @relation("affiche_animation_affiche_idToanimation", fields: [animation_affiche_id], references: [id], onUpdate: Restrict, map: "fk_affiche_anim_affiche")
+  animation_affiche_animation_lieu_idToanimation          animation?      @relation("affiche_animation_lieu_idToanimation", fields: [animation_lieu_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "fk_affiche_anim_lieu")
+  cible                                                   cible?          @relation(fields: [cible_id], references: [id], onUpdate: Restrict, map: "fk_affiche_cible")
+  fichier                                                 fichier         @relation(fields: [image_id], references: [id], onUpdate: Restrict, map: "fk_affiche_image")
+  lieu                                                    lieu            @relation(fields: [lieu_id], references: [id], onUpdate: Restrict, map: "fk_affiche_lieu")
+  compte                                                  compte          @relation(fields: [proprietaire_id], references: [id], onUpdate: Restrict, map: "fk_affiche_proprietaire")
+  zone_affichage_affiche_zone_idTozone_affichage          zone_affichage? @relation("affiche_zone_idTozone_affichage", fields: [zone_id], references: [id], onUpdate: Restrict, map: "fk_affiche_zone")
+  zone_affichage_affiche_zone_proposee_idTozone_affichage zone_affichage? @relation("affiche_zone_proposee_idTozone_affichage", fields: [zone_proposee_id], references: [id], onUpdate: Restrict, map: "fk_affiche_zone_proposee")
+  decision                                                decision[]
+  signalement                                             signalement[]
+  statistique                                             statistique[]
+
+  @@index([animation_affiche_id], map: "fk_affiche_anim_affiche")
+  @@index([animation_lieu_id], map: "fk_affiche_anim_lieu")
+  @@index([image_id], map: "fk_affiche_image")
+  @@index([zone_id], map: "fk_affiche_zone")
+  @@index([zone_proposee_id], map: "fk_affiche_zone_proposee")
+  @@index([statut, debut, fin], map: "ix_affiche_diffusion")
+  @@index([proprietaire_id], map: "ix_affiche_proprietaire")
+  @@index([lieu_id], map: "ix_affiche_lieu")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model animation {
+  id                                              Int                   @id @default(autoincrement()) @db.UnsignedInt
+  proprietaire_id                                 Int                   @db.UnsignedInt
+  titre                                           String                @db.VarChar(120)
+  type                                            animation_type
+  lieu_id                                         Int?                  @db.UnsignedInt
+  modele_id                                       Int                   @db.UnsignedInt
+  son_id                                          Int?                  @db.UnsignedInt
+  clip_id                                         Int?                  @db.UnsignedInt
+  lecture                                         animation_lecture     @default(BOUCLE)
+  declencheur                                     animation_declencheur
+  duree_s                                         Int                   @db.UnsignedSmallInt
+  debut                                           DateTime              @db.DateTime(0)
+  fin                                             DateTime?             @db.DateTime(0)
+  statut                                          animation_statut      @default(BROUILLON)
+  transcription_fr                                String                @db.Text
+  transcription_en                                String?               @db.Text
+  transcription_de                                String?               @db.Text
+  cree_le                                         DateTime              @default(now()) @db.DateTime(0)
+  modifie_le                                      DateTime              @default(now()) @db.DateTime(0)
+  affiche_affiche_animation_affiche_idToanimation affiche[]             @relation("affiche_animation_affiche_idToanimation")
+  affiche_affiche_animation_lieu_idToanimation    affiche[]             @relation("affiche_animation_lieu_idToanimation")
+  fichier_clip                                    fichier_clip?         @relation(fields: [modele_id, clip_id], references: [fichier_id, id], onUpdate: Restrict, map: "fk_animation_clip")
+  lieu                                            lieu?                 @relation(fields: [lieu_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "fk_animation_lieu")
+  fichier_animation_modele_idTofichier            fichier               @relation("animation_modele_idTofichier", fields: [modele_id], references: [id], onUpdate: Restrict, map: "fk_animation_modele")
+  compte                                          compte                @relation(fields: [proprietaire_id], references: [id], onUpdate: Restrict, map: "fk_animation_proprietaire")
+  fichier_animation_son_idTofichier               fichier?              @relation("animation_son_idTofichier", fields: [son_id], references: [id], onUpdate: Restrict, map: "fk_animation_son")
+  decision                                        decision[]
+  signalement                                     signalement[]
+  statistique                                     statistique[]
+
+  @@index([modele_id, clip_id], map: "fk_animation_clip")
+  @@index([proprietaire_id], map: "fk_animation_proprietaire")
+  @@index([son_id], map: "fk_animation_son")
+  @@index([statut, debut, fin], map: "ix_animation_diffusion")
+  @@index([lieu_id], map: "ix_animation_lieu")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model cible {
+  id              Int      @id @default(autoincrement()) @db.UnsignedInt
+  lieu_id         Int?     @db.UnsignedInt
+  chemin_mind     String   @db.VarChar(255)
+  orientation_deg Int?     @db.UnsignedSmallInt
+  cree_le         DateTime @default(now()) @db.DateTime(0)
+  affiche         affiche?
+  lieu            lieu?    @relation(fields: [lieu_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_cible_lieu")
+
+  @@index([lieu_id], map: "fk_cible_lieu")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model compte {
+  id                                       Int                  @id @default(autoincrement()) @db.UnsignedInt
+  email                                    String               @unique(map: "uk_compte_email") @db.VarChar(255)
+  mot_de_passe_hash                        String               @db.VarChar(255)
+  role                                     compte_role
+  statut                                   compte_statut        @default(EN_ATTENTE)
+  motif_statut                             String?              @db.VarChar(500)
+  nom_affiche                              String               @db.VarChar(100)
+  echecs_connexion                         Int                  @default(0) @db.UnsignedTinyInt
+  bloque_jusqua                            DateTime?            @db.DateTime(0)
+  derniere_connexion                       DateTime?            @db.DateTime(0)
+  cree_le                                  DateTime             @default(now()) @db.DateTime(0)
+  acceptation_charte                       acceptation_charte[]
+  affiche                                  affiche[]
+  animation                                animation[]
+  decision_decision_agent_idTocompte       decision[]           @relation("decision_agent_idTocompte")
+  decision_decision_compte_vise_idTocompte decision[]           @relation("decision_compte_vise_idTocompte")
+  fichier                                  fichier[]
+  journal                                  journal[]
+  partenaire                               partenaire?
+
+  @@index([role, statut], map: "ix_compte_role_statut")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model decision {
+  id                                     Int                    @id @default(autoincrement()) @db.UnsignedInt
+  agent_id                               Int                    @db.UnsignedInt
+  contenu_type                           decision_contenu_type
+  affiche_id                             Int?                   @db.UnsignedInt
+  animation_id                           Int?                   @db.UnsignedInt
+  fichier_id                             Int?                   @db.UnsignedInt
+  compte_vise_id                         Int?                   @db.UnsignedInt
+  action                                 decision_action
+  motif                                  String                 @db.VarChar(500)
+  decide_le                              DateTime               @default(now()) @db.DateTime(0)
+  reponse_partenaire                     String?                @db.VarChar(1000)
+  reexamen_demande                       Boolean                @default(false)
+  reexamen_clos_le                       DateTime?              @db.DateTime(0)
+  affiche                                affiche?               @relation(fields: [affiche_id], references: [id], onUpdate: Restrict, map: "fk_decision_affiche")
+  compte_decision_agent_idTocompte       compte                 @relation("decision_agent_idTocompte", fields: [agent_id], references: [id], onUpdate: Restrict, map: "fk_decision_agent")
+  animation                              animation?             @relation(fields: [animation_id], references: [id], onUpdate: Restrict, map: "fk_decision_animation")
+  compte_decision_compte_vise_idTocompte compte?                @relation("decision_compte_vise_idTocompte", fields: [compte_vise_id], references: [id], onUpdate: Restrict, map: "fk_decision_compte")
+  fichier                                fichier?               @relation(fields: [fichier_id], references: [id], onUpdate: Restrict, map: "fk_decision_fichier")
+  decision_signalement                   decision_signalement[]
+
+  @@index([affiche_id], map: "fk_decision_affiche")
+  @@index([agent_id], map: "fk_decision_agent")
+  @@index([animation_id], map: "fk_decision_animation")
+  @@index([compte_vise_id], map: "fk_decision_compte")
+  @@index([fichier_id], map: "fk_decision_fichier")
+  @@index([reexamen_demande], map: "ix_decision_reexamen")
+}
+
+model decision_signalement {
+  decision_id    Int         @db.UnsignedInt
+  signalement_id Int         @db.UnsignedInt
+  decision       decision    @relation(fields: [decision_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_ds_decision")
+  signalement    signalement @relation(fields: [signalement_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_ds_signalement")
+
+  @@id([decision_id, signalement_id])
+  @@index([signalement_id], map: "fk_ds_signalement")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model fichier {
+  id                                     Int                     @id @default(autoincrement()) @db.UnsignedInt
+  proprietaire_id                        Int                     @db.UnsignedInt
+  type                                   fichier_type
+  usage_fichier                          fichier_usage_fichier?
+  nom_original                           String                  @db.VarChar(255)
+  chemin                                 String                  @unique(map: "uk_fichier_chemin") @db.VarChar(255)
+  chemin_original                        String?                 @db.VarChar(255)
+  type_mime                              String                  @db.VarChar(100)
+  taille_octets                          Int                     @db.UnsignedInt
+  largeur_px                             Int?                    @db.UnsignedSmallInt
+  hauteur_px                             Int?                    @db.UnsignedSmallInt
+  nb_triangles                           Int?                    @db.UnsignedInt
+  texture_max_px                         Int?                    @db.UnsignedSmallInt
+  nb_clips                               Int                     @default(0) @db.UnsignedSmallInt
+  duree_s                                Decimal?                @db.Decimal(6, 2)
+  statut_controle                        fichier_statut_controle @default(EN_COURS)
+  raison_refus                           String?                 @db.VarChar(500)
+  controle_termine_le                    DateTime?               @db.DateTime(0)
+  cree_le                                DateTime                @default(now()) @db.DateTime(0)
+  affiche                                affiche[]
+  animation_animation_modele_idTofichier animation[]             @relation("animation_modele_idTofichier")
+  animation_animation_son_idTofichier    animation[]             @relation("animation_son_idTofichier")
+  decision                               decision[]
+  compte                                 compte                  @relation(fields: [proprietaire_id], references: [id], onUpdate: Restrict, map: "fk_fichier_proprietaire")
+  fichier_clip                           fichier_clip[]
+  lieu                                   lieu[]
+  photo_facade                           photo_facade[]
+
+  @@index([proprietaire_id, type], map: "ix_fichier_proprietaire")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model fichier_clip {
+  id         Int         @id @default(autoincrement()) @db.UnsignedInt
+  fichier_id Int         @db.UnsignedInt
+  indice     Int         @db.UnsignedSmallInt
+  nom        String      @db.VarChar(100)
+  duree_s    Decimal     @db.Decimal(8, 3)
+  nb_pistes  Int         @default(0) @db.UnsignedSmallInt
+  animation  animation[]
+  fichier    fichier     @relation(fields: [fichier_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_clip_fichier")
+
+  @@unique([fichier_id, id], map: "uk_clip_fichier")
+  @@unique([fichier_id, indice], map: "uk_clip_indice")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model journal {
+  id             BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  auteur_id      Int?     @db.UnsignedInt
+  auteur_libelle String   @db.VarChar(150)
+  action         String   @db.VarChar(50)
+  objet_type     String   @db.VarChar(30)
+  objet_id       Int?     @db.UnsignedInt
+  objet_libelle  String   @db.VarChar(150)
+  details        String?  @db.LongText
+  cree_le        DateTime @default(now())
+  compte         compte?  @relation(fields: [auteur_id], references: [id], onUpdate: Restrict, map: "fk_journal_auteur")
+
+  @@index([auteur_id], map: "fk_journal_auteur")
+  @@index([action], map: "ix_journal_action")
+  @@index([cree_le], map: "ix_journal_date")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model lieu {
+  id               Int            @id @default(autoincrement()) @db.UnsignedInt
+  nom              String         @db.VarChar(150)
+  nom_court        String         @db.VarChar(20)
+  categorie_fr     String         @db.VarChar(80)
+  categorie_en     String?        @db.VarChar(80)
+  categorie_de     String?        @db.VarChar(80)
+  adresse          String         @db.VarChar(255)
+  description_fr   String         @db.Text
+  description_en   String?        @db.Text
+  description_de   String?        @db.Text
+  latitude         Decimal        @db.Decimal(9, 6)
+  longitude        Decimal        @db.Decimal(9, 6)
+  rayon_m          Int            @default(50) @db.UnsignedSmallInt
+  visuel_id        Int?           @db.UnsignedInt
+  acces_libre      Boolean        @default(true)
+  equipe_domicile  String?        @db.VarChar(30)
+  equipe_exterieur String?        @db.VarChar(30)
+  score_domicile   Int?           @db.UnsignedTinyInt
+  score_exterieur  Int?           @db.UnsignedTinyInt
+  competition      String?        @db.VarChar(80)
+  etat_match       String?        @db.VarChar(40)
+  score_maj_le     DateTime?      @db.DateTime(0)
+  actif            Boolean        @default(true)
+  cree_le          DateTime       @default(now()) @db.DateTime(0)
+  modifie_le       DateTime       @default(now()) @db.DateTime(0)
+  affiche          affiche[]
+  animation        animation[]
+  cible            cible[]
+  fichier          fichier?       @relation(fields: [visuel_id], references: [id], onUpdate: Restrict, map: "fk_lieu_visuel")
+  photo_facade     photo_facade[]
+
+  @@index([visuel_id], map: "fk_lieu_visuel")
+  @@index([actif], map: "ix_lieu_actif")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model partenaire {
+  id                Int     @id @default(autoincrement()) @db.UnsignedInt
+  compte_id         Int     @unique(map: "uk_partenaire_compte") @db.UnsignedInt
+  nom_structure     String  @db.VarChar(150)
+  secteur           String  @db.VarChar(100)
+  adresse           String  @db.VarChar(255)
+  contact_telephone String? @db.VarChar(20)
+  compte            compte  @relation(fields: [compte_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_partenaire_compte")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model photo_facade {
+  id         Int                 @id @default(autoincrement()) @db.UnsignedInt
+  lieu_id    Int                 @db.UnsignedInt
+  fichier_id Int                 @db.UnsignedInt
+  moment     photo_facade_moment @default(JOUR)
+  detail     String?             @db.VarChar(80)
+  fichier    fichier             @relation(fields: [fichier_id], references: [id], onUpdate: Restrict, map: "fk_photo_fichier")
+  lieu       lieu                @relation(fields: [lieu_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_photo_lieu")
+
+  @@index([fichier_id], map: "fk_photo_fichier")
+  @@index([lieu_id], map: "fk_photo_lieu")
+}
+
+model session {
+  session_id String  @id @db.VarChar(128)
+  expires    Int     @db.UnsignedInt
+  data       String? @db.MediumText
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model signalement {
+  id                   Int                    @id @default(autoincrement()) @db.UnsignedInt
+  affiche_id           Int?                   @db.UnsignedInt
+  animation_id         Int?                   @db.UnsignedInt
+  motif                signalement_motif
+  commentaire          String?                @db.VarChar(500)
+  statut               signalement_statut     @default(NOUVEAU)
+  cree_le              DateTime               @default(now()) @db.DateTime(0)
+  decision_signalement decision_signalement[]
+  affiche              affiche?               @relation(fields: [affiche_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_signalement_affiche")
+  animation            animation?             @relation(fields: [animation_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_signalement_animation")
+
+  @@index([affiche_id], map: "ix_signalement_affiche")
+  @@index([animation_id], map: "ix_signalement_animation")
+  @@index([statut, cree_le], map: "ix_signalement_file")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model statistique {
+  id           BigInt                   @id @default(autoincrement()) @db.UnsignedBigInt
+  type         statistique_type
+  affiche_id   Int?                     @db.UnsignedInt
+  animation_id Int?                     @db.UnsignedInt
+  declencheur  statistique_declencheur?
+  heure        DateTime                 @db.DateTime(0)
+  affiche      affiche?                 @relation(fields: [affiche_id], references: [id], onUpdate: Restrict, map: "fk_stat_affiche")
+  animation    animation?               @relation(fields: [animation_id], references: [id], onUpdate: Restrict, map: "fk_stat_animation")
+
+  @@index([affiche_id, type], map: "ix_stat_affiche")
+  @@index([animation_id, type], map: "ix_stat_animation")
+  @@index([heure, type], map: "ix_stat_heure")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model zone_affichage {
+  id                                               Int                       @id @default(autoincrement()) @db.UnsignedInt
+  nom                                              String                    @db.VarChar(150)
+  adresse                                          String                    @db.VarChar(255)
+  latitude                                         Decimal?                  @db.Decimal(9, 6)
+  longitude                                        Decimal?                  @db.Decimal(9, 6)
+  format_max                                       zone_affichage_format_max @default(A2)
+  regles                                           String?                   @db.Text
+  active                                           Boolean                   @default(true)
+  affiche_affiche_zone_idTozone_affichage          affiche[]                 @relation("affiche_zone_idTozone_affichage")
+  affiche_affiche_zone_proposee_idTozone_affichage affiche[]                 @relation("affiche_zone_proposee_idTozone_affichage")
+}
+
+enum statistique_type {
+  SCAN
+  LANCEMENT
+}
+
+enum decision_contenu_type {
+  AFFICHE
+  ANIMATION
+  FICHIER
+  COMPTE
+}
+
+enum fichier_type {
+  MODELE_3D
+  SON
+  IMAGE
+}
+
+enum animation_type {
+  AFFICHE
+  LIEU
+}
+
+enum compte_role {
+  AGENT
+  PARTENAIRE
+}
+
+enum fichier_usage_fichier {
+  AFFICHE
+  LIEU
+}
+
+enum photo_facade_moment {
+  JOUR
+  NUIT
+}
+
+enum signalement_motif {
+  ILLICITE
+  TROMPEUR
+  CHOQUANT
+  PARTISAN
+  ATTEINTE_DROITS
+  AUTRE
+}
+
+enum compte_statut {
+  EN_ATTENTE
+  VERIFIE
+  REFUSE
+  SUSPENDU
+}
+
+enum statistique_declencheur {
+  AFFICHE
+  MONUMENT
+  MANUEL
+}
+
+enum signalement_statut {
+  NOUVEAU
+  EN_COURS
+  TRAITE
+}
+
+enum zone_affichage_format_max {
+  A4
+  A3
+  A2
+  A1
+  A0
+}
+
+enum decision_action {
+  MAINTENIR
+  SUSPENDRE
+  SUPPRIMER
+  REACTIVER
+}
+
+enum animation_lecture {
+  BOUCLE
+  UNE_FOIS
+}
+
+enum animation_declencheur {
+  AFFICHE
+  MONUMENT
+  MANUEL
+}
+
+enum affiche_format {
+  A4
+  A3
+  A2
+  A1
+  A0
+}
+
+enum animation_statut {
+  BROUILLON
+  PUBLIEE
+  SUSPENDUE
+  RETIREE
+}
+
+enum fichier_statut_controle {
+  EN_COURS
+  CONFORME
+  REFUSE
+}
+
+enum affiche_statut {
+  BROUILLON
+  PUBLIEE
+  SUSPENDUE
+  RETIREE
+}

@@ -1,4 +1,4 @@
-// Effets sonores synthétisés avec Web Audio (BF-20). Sur iPhone, le contexte audio
+// Son des animations (BF-20) : fichier importé par l'éditeur, ou effets synthétisés avec Web Audio. Sur iPhone, le contexte audio
 // doit être déverrouillé par un geste de l'utilisateur : on l'appelle depuis « Autoriser et commencer ».
 
 type Theme = 'cloches' | 'stade' | 'affiche'
@@ -80,13 +80,34 @@ export function jouerTheme(theme: Theme) {
 export function arreterSon() {
   if (boucle !== null) window.clearInterval(boucle)
   boucle = null
+  lecteur?.pause()
+  lecteur = null
 }
 
 export function couperSon(valeur: boolean) {
   muet = valeur
+  if (lecteur) lecteur.muted = valeur
   if (sortie && ctx) sortie.gain.setTargetAtTime(valeur ? 0 : 0.35, ctx.currentTime, 0.05)
 }
 
 export function estMuet() {
   return muet
+}
+
+// ---------------------------------------------------------------- son de l'animation (fichier importé)
+
+let lecteur: HTMLAudioElement | null = null
+
+/**
+ * Joue le son de l'animation (MP3/AAC servi par l'API, ≤ 2 Mo). La lecture démarre après le geste
+ * « Autoriser et commencer » ; la coupure du son est conservée d'une animation à l'autre.
+ */
+export function jouerFichier(url: string, enBoucle: boolean) {
+  arreterSon()
+  lecteur = new Audio(url)
+  lecteur.loop = enBoucle
+  lecteur.muted = muet
+  void lecteur.play().catch(() => {
+    /* lecture refusée par le navigateur (aucun geste) : l'animation continue sans son */
+  })
 }

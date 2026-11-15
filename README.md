@@ -4,44 +4,73 @@ Application web de réalité augmentée (sans installation) qui relie le patrimo
 
 Le design reprend la maquette Figma *maquette-projet-co-test* (palette `--wine #7b1e2e`, `--cyan #4fd1c5`, `--chalk #faf8f4`, `--ink #1e2024`, polices Bricolage Grotesque et Inter). Les pages et états absents de la maquette ont été conçus dans le même style à partir du cahier des charges fonctionnel et technique.
 
-## Lancer le projet
+## Architecture
 
-```bash
-npm install
-npm run dev        # http://localhost:5173
-npm run build      # vérification TypeScript + build de production
-```
+| Partie | Technologies (cahier des charges technique) |
+| --- | --- |
+| Application visiteur et back-office (`src/`) | React 19, TypeScript, Vite, React Router, TanStack Query, MapLibre GL JS, Three.js, ALTCHA (widget) |
+| API (`api/`) | Node.js 24, Express 5, Prisma 7 (MariaDB/MySQL), express-session + express-mysql-session, Argon2id, double authentification par code envoyé par mail (Nodemailer), helmet, csrf-csrf, express-rate-limit, multer + file-type, glTF-Validator + glTF-Transform, ffprobe, sharp, pdf-lib + qrcode, p-queue, Nodemailer, pino |
+| Partagé (`src/commun/`) | types, constantes et schémas Zod utilisés à la fois par l'API et les formulaires |
+| Tests (`api/tests/`) | Vitest + Supertest sur une base dédiée `webar_test` |
 
-L'application visiteur occupe tout l'écran ; sur ordinateur, elle garde la largeur d'un smartphone (480 px max.). Une bascule « Application visiteur / Back-office » en bas à droite permet de passer de l'une à l'autre (masquée sur smartphone).
+Le front appelle l'API sous `/api/v1` (proxy Vite en développement) ; les fichiers importés sont servis sous `/uploads`. Il n'y a plus aucune donnée de démonstration : tout est lu et écrit dans la base.
 
-### Déploiement sur Vercel
+## Installation
 
-Le fichier `vercel.json` est prêt : build `npm run build`, dossier `dist`, et redirection de toutes les routes vers `index.html` (indispensable pour ouvrir directement `/a/<code>` ou `/backoffice`). Deux façons de déployer :
+Prérequis : Node.js 24, MariaDB ou MySQL (XAMPP convient), et facultativement [Mailpit](https://mailpit.axllent.org/) pour voir les mails envoyés.
 
-- importer le dépôt GitHub sur [vercel.com/new](https://vercel.com/new) (aucun réglage à changer) ;
-- ou en ligne de commande : `npx vercel` puis `npx vercel --prod`.
+1. **Dépendances** : `npm install` (génère aussi le client Prisma).
+2. **Configuration** : copier `.env.example` en `.env` et remplir les secrets (une valeur aléatoire par secret, par exemple `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`). `DATABASE_URL` pointe sur la base `webar`.
+3. **Base de données** : créer la base `webar` (phpMyAdmin ou `CREATE DATABASE webar`), puis importer le script :
 
-Vercel sert le site en HTTPS, ce qui permet d'utiliser la caméra et la géolocalisation sur smartphone.
+   ```bash
+   mysql -u root webar < database/montbeliard_webar.sql
+   ```
 
-Comptes de démonstration du back-office (`/backoffice`) — tout mot de passe de 8 caractères ou plus est accepté :
+   Le script crée 17 tables et 6 vues, sans aucune donnée (il supprime d'abord les tables existantes).
+4. **Premier agent de la mairie** (aucun compte n'existe à l'installation) :
 
-| Rôle | E-mail | Remarque |
+   ```bash
+   npm run creer-agent -- --email prenom.nom@montbeliard.fr --nom "Prénom Nom"
+   ```
+
+   La commande affiche le mot de passe généré. **La double authentification est désactivée provisoirement** (`DOUBLE_AUTHENTIFICATION=false` dans `.env`) : l'agent se connecte avec son seul mot de passe. Avec `DOUBLE_AUTHENTIFICATION=true`, à chaque connexion, l'agent saisit son mot de passe puis un code à 6 chiffres reçu par mail (valable 10 minutes, 5 essais, renvoi possible après 30 s). Aucune application d'authentification ni QR code n'est nécessaire.
+5. **Lancement** : `npm run dev` démarre l'API (port `API_PORT`, 3000) et Vite (http://localhost:5173).
+
+Les partenaires créent leur compte sur `/backoffice/inscription` ; un agent le vérifie dans « Partenaires », puis le partenaire accepte la charte avant d'importer des fichiers.
+
+Sans serveur SMTP (Mailpit sur le port 1025), les mails ne partent pas : ils sont consignés comme avertissements dans les journaux de l'API. En développement uniquement, le code de connexion des agents y est alors écrit pour pouvoir se connecter ; en production, la connexion échoue (503) tant que le mail ne peut pas partir.
+
+## Tester une affiche avec un téléphone
+
+1. Le PC et le téléphone sont sur le **même réseau Wi-Fi**.
+2. Lancer `npm run dev:mobile` : l'API et le site démarrent en **HTTPS** (certificat auto-signé), car un téléphone n'autorise la caméra que sur une page HTTPS. Vite affiche l'adresse réseau, par exemple `https://192.168.1.20:5173`.
+3. Sur le PC, ouvrir `https://localhost:5173/backoffice` (accepter l'avertissement de certificat), se connecter, puis cliquer sur **Voir l'affiche** (accueil du back-office, liste des affiches ou éditeur). L'affiche s'affiche en plein écran ; son QR code pointe automatiquement vers l'adresse réseau du PC.
+4. Scanner le QR code avec l'**appareil photo** du téléphone (ou Google Lens) : le navigateur du téléphone ouvre l'affiche ; accepter l'avertissement de certificat la première fois, puis autoriser la caméra. L'animation 3D apparaît après la détection (simulée tant que MindAR n'est pas branché).
+
+L'affiche doit être **publiée**, dans sa période de diffusion, avec une **zone d'affichage attribuée** ; sinon le téléphone affiche « animation indisponible ». Si le téléphone n'arrive pas à joindre le PC, autoriser le port 5173 dans le pare-feu Windows (réseau privé). Expo Go ne sert pas ici : il ouvre des applications React Native, alors que ce projet est un site web.
+
+## Taille des fichiers
+
+| Fichier | Maximum | Contrôle |
 | --- | --- | --- |
-| Agente de la mairie | `c.martin@montbeliard.fr` | demande un code TOTP (tout code à 6 chiffres) |
-| Partenaire vérifié | `hugo@festival-momes.test` | Festival des Mômes |
-| Partenaire en attente | `thomas@pages-or.test` | connexion refusée tant que le compte n'est pas vérifié |
+| Modèle 3D GLB (animations intégrées comprises) | **100 Mo** — valeur de la base (contrainte `ck_fichier_taille`), supérieure au cahier des charges | glTF-Validator, triangles (30 000 affiche / 100 000 lieu), textures, animations listées dans `fichier_clip` |
+| Son MP3 / AAC | 2 Mo, 120 s | ffprobe |
+| Image (affiche, visuel, façade) | 30 Mo | file-type, réencodage sharp |
 
-Les données de démonstration sont gardées dans le `localStorage` du navigateur ; le bouton « Réinitialiser la démo » du back-office les remet à zéro.
-
-## Base de données
-
-Le script [database/montbeliard_webar.sql](database/montbeliard_webar.sql) crée la base MySQL / MariaDB (17 tables, 6 vues) et les données de démonstration :
+## Tests
 
 ```bash
-mysql -u root -p < database/montbeliard_webar.sql
+npm test
 ```
 
-Il recrée la base `montbeliard_webar` (la supprime d’abord si elle existe). Les règles de l’application y sont aussi appliquées : 4 conditions de publication (vue `v_affiche_publiable`), suppression refusée tant qu’une affiche utilise l’animation ou qu’une animation porte sur le lieu, signalement visant un seul contenu, commentaire obligatoire pour le motif « Autre », QR code dans les limites de l’affiche, statistiques arrondies à l’heure, modèles 3D GLB de 100 Mo maximum avec leurs animations intégrées (table `fichier_clip`) et clip joué par chaque animation, qui doit appartenir à son modèle. Les mots de passe de démonstration sont des marqueurs à remplacer par des hachages Argon2id.
+Les 26 tests de l'API recréent la base `webar_test` à chaque lancement (la base `webar` n'est jamais touchée) : authentification et blocage après 5 échecs, code de connexion par mail (code faux, renvoi, usage unique, 5 essais), CSRF, droits par rôle, imports (GLB de 60 Mo accepté, plus de 100 Mo refusé par l'API et par la base, clips du GLB, faux fichier, son, image), règle des 4 conditions, PDF, parcours visiteur par QR code, statistiques, signalement anonyme limité à 5 par heure, suspension, réexamen et suppressions protégées.
+
+## Déploiement
+
+`npm run build` produit le front dans `dist/`. En production (`NODE_ENV=production`), `npm start` lance l'API qui sert aussi `dist/` : un seul serveur Node (VPS, conformément au cahier des charges) derrière HTTPS.
+
+**Vercel** : `vercel.json` ne déploie que le front statique. Sans API hébergée, l'application déployée sur Vercel ne peut plus rien afficher : il faut un serveur Node + MariaDB (VPS), ou adapter l'API en fonctions serverless avec une base distante.
 
 ## Pages
 
@@ -76,9 +105,8 @@ Partout : signalement anonyme (BF-45 à BF-51), FR/EN/DE (BF-13), messages d'err
 
 ## Ce qui reste simulé
 
-- **Reconnaissance d'image** : la détection de l'affiche et de la façade est simulée (succès au bout de 3,5 s, ou état forcé avec le sélecteur « Démo »). Le moteur MindAR / LocAR est à brancher derrière `VueRA`. Le paquet npm `mind-ar` a été retiré : il dépend du module natif `canvas`, qui ne s'installe pas sur Vercel. Pour l'intégrer, utiliser son build navigateur (CDN ou fichier copié dans `public/`).
-- **API et base de données** : `src/commun/store.ts` joue le rôle de l'API Express/Prisma (mêmes règles : 4 conditions de publication, droits par rôle, décisions, journal).
-- **Fichiers d’affiche** : gardés dans le navigateur (IndexedDB) ; en production ils iront dans `uploads/` via l’API.
-- **Caméra** : sans webcam (ou si l'accès est refusé), l'application propose un mode « caméra simulée » qui utilise les photos de la maquette.
-- **Carte** : MapLibre GL JS avec le fond OpenFreeMap (données OpenStreetMap, sans clé). Le cahier des charges prévoit à terme un fichier PMTiles servi par l’API. Les cartes du back-office (lieux, zones) utilisent encore le fond SVG stylisé.
-- **Itinéraire** : calculé par le serveur OSRM piéton de FOSSGIS (routing.openstreetmap.de), uniquement à la demande du visiteur ; la position est alors envoyée à ce service (mentionné dans les mentions légales). Sans GPS, l’option « Partir de la gare de Montbéliard (démo) » permet de tester.
+- **Reconnaissance d'image** : la détection de l'affiche et de la façade est simulée (succès au bout de 3,5 s, ou état forcé avec le sélecteur « Démo »). Le modèle 3D réel (GLB servi par l'API, avec le clip choisi) s'affiche alors au centre de l'écran avec Three.js. Le moteur MindAR / LocAR reste à brancher derrière `VueRA` (compilation des cibles `.mind` à partir de l'affiche importée et des photos de façade).
+- **Caméra** : sans webcam (ou si l'accès est refusé), le mode « caméra simulée » affiche le visuel du lieu ou un fond neutre.
+- **Optimisation des modèles** (Meshopt, KTX2) : non faite ; les GLB sont servis tels qu'importés.
+- **Carte** : MapLibre GL JS avec le fond OpenFreeMap (données OpenStreetMap, sans clé). Le cahier des charges prévoit à terme un fichier PMTiles servi par l'API. Les cartes du back-office (lieux, zones) utilisent encore le fond SVG stylisé.
+- **Itinéraire** : calculé par le serveur OSRM piéton de FOSSGIS (routing.openstreetmap.de), uniquement à la demande du visiteur ; la position est alors envoyée à ce service (mentionné dans les mentions légales). Sans GPS, l'option « Partir de la gare de Montbéliard (démo) » permet de tester.

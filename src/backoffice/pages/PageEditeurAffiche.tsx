@@ -1,27 +1,27 @@
 import { lazy, Suspense, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { AfficheAvecQr, FORMATS_MM, largeurImpressionMm, QR_DEFAUT, urlQr } from '../../commun/AfficheQr'
 import { Icone } from '../../commun/Icone'
-import { imageLieu } from '../../commun/images'
-import { enregistrerImageAffiche, lireImageAffiche, supprimerImageAffiche, useImageAffiche } from '../../commun/imagesAffiches'
+import { messageErreur } from '../../commun/api'
 import {
+  attendreControle,
   attribuerZone,
   enregistrerAffiche,
-  genererCodeQr,
+  importerFichier,
   nomProprietaire,
   proposerZone,
   publiable,
   publierAffiche,
   reglePublication,
-  uid,
   supprimerAffiche,
+  telechargerPdf,
   useEtat,
 } from '../../commun/store'
 import type { Affiche, PlacementQr } from '../../commun/types'
 import { EchelleFormat } from '../composants/EchelleFormat'
-import { exporterPdf, exporterPng } from '../composants/exportAffiche'
+import { exporterPng } from '../composants/exportAffiche'
 import { peutCreer, proprietaireDe, useSession } from '../session'
-import { BadgeStatut, DialogueSuppression, formaterPoids, useToast } from '../ui'
+import { BadgeStatut, DialogueSuppression, formaterPoids, maintenantLocal, useToast } from '../ui'
 
 const ApercuAnimationAffiche = lazy(() => import('../composants/ApercuAnimationAffiche'))
 
@@ -41,16 +41,27 @@ function dimensions(fichier: Blob): Promise<{ largeur: number; hauteur: number }
   return createImageBitmap(fichier).then((b) => ({ largeur: b.width, hauteur: b.height }))
 }
 
-/** Import de l'affiche du partenaire ou de la Ville, puis QR code généré et placé dessus (BF-37, BF-38, BF-40, BF-42). */
+/** Les affiches sont chargées depuis l'API avant d'ouvrir l'éditeur (lien direct vers /affiches/:id). */
 export default function PageEditeurAffiche() {
   const { id } = useParams()
+  const { chargement } = useEtat()
+  if (chargement) return <div className="bo-defilement">Chargement…</div>
+  return <Editeur key={id ?? 'nouvelle'} id={id} />
+}
+
+/** Import de l'affiche du partenaire ou de la Ville, puis QR code généré par le serveur et placé dessus (BF-37, BF-38, BF-40, BF-42). */
+function Editeur({ id }: { id?: string }) {
   const etat = useEtat()
   const session = useSession()
   const navigate = useNavigate()
+  const location = useLocation()
   const toast = useToast()
   const agent = session.role === 'AGENT'
   const existante = etat.affiches.find((a) => a.id === id)
-  const [etape, setEtape] = useState(existante ? 5 : 1)
+  // Après la création, l'éditeur est rouvert sur l'URL de l'affiche à l'étape du placement du QR code.
+  const etapeDemandee = (location.state as { etape?: number } | null)?.etape
+  const [etape, setEtape] = useState(etapeDemandee ?? (existante ? 5 : 1))
+  const [envoi, setEnvoi] = useState<string | null>(null)
   const [tente, setTente] = useState(false)
   const [erreurImport, setErreurImport] = useState<string | null>(null)
   const [survol, setSurvol] = useState(false)
@@ -61,34 +72,43 @@ export default function PageEditeurAffiche() {
   const [brouillon, setBrouillon] = useState<Affiche>(
     () =>
       existante ?? {
-        id: uid('af'),
+        // Identifiant et code du QR code attribués par l'API à la création.
+        id: '',
         proprietaireId: proprietaireDe(session),
         animationAfficheId: etat.animations.find((a) => a.type === 'AFFICHE' && (agent || a.proprietaireId === session.partenaireId))?.id ?? '',
-        animationLieuId: etat.animations.find((a) => a.type === 'LIEU' && a.statut === 'PUBLIEE')?.id ?? '',
+        // Lieu promu : le premier lieu visible sur la carte ; le spectacle de ce lieu est facultatif.
+        lieuId: (etat.lieux.find((l) => l.actif) ?? etat.lieux[0])?.id ?? '',
+        animationLieuId: undefined,
         nom: '',
         accroche: '',
         texte: '',
-        codeQr: genererCodeQr(),
+        codeQr: '',
         format: 'A3',
         qr: QR_DEFAUT,
-        debut: new Date().toISOString().slice(0, 10) + 'T00:00:00',
-        fin: new Date(Date.now() + 42 * 86_400_000).toISOString().slice(0, 10) + 'T23:00:00',
+        debut: maintenantLocal().slice(0, 10) + 'T00:00:00',
+        fin: maintenantLocal(42 * 86_400_000).slice(0, 10) + 'T23:00:00',
         statut: 'BROUILLON',
         fichiersConformes: false,
         scans: 0,
-        modifieLe: new Date().toISOString().slice(0, 19),
+        modifieLe: maintenantLocal(),
       },
   )
-  const image = useImageAffiche(brouillon.id)
+  const image = brouillon.image?.url
 
-  // L'affiche enregistrée (zone, statut) fait foi ; le brouillon porte les champs en cours d'édition.
-  const enregistree = etat.affiches.find((x) => x.id === brouillon.id)
-  const a: Affiche = { ...brouillon, zoneId: enregistree?.zoneId ?? brouillon.zoneId, zoneProposeeId: enregistree?.zoneProposeeId ?? brouillon.zoneProposeeId, statut: enregistree?.statut ?? brouillon.statut }
+  // L'affiche enregistrée (zone, statut, conditions) fait foi ; le brouillon porte les champs en cours d'édition.
+  const enregistree = brouillon.id ? etat.affiches.find((x) => x.id === brouillon.id) : undefined
+  const a: Affiche = {
+    ...brouillon,
+    zoneId: enregistree?.zoneId ?? brouillon.zoneId,
+    zoneProposeeId: enregistree?.zoneProposeeId ?? brouillon.zoneProposeeId,
+    statut: enregistree?.statut ?? brouillon.statut,
+    conditions: enregistree?.conditions,
+  }
   const maj = (p: Partial<Affiche>) => setBrouillon((b) => ({ ...b, ...p }))
   const qr = a.qr ?? QR_DEFAUT
   const majQr = (p: Partial<PlacementQr>) => maj({ qr: { ...qr, ...p } })
 
-  if (id && !existante) {
+  if (id && !existante && !brouillon.id) {
     return (
       <div className="bo-defilement">
         <p>Affiche introuvable.</p>
@@ -112,8 +132,10 @@ export default function PageEditeurAffiche() {
     x.statut === 'BROUILLON' ? ' (brouillon)' : x.statut === 'SUSPENDUE' ? ' (suspendue)' : x.fin && new Date(x.fin) < new Date() ? ' (expirée)' : new Date(x.debut) > new Date() ? ' (programmée)' : ''
   const nomLieu = (id?: string) => etat.lieux.find((l) => l.id === id)?.nomCourt ?? 'lieu inconnu'
   const animA = etat.animations.find((x) => x.id === a.animationAfficheId)
-  const animL = etat.animations.find((x) => x.id === a.animationLieuId)
-  const lieuPromu = etat.lieux.find((l) => l.id === animL?.lieuId)
+  const lieuPromu = etat.lieux.find((l) => l.id === a.lieuId)
+  // Spectacles proposés : uniquement les animations du lieu promu.
+  const animsDuLieu = animsLieu.filter((x) => x.lieuId === a.lieuId)
+  const animL = animsDuLieu.find((x) => x.id === a.animationLieuId)
   const conditions = reglePublication(etat, a)
   const ratio = a.image ? a.image.largeur / a.image.hauteur : 297 / 420
   const largeurMm = largeurImpressionMm(a)
@@ -128,6 +150,10 @@ export default function PageEditeurAffiche() {
   const erreursInfos = { nom: !a.nom.trim(), texte: !a.texte.trim(), dates: a.fin <= a.debut }
   const lectureSeule = a.statut === 'SUSPENDUE' || a.statut === 'RETIREE' || !peutCreer(etat, session)
 
+  /**
+   * Import du fichier de l'affiche : pré-contrôle (format, poids, dimensions) puis envoi à l'API,
+   * qui vérifie le type réel et réencode l'image (sharp) avant de la marquer conforme.
+   */
   async function importer(fichier: File) {
     setErreurImport(null)
     if (!/^image\/(png|jpeg|webp)$/.test(fichier.type)) {
@@ -144,40 +170,91 @@ export default function PageEditeurAffiche() {
         setErreurImport(`Image trop petite (${d.largeur} × ${d.hauteur} px) : 600 px minimum sur le petit côté pour être reconnue et imprimée.`)
         return
       }
-      await enregistrerImageAffiche(brouillon.id, fichier)
-      maj({ image: { nom: fichier.name, largeur: d.largeur, hauteur: d.hauteur, octets: fichier.size }, nom: brouillon.nom || fichier.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ') })
-      if (enregistree?.statut === 'PUBLIEE') toast.afficher('Nouveau fichier : le contrôle automatique est relancé')
-    } catch {
-      setErreurImport('Image illisible ou corrompue.')
+      setEnvoi('import')
+      const cree = await importerFichier(fichier, 'AFFICHE')
+      const f = await attendreControle(cree.id)
+      if (f.statutControle === 'REFUSE') {
+        setErreurImport(`Fichier refusé par le contrôle automatique : ${f.raisonRefus ?? 'format non reconnu'}.`)
+        return
+      }
+      maj({
+        imageId: f.id,
+        image: { nom: f.nomOriginal, largeur: f.largeurPx ?? d.largeur, hauteur: f.hauteurPx ?? d.hauteur, octets: f.tailleOctets, url: f.url },
+        nom: brouillon.nom || fichier.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').slice(0, 60),
+      })
+      if (enregistree?.statut === 'PUBLIEE') toast.afficher('Nouveau fichier : enregistrez pour le remplacer sur l’affiche publiée')
+    } catch (e) {
+      setErreurImport(e instanceof TypeError ? 'Image illisible ou corrompue.' : messageErreur(e))
+    } finally {
+      setEnvoi(null)
     }
   }
 
-  function suivant() {
+  /** Enregistre le brouillon auprès de l'API (création ou modification) et renvoie l'affiche à jour. */
+  async function enregistrer(): Promise<Affiche> {
+    const r = await enregistrerAffiche(a)
+    setBrouillon((b) => ({ ...b, id: r.id, codeQr: r.codeQr, proprietaireId: r.proprietaireId }))
+    return r
+  }
+
+  /**
+   * Étape suivante. L'affiche est créée par l'API en quittant l'étape 3 (le serveur génère alors
+   * son QR code unique) ; une affiche existante est enregistrée à chaque étape.
+   */
+  async function suivant() {
     setTente(true)
-    if (etape === 1 && !a.image) return
+    if (etape === 1 && !a.imageId) return
     if (etape === 2 && Object.values(erreursInfos).some(Boolean)) return
-    if (etape === 3 && (!a.animationAfficheId || !a.animationLieuId)) return
+    if (etape === 3 && (!a.animationAfficheId || !a.lieuId)) return
     setTente(false)
-    if (etape >= 2) enregistrerAffiche({ ...a, modifieLe: new Date().toISOString().slice(0, 19) })
+    if (etape >= 3 || a.id) {
+      setEnvoi('enregistrement')
+      try {
+        const r = await enregistrer()
+        if (!a.id) {
+          navigate(`/backoffice/affiches/${r.id}`, { replace: true, state: { etape: 4 } })
+          return
+        }
+      } catch (e) {
+        toast.afficher(messageErreur(e))
+        return
+      } finally {
+        setEnvoi(null)
+      }
+    }
     setEtape(Math.min(5, etape + 1))
   }
 
-  function sauver() {
-    enregistrerAffiche({ ...a, statut: a.statut === 'PUBLIEE' ? 'PUBLIEE' : 'BROUILLON', modifieLe: new Date().toISOString().slice(0, 19) })
-    toast.afficher(a.statut === 'PUBLIEE' ? 'Modifications enregistrées — contrôle automatique relancé' : 'Brouillon enregistré')
+  async function sauver() {
+    if (!a.id && (!a.animationAfficheId || !a.lieuId || Object.values(erreursInfos).some(Boolean))) {
+      toast.afficher('Complétez les informations et l’expérience avant d’enregistrer')
+      return
+    }
+    setEnvoi('enregistrement')
+    try {
+      const r = await enregistrer()
+      if (!a.id) navigate(`/backoffice/affiches/${r.id}`, { replace: true, state: { etape } })
+      toast.afficher(a.statut === 'PUBLIEE' ? 'Modifications enregistrées' : 'Brouillon enregistré')
+    } catch (e) {
+      toast.afficher(messageErreur(e))
+    } finally {
+      setEnvoi(null)
+    }
   }
 
+  /** PDF généré par l'API (pdf-lib, QR code incrusté) ; PNG composé dans le navigateur pour le web. */
   async function exporter(type: 'png' | 'pdf') {
-    const fichier = await lireImageAffiche(a.id)
-    if (!fichier) return
     setExport(type)
     try {
-      if (!enregistree) enregistrerAffiche(a)
-      if (type === 'png') await exporterPng(fichier, a.codeQr, qr, a.nom)
-      else await exporterPdf(fichier, a.codeQr, qr, a.nom, a.format ?? 'A3')
+      await enregistrer()
+      if (type === 'pdf') await telechargerPdf(a)
+      else {
+        const fichier = await fetch(image!).then((reponse) => reponse.blob())
+        await exporterPng(fichier, a.codeQr, qr, a.nom)
+      }
       toast.afficher(type === 'png' ? 'Affiche téléchargée en PNG' : `PDF ${a.format ?? 'A3'} téléchargé`)
-    } catch {
-      toast.afficher('Export impossible : réessayez')
+    } catch (e) {
+      toast.afficher(`Export impossible : ${messageErreur(e)}`)
     } finally {
       setExport(null)
     }
@@ -216,12 +293,17 @@ export default function PageEditeurAffiche() {
         <div className="bo-entete-actions">
           {enregistree && <BadgeStatut statut={a.statut} />}
           {enregistree && (
+            <Link to={`/backoffice/affiches/${a.id}/voir`} className="btn btn-secondaire">
+              <Icone nom="qr" taille={15} /> Voir l’affiche
+            </Link>
+          )}
+          {enregistree && (
             <button type="button" className="btn btn-texte-danger" onClick={() => setSuppression(true)}>
               <Icone nom="poubelle" taille={15} /> Supprimer
             </button>
           )}
-          <button type="button" className="btn btn-fantome" onClick={sauver} disabled={lectureSeule || !a.image}>
-            Enregistrer
+          <button type="button" className="btn btn-fantome" onClick={() => void sauver()} disabled={lectureSeule || !a.imageId || !!envoi}>
+            {envoi === 'enregistrement' ? 'Enregistrement…' : 'Enregistrer'}
           </button>
         </div>
       </header>
@@ -263,9 +345,10 @@ export default function PageEditeurAffiche() {
                   <span className="icone-depot">
                     <Icone nom="import" taille={26} />
                   </span>
-                  <strong>{a.image ? 'Remplacer le fichier de l’affiche' : 'Glissez votre affiche ici'}</strong>
+                  <strong>{envoi === 'import' ? 'Envoi et contrôle du fichier…' : a.image ? 'Remplacer le fichier de l’affiche' : 'Glissez votre affiche ici'}</strong>
                   <p>PNG, JPEG ou WebP · 30 Mo maximum · exportée depuis votre logiciel de mise en page, en haute définition.</p>
-                  <button type="button" className="btn btn-primaire" onClick={() => entree.current?.click()} disabled={lectureSeule}>
+                  <button type="button" className="btn btn-primaire" onClick={() => entree.current?.click()} disabled={lectureSeule || !!envoi}>
+                    {envoi === 'import' ? <span className="spinner" /> : null}
                     Choisir un fichier
                   </button>
                   <input
@@ -391,23 +474,37 @@ export default function PageEditeurAffiche() {
                       </span>
                     )}
                   </label>
-                  <label className={`champ ${tente && !a.animationLieuId ? 'erreur' : ''}`}>
-                    <span className="etiquette">Monument promu (animation de lieu)</span>
-                    <select value={a.animationLieuId} onChange={(e) => maj({ animationLieuId: e.target.value })} disabled={lectureSeule}>
-                      <option value="">Choisir…</option>
-                      {etat.lieux.map((l) => {
-                        const duLieu = animsLieu.filter((x) => x.lieuId === l.id)
-                        return duLieu.length ? (
-                          <optgroup key={l.id} label={l.nom}>
-                            {duLieu.map((x) => (
-                              <option key={x.id} value={x.id}>
-                                {x.titre}
-                                {etatAnim(x)}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ) : null
-                      })}
+                  <label className={`champ ${tente && !a.lieuId ? 'erreur' : ''}`}>
+                    <span className="etiquette">
+                      Lieu promu <small>La carte s’ouvre sur ce lieu après l’animation</small>
+                    </span>
+                    <select value={a.lieuId} onChange={(e) => maj({ lieuId: e.target.value, animationLieuId: undefined })} disabled={lectureSeule}>
+                      <option value="">Choisir un lieu…</option>
+                      {etat.lieux.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.nom}
+                          {l.actif ? '' : ' (masqué sur la carte)'}
+                        </option>
+                      ))}
+                    </select>
+                    {etat.lieux.length === 0 && (
+                      <span className="aide">
+                        Aucun lieu : {agent ? <Link to="/backoffice/lieux">créez-en un</Link> : 'la mairie doit d’abord en créer un'}.
+                      </span>
+                    )}
+                  </label>
+                  <label className="champ">
+                    <span className="etiquette">
+                      Spectacle du lieu <small>Facultatif</small>
+                    </span>
+                    <select value={a.animationLieuId ?? ''} onChange={(e) => maj({ animationLieuId: e.target.value || undefined })} disabled={lectureSeule || !a.lieuId}>
+                      <option value="">{animsDuLieu.length ? 'Aucun spectacle mis en avant' : 'Aucune animation sur ce lieu'}</option>
+                      {animsDuLieu.map((x) => (
+                        <option key={x.id} value={x.id}>
+                          {x.titre}
+                          {etatAnim(x)}
+                        </option>
+                      ))}
                     </select>
                   </label>
                 </div>
@@ -425,13 +522,16 @@ export default function PageEditeurAffiche() {
                     </div>
                   </div>
                 )}
-                {animL && lieuPromu && (
+                {lieuPromu && (
                   <div className="experience-choisie">
-                    {imageLieu(lieuPromu.image) ? <img src={imageLieu(lieuPromu.image)} alt="" /> : <span className="vignette-exp"><Icone nom="pin" taille={22} /></span>}
+                    {lieuPromu.image ? <img src={lieuPromu.image} alt="" /> : <span className="vignette-exp"><Icone nom="pin" taille={22} /></span>}
                     <div>
-                      <span className="pill pill-green">Compatible</span>
-                      <h3>{animL.titre}</h3>
-                      <p>Après l’animation, la carte s’ouvrira centrée sur {lieuPromu.nom}.</p>
+                      <span className="pill pill-green">Lieu promu</span>
+                      <h3>{lieuPromu.nom}</h3>
+                      <p>
+                        Après l’animation, la carte s’ouvrira centrée sur ce lieu
+                        {animL ? ` et mettra en avant « ${animL.titre} »` : ''}.
+                      </p>
                     </div>
                     <Icone nom="check" taille={20} />
                   </div>
@@ -484,7 +584,7 @@ export default function PageEditeurAffiche() {
                 </label>
                 <div className="lien-qr">
                   <Icone nom="lien" taille={15} />
-                  <code>{urlQr(a.codeQr)}</code>
+                  <code>{a.codeQr ? urlQr(a.codeQr) : 'Généré par le serveur à l’enregistrement'}</code>
                 </div>
               </>
             )}
@@ -517,11 +617,16 @@ export default function PageEditeurAffiche() {
                     <select
                       value={agent ? (a.zoneId ?? '') : (a.zoneProposeeId ?? '')}
                       disabled={lectureSeule}
-                      onChange={(e) => {
-                        if (!enregistree) enregistrerAffiche(a)
-                        if (agent) attribuerZone(a.id, e.target.value || undefined)
-                        else if (e.target.value) proposerZone(a.id, e.target.value)
-                        toast.afficher(agent ? 'Zone attribuée — partenaire notifié' : 'Proposition envoyée à la mairie')
+                      onChange={async (e) => {
+                        const zone = e.target.value
+                        try {
+                          const r = await enregistrer()
+                          if (agent) await attribuerZone(r.id, zone || undefined)
+                          else if (zone) await proposerZone(r.id, zone)
+                          toast.afficher(agent ? 'Zone attribuée — partenaire notifié' : 'Proposition envoyée à la mairie')
+                        } catch (err) {
+                          toast.afficher(messageErreur(err))
+                        }
                       }}
                     >
                       <option value="">{agent ? 'Aucune zone' : 'Choisir une zone…'}</option>
@@ -541,7 +646,7 @@ export default function PageEditeurAffiche() {
                     <Icone nom={imagePrete ? 'check' : 'fermer'} taille={14} /> Fichier de l’affiche importé {a.image ? `(${a.image.largeur} × ${a.image.hauteur} px)` : ''}
                   </li>
                   <li>
-                    <Icone nom="check" taille={14} /> QR code unique généré : <code>{urlQr(a.codeQr)}</code>
+                    <Icone nom={a.codeQr ? 'check' : 'fermer'} taille={14} /> QR code unique généré : <code>{a.codeQr ? urlQr(a.codeQr) : '—'}</code>
                   </li>
                   <li>
                     <Icone nom={qrCm >= QR_MIN_CM ? 'check' : 'fermer'} taille={14} /> QR code placé : {qrCm.toFixed(1).replace('.', ',')} cm en {a.format ?? 'A3'}
@@ -567,7 +672,7 @@ export default function PageEditeurAffiche() {
               {etape === 1 ? 'Annuler' : 'Retour'}
             </button>
             {etape < 5 ? (
-              <button type="button" className="btn btn-primaire" onClick={suivant}>
+              <button type="button" className="btn btn-primaire" onClick={() => void suivant()} disabled={!!envoi}>
                 {etape === 3 ? 'Générer le QR code' : 'Continuer'} <Icone nom="droite" taille={15} />
               </button>
             ) : (
@@ -577,10 +682,14 @@ export default function PageEditeurAffiche() {
                     type="button"
                     className="btn btn-secondaire"
                     disabled={!pret || lectureSeule}
-                    onClick={() => {
-                      if (!enregistree) enregistrerAffiche(a)
-                      publierAffiche(a.id)
-                      toast.afficher('Affiche publiée : son animation est active aux dates prévues')
+                    onClick={async () => {
+                      try {
+                        const r = await enregistrer()
+                        await publierAffiche(r.id)
+                        toast.afficher('Affiche publiée : son animation est active aux dates prévues')
+                      } catch (e) {
+                        toast.afficher(messageErreur(e))
+                      }
                     }}
                   >
                     Publier
@@ -615,7 +724,7 @@ export default function PageEditeurAffiche() {
           </div>
           {vue === 'ra' && imagePrete ? (
             <Suspense fallback={<div className="apercu-animation-affiche chargement"><span className="spinner" /></div>}>
-              <ApercuAnimationAffiche afficheId={a.id} code={a.codeQr} qr={qr} ratio={ratio} animation={animA} />
+              <ApercuAnimationAffiche image={image!} code={a.codeQr || 'apercu'} qr={qr} ratio={ratio} animation={animA} />
             </Suspense>
           ) : (
             <>
@@ -631,7 +740,7 @@ export default function PageEditeurAffiche() {
                     <AfficheAvecQr
                       image={image}
                       ratio={ratio}
-                      code={a.codeQr}
+                      code={a.codeQr || 'apercu'}
                       qr={qr}
                       nom={a.nom}
                       onQr={etape === 4 && !lectureSeule ? (p) => majQr(p) : undefined}
@@ -657,12 +766,9 @@ export default function PageEditeurAffiche() {
         cible={suppression ? a.nom || 'cette affiche' : null}
         description="Son QR code ne mènera plus à l’animation. La suppression reste inscrite au journal."
         onFermer={() => setSuppression(false)}
-        onConfirmer={() => {
-          const r = supprimerAffiche(a.id)
-          if (r.ok) {
-            void supprimerImageAffiche(a.id)
-            navigate('/backoffice/affiches')
-          }
+        onConfirmer={async () => {
+          const r = await supprimerAffiche(a.id)
+          if (r.ok) navigate('/backoffice/affiches')
           return r
         }}
       />

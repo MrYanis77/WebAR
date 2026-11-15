@@ -3,8 +3,7 @@ import { useNavigate, useParams } from 'react-router'
 import { distanceM, formaterDistance, minutesAPied } from '../../commun/geo'
 import { useLangue } from '../../commun/i18n'
 import { Icone } from '../../commun/Icone'
-import { imageLieu } from '../../commun/images'
-import { useEtat } from '../../commun/store'
+import { useDonneesPubliques } from '../donneesPubliques'
 import type { Animation } from '../../commun/types'
 import { BoutonLangue } from '../composants/Feuilles'
 import { FormulaireSignalement, type CibleSignalement } from '../composants/FormulaireSignalement'
@@ -17,12 +16,19 @@ import { animationsDuLieu } from '../utils'
 export default function PageLieu() {
   const { id } = useParams()
   const { t, tr, date } = useLangue()
-  const etat = useEtat()
+  const etat = useDonneesPubliques()
   const navigate = useNavigate()
   const position = usePosition()
   const [transcription, setTranscription] = useState(false)
   const [cible, setCible] = useState<CibleSignalement | null>(null)
   const lieu = etat.lieux.find((l) => l.id === id && l.actif)
+
+  if (etat.chargement)
+    return (
+      <div className="page page-centree">
+        <span className="spinner" />
+      </div>
+    )
 
   if (!lieu) {
     return (
@@ -34,7 +40,7 @@ export default function PageLieu() {
 
   const { active, prochaines } = animationsDuLieu(etat, lieu.id)
   const distance = position.coords ? distanceM(position.coords, lieu) : null
-  const image = imageLieu(lieu.image)
+  const image = lieu.image
 
   const ligne = (a: Animation, enCours: boolean) => (
     <div className="ligne-horaire" key={a.id}>

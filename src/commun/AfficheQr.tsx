@@ -4,9 +4,22 @@ import { DOMAINE_APPLICATION } from './constantes'
 import { Icone } from './Icone'
 import type { Affiche, PlacementQr } from './types'
 
-/** URL du QR code : toujours le domaine de l'application, jamais un lien saisi (BNF-18). */
+/**
+ * Adresse de l'application encodée dans les QR codes : celle du site lui-même, jamais un lien saisi
+ * (BNF-18). Ordre : VITE_URL_PUBLIQUE (tunnel), adresse réseau du PC quand le site est ouvert sur
+ * « localhost » (test avec un téléphone), sinon l'origine de la page (le domaine en production).
+ */
+export function origineApplication() {
+  if (import.meta.env.VITE_URL_PUBLIQUE) return import.meta.env.VITE_URL_PUBLIQUE.replace(/\/$/, '')
+  if (typeof window === 'undefined') return DOMAINE_APPLICATION
+  const local = /^(localhost|127\.|\[::1\])/.test(window.location.hostname)
+  if (local && __URL_RESEAU__) return __URL_RESEAU__
+  return window.location.origin
+}
+
+/** URL du QR code d'une affiche : /a/<code unique>. */
 export function urlQr(code: string) {
-  return `${DOMAINE_APPLICATION}/a/${code}`
+  return `${origineApplication()}/a/${code}`
 }
 
 export const QR_DEFAUT: PlacementQr = { x: 0.74, y: 0.76, taille: 0.2, fond: true, mention: true }
