@@ -8,7 +8,7 @@ Le design reprend la maquette Figma *maquette-projet-co-test* (palette `--wine #
 
 | Partie | Technologies (cahier des charges technique) |
 | --- | --- |
-| Application visiteur et back-office (`src/`) | React 19, TypeScript, Vite, React Router, TanStack Query, MapLibre GL JS, Three.js, ALTCHA (widget) |
+| Application visiteur et back-office (`src/`) | React 19, TypeScript, Vite, React Router, TanStack Query, MapLibre GL JS, Three.js, 8th Wall (reconnaissance d'image + SLAM), ALTCHA (widget) |
 | API (`api/`) | Node.js 24, Express 5, Prisma 7 (MariaDB/MySQL), express-session + express-mysql-session, Argon2id, double authentification par code envoyé par mail (Nodemailer), helmet, csrf-csrf, express-rate-limit, multer + file-type, glTF-Validator + glTF-Transform, ffprobe, sharp, pdf-lib + qrcode, p-queue, Nodemailer, pino |
 | Partagé (`src/commun/`) | types, constantes et schémas Zod utilisés à la fois par l'API et les formulaires |
 | Tests (`api/tests/`) | Vitest + Supertest sur une base dédiée `webar_test` |
@@ -46,7 +46,7 @@ Sans serveur SMTP (Mailpit sur le port 1025), les mails ne partent pas : ils son
 1. Le PC et le téléphone sont sur le **même réseau Wi-Fi**.
 2. Lancer `npm run dev:mobile` : l'API et le site démarrent en **HTTPS** (certificat auto-signé), car un téléphone n'autorise la caméra que sur une page HTTPS. Vite affiche l'adresse réseau, par exemple `https://192.168.1.20:5173`.
 3. Sur le PC, ouvrir `https://localhost:5173/backoffice` (accepter l'avertissement de certificat), se connecter, puis cliquer sur **Voir l'affiche** (accueil du back-office, liste des affiches ou éditeur). L'affiche s'affiche en plein écran ; son QR code pointe automatiquement vers l'adresse réseau du PC.
-4. Scanner le QR code avec l'**appareil photo** du téléphone (ou Google Lens) : le navigateur du téléphone ouvre l'affiche ; accepter l'avertissement de certificat la première fois, puis autoriser la caméra. L'animation 3D apparaît après la détection (simulée tant que MindAR n'est pas branché).
+4. Scanner le QR code avec l'**appareil photo** du téléphone (ou Google Lens) : le navigateur du téléphone ouvre l'affiche ; accepter l'avertissement de certificat la première fois, puis **Autoriser et commencer** (caméra, et sur iPhone mouvement et orientation). Viser ensuite l'affiche affichée sur l'écran du PC (ou imprimée) : l'animation 3D en surgit et reste en place dans la pièce quand on détourne le téléphone (voir « Réalité augmentée » ci-dessous).
 
 L'affiche doit être **publiée**, dans sa période de diffusion, avec une **zone d'affichage attribuée** ; sinon le téléphone affiche « animation indisponible ». Si le téléphone n'arrive pas à joindre le PC, autoriser le port 5173 dans le pare-feu Windows (réseau privé). Expo Go ne sert pas ici : il ouvre des applications React Native, alors que ce projet est un site web.
 
@@ -64,7 +64,7 @@ L'affiche doit être **publiée**, dans sa période de diffusion, avec une **zon
 npm test
 ```
 
-Les 26 tests de l'API recréent la base `webar_test` à chaque lancement (la base `webar` n'est jamais touchée) : authentification et blocage après 5 échecs, code de connexion par mail (code faux, renvoi, usage unique, 5 essais), CSRF, droits par rôle, imports (GLB de 60 Mo accepté, plus de 100 Mo refusé par l'API et par la base, clips du GLB, faux fichier, son, image), règle des 4 conditions, PDF, parcours visiteur par QR code, statistiques, signalement anonyme limité à 5 par heure, suspension, réexamen et suppressions protégées.
+Les 28 tests de l'API recréent la base `webar_test` à chaque lancement (la base `webar` n'est jamais touchée) : authentification et blocage après 5 échecs, code de connexion par mail (code faux, renvoi, usage unique, 5 essais), CSRF, droits par rôle, imports (GLB de 60 Mo accepté, plus de 100 Mo refusé par l'API et par la base, clips du GLB, faux fichier, son, image), règle des 4 conditions, PDF, placement GPS en 3D des animations de lieu, parcours visiteur par QR code (avec la cible 8th Wall générée), statistiques, signalement anonyme limité à 5 par heure, suspension, réexamen et suppressions protégées.
 
 ## Déploiement
 
@@ -80,7 +80,7 @@ Les 26 tests de l'API recréent la base `webar_test` à chaque lancement (la bas
 | --- | --- | --- |
 | `/` | Carte MapLibre plein écran, position, distances, lieu promu, message de proximité, itinéraire à pied vers le monument | BF-05, BF-06, BF-08, BF-14, BF-32, BF-33 |
 | `/lieux/:id` | Fiche du lieu, horaires, score du stade, transcription sans caméra | BF-07, BF-22, BNF-11 |
-| `/lieux/:id/ra` | Consignes, animation de lieu, échec de reconnaissance et lancement manuel, photo, sous-titres | BF-03, BF-17 à BF-20, BNF-12 |
+| `/lieux/:id/ra` | Consignes, animation de lieu (8th Wall : détail de façade reconnu, sinon GPS + boussole), photo, sous-titres | BF-03, BF-17 à BF-20, BNF-12 |
 | `/a/:code` | Entrée par QR code : animation d'affiche puis carte centrée sur le lieu promu | BF-02, BF-16, BF-30 à BF-33 |
 | `/agenda` | Spectacles en cours et à venir | BF-22, BF-26 |
 | `/scanner` | Scanner une affiche ou relancer le spectacle d'un lieu | BF-10 |
@@ -103,10 +103,36 @@ Partout : signalement anonyme (BF-45 à BF-51), FR/EN/DE (BF-13), messages d'err
 | `/backoffice/partenaires`, `/signalements`, `/moderation`, `/journal` | Vérification des comptes, file des signalements, décisions, journal horodaté | agent |
 | `/backoffice/score` | Score du match | agent |
 
-## Ce qui reste simulé
+## Réalité augmentée (8th Wall + Three.js)
 
-- **Reconnaissance d'image** : la détection de l'affiche et de la façade est simulée (succès au bout de 3,5 s, ou état forcé avec le sélecteur « Démo »). Le modèle 3D réel (GLB servi par l'API, avec le clip choisi) s'affiche alors au centre de l'écran avec Three.js. Le moteur MindAR / LocAR reste à brancher derrière `VueRA` (compilation des cibles `.mind` à partir de l'affiche importée et des photos de façade).
+Conformément au cahier des charges technique (sections 1 et 3.1), la RA visiteur utilise le **moteur 8th Wall** (binaire distribué [`@8thwall/engine-binary`](https://github.com/8thwall/engine), version figée 1.0.0) piloté directement en **Three.js** : WebXR n'est pas disponible dans Safari sur iPhone. Le moteur lit la caméra, reconnaît l'affiche ou un détail de façade (*image target*), puis suit l'environnement (**SLAM**) : l'animation reste en place autour du visiteur, même quand l'affiche n'est plus filmée. Tout est calculé dans le téléphone.
+
+| Étape | Fonctionnement |
+| --- | --- |
+| Cible de reconnaissance | Générée par le serveur à partir du visuel de l'affiche (ou d'une photo de façade) avec sharp, au format de l'outil officiel `image-target-cli` : recadrage 3:4, image de luminance 480 × 640 et JSON, rangés dans `uploads/cibles/` (`api/src/traitements/cibleImage.ts`). Un visuel de moins de 480 × 640 px après recadrage ne donne pas de cible. |
+| Affiche | `GET /public/affiches/:code` renvoie la cible. À la reconnaissance, l'animation est posée devant l'affiche, debout, à sa taille ; viser de nouveau l'affiche la recale. Sans reconnaissance en 15 s : conseils, et bouton **Poser l'animation devant moi** (SLAM). |
+| Monument | `GET /public/lieux/:id/cibles` renvoie les cibles des photos de façade. Un détail reconnu pose l'animation au-dessus. Sans reconnaissance en 20 s : bouton **Lancer manuellement** dans le rayon du lieu, qui pose l'animation à sa **position GPS en 3D**. Lieu sans photo de façade : placement GPS automatique dès que le visiteur est dans le rayon. |
+| Placement GPS en 3D | Chaque animation de lieu peut avoir sa position (latitude, longitude), la hauteur de son socle au-dessus du sol, l'orientation de sa face avant et sa taille en mètres (back-office, « Position du modèle dans l'espace » ; sinon position du lieu, 10 m de haut, 12 m de taille). Dans le téléphone, `src/visiteur/ra/ancrageGps.ts` relie le repère géographique au repère SLAM : deux fois par seconde, il associe position GPS, cap de la boussole et pose de la caméra, puis moyenne ces mesures (angle du nord, point de référence pondéré par la précision du GPS). Le modèle se stabilise à mesure que le visiteur regarde autour de lui ; une flèche indique de quel côté tourner si l'animation est hors champ. Sans boussole, le téléphone est supposé viser le monument. Une façade reconnue reste prioritaire (plus précise). Base existante : `mysql -u root webar < database/migrations/2026-11-16_placement_gps.sql`. |
+| Chargement | `xr.js` (1 Mo) et `xr-slam.js` (5,4 Mo) sont servis sous `/xr8/` (plugin dans `vite.config.ts`, copiés dans `dist/xr8/` au build) et téléchargés pendant les consignes avec le modèle et le son ; Three.js n'est chargé qu'à l'ouverture de la caméra. Les décodeurs Draco (`/draco/`) et KTX2 (`/basis/`) de three.js sont servis de la même façon. |
+| iPhone | Le bouton **Autoriser et commencer** des consignes demande l'accès au mouvement et à l'orientation (`DeviceOrientationEvent.requestPermission`), nécessaire au SLAM et à la boussole ; iOS 16.4 minimum. |
+| Ordinateur | Le SLAM ne fonctionne que sur smartphone : l'application affiche un aperçu simulé (modèle Three.js par-dessus la webcam ou le visuel). Même repli si le moteur échoue (capteurs refusés, navigateur non pris en charge). |
+
+Le modèle est celui servi par l'API, avec le clip et le mode de lecture choisis dans le back-office ; sans clip choisi, toutes les animations du GLB sont jouées ensemble. L'aperçu 3D du back-office utilise encore Three.js (le cahier des charges prévoit `<model-viewer>`) ; l'animation combinée « Toutes les animations (WebAR) » ajoutée au contrôle des GLB (`npm run combiner-animations` pour les anciens) sert à ce futur aperçu.
+
+**Licence du moteur** : binaire gratuit sous licence *XR Engine License Agreement* de Niantic Spatial (pas une licence libre) ; la mention requise figure dans `index.html` et dans les mentions légales. Le framework open source 8th Wall (MIT) ne contient pas le SLAM.
+
+**Tester sur téléphone** : `npm run dev:mobile` suffit (le certificat auto-signé est accepté après l'avertissement). Pour éviter l'avertissement, un tunnel HTTPS avec un vrai certificat :
+
+```bash
+npx cloudflared tunnel --url http://localhost:5173
+```
+
+puis ouvrir sur le PC l'adresse `https://….trycloudflare.com/backoffice` affichée par cloudflared : le QR code de « Voir l'affiche » pointe alors vers cette adresse publique.
+
+## Ce qui reste simulé
 - **Caméra** : sans webcam (ou si l'accès est refusé), le mode « caméra simulée » affiche le visuel du lieu ou un fond neutre.
-- **Optimisation des modèles** (Meshopt, KTX2) : non faite ; les GLB sont servis tels qu'importés.
+- **Optimisation des modèles** (Meshopt, KTX2) : non faite ; les GLB sont servis tels qu'importés (l'application visiteur sait déjà lire les GLB compressés Meshopt, Draco et KTX2).
+- **Réglage du placement** (devant / au-dessus de l'affiche, taille) : valeurs par défaut (devant, taille de l'affiche) ; le choix par le partenaire n'est pas encore en base.
+- **Score du stade en texte 3D** (troika-three-text) : le score reste affiché en surimpression HTML.
 - **Carte** : MapLibre GL JS avec le fond OpenFreeMap (données OpenStreetMap, sans clé). Le cahier des charges prévoit à terme un fichier PMTiles servi par l'API. Les cartes du back-office (lieux, zones) utilisent encore le fond SVG stylisé.
 - **Itinéraire** : calculé par le serveur OSRM piéton de FOSSGIS (routing.openstreetmap.de), uniquement à la demande du visiteur ; la position est alors envoyée à ce service (mentionné dans les mentions légales). Sans GPS, l'option « Partir de la gare de Montbéliard (démo) » permet de tester.

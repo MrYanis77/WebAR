@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useLangue, type CleTexte } from '../../commun/i18n'
 import { Icone, type NomIcone } from '../../commun/Icone'
 import { BoutonLangue } from './Feuilles'
@@ -9,10 +9,15 @@ const ETAPES: { titre: CleTexte; texte: CleTexte; note: CleTexte; sousNote: CleT
   { titre: 'consignes.c3.titre', texte: 'consignes.c3.texte', note: 'consignes.perm.securite', sousNote: 'consignes.perm.securiteNote', icone: 'alerte' },
 ]
 
-/** Consignes de RA : 3 écrans, 40 mots maximum chacun (BF-03), avertissement de sécurité (BNF-12). */
-export function Consignes({ onTerminer, onRetour }: { onTerminer: () => void; onRetour: () => void }) {
+/**
+ * Consignes de RA : 3 écrans, 40 mots maximum chacun (BF-03), avertissement de sécurité (BNF-12).
+ * `apercu` remplace l'illustration du dernier écran (modèle 3D de l'animation) ; `etapeDepart`
+ * permet de n'afficher que ce dernier écran quand les consignes ont déjà été lues.
+ * `onTerminer` est appelé directement dans le clic : il peut ouvrir la caméra ou la RA native.
+ */
+export function Consignes({ onTerminer, onRetour, apercu, etapeDepart = 0 }: { onTerminer: () => void; onRetour: () => void; apercu?: ReactNode; etapeDepart?: number }) {
   const { t } = useLangue()
-  const [etape, setEtape] = useState(0)
+  const [etape, setEtape] = useState(etapeDepart)
   const e = ETAPES[etape]
   const derniere = etape === ETAPES.length - 1
 
@@ -29,6 +34,9 @@ export function Consignes({ onTerminer, onRetour }: { onTerminer: () => void; on
           <span key={i} className={i <= etape ? 'fait' : ''} />
         ))}
       </div>
+      {derniere && apercu ? (
+        <div className="visuel-consigne apercu-animation-consigne">{apercu}</div>
+      ) : (
       <div className={`visuel-consigne etape-${etape}`} aria-hidden="true">
         <div className="illustration-telephone">
           <span className="camera-telephone" />
@@ -51,6 +59,7 @@ export function Consignes({ onTerminer, onRetour }: { onTerminer: () => void; on
         </div>
         <span className="compteur-etape">0{etape + 1} / 03</span>
       </div>
+      )}
       <div className="texte-consigne" key={etape}>
         <span className="pill pill-cyan">{t('consignes.avant')}</span>
         <h1>{t(e.titre)}</h1>

@@ -250,6 +250,7 @@ export async function enregistrerAnimation(a: Animation, publier: boolean) {
     debut: a.debut,
     fin: a.fin ?? null,
     transcription: a.transcription,
+    placement: a.type === 'LIEU' && a.placement ? { ...a.placement, orientationDeg: a.placement.orientationDeg ?? null } : null,
     publier,
   }
   const r = a.id ? await appelApi<Animation>(`/animations/${a.id}`, { methode: 'PATCH', corps }) : await appelApi<Animation>('/animations', { methode: 'POST', corps })

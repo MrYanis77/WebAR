@@ -12,10 +12,11 @@ import { execFile } from 'node:child_process'
 import { readFile, rename, rm } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import sharp from 'sharp'
-import { BUDGETS_3D } from '../../../src/commun/constantes.js'
+import { BUDGETS_3D, NOM_ANIMATION_COMBINEE } from '../../../src/commun/constantes.js'
 import { prisma } from '../db.js'
 import { ajouterTraitement } from '../services/file.js'
 import { cheminAbsolu } from '../services/stockage.js'
+import { ajouterAnimationCombinee } from './animationCombinee.js'
 
 // gltf-validator est un module CommonJS sans types.
 import validateur from 'gltf-validator'
@@ -65,7 +66,11 @@ async function controlerModele3D(id: number, chemin: string, usage: 'AFFICHE' | 
       const duree = Math.max(0, ...anim.listSamplers().map((s) => s.getInput()?.getMax([])[0] ?? 0))
       return { indice, nom: (anim.getName() || `Animation ${indice + 1}`).slice(0, 100), duree, pistes: anim.listChannels().length }
     })
-    .filter((c) => c.duree > 0 && c.pistes > 0)
+    // L'animation combinée ajoutée par l'application n'est pas proposée comme clip.
+    .filter((c) => c.duree > 0 && c.pistes > 0 && c.nom !== NOM_ANIMATION_COMBINEE)
+  // Plusieurs animations : ajout de l'animation « toutes ensemble » pour l'aperçu <model-viewer> du
+  // back-office, qui ne joue qu'une animation à la fois (Three.js, côté visiteur, les joue toutes).
+  const nouvelleTaille = clips.length > 1 ? await ajouterAnimationCombinee(cheminAbsolu(chemin)) : null
 
   const budget = BUDGETS_3D[usage]
   const depassements: string[] = []
@@ -84,6 +89,7 @@ async function controlerModele3D(id: number, chemin: string, usage: 'AFFICHE' | 
         nb_triangles: Math.round(triangles),
         texture_max_px: Math.min(textureMax, 65535),
         nb_clips: clips.length,
+        ...(nouvelleTaille ? { taille_octets: nouvelleTaille } : {}),
         controle_termine_le: new Date(),
         ...(depassements.length ? { statut_controle: 'REFUSE', raison_refus: depassements.join(' · ') } : {}),
       },

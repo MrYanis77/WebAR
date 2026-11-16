@@ -16,6 +16,15 @@ export function distanceM(a: Coordonnees, b: Coordonnees): number {
   return 2 * R * Math.asin(Math.sqrt(h))
 }
 
+/** Cap de `a` vers `b` en degrés (0 = nord, 90 = est), sur le grand cercle. */
+export function capVers(a: Coordonnees, b: Coordonnees): number {
+  const rad = (d: number) => (d * Math.PI) / 180
+  const dLon = rad(b.longitude - a.longitude)
+  const y = Math.sin(dLon) * Math.cos(rad(b.latitude))
+  const x = Math.cos(rad(a.latitude)) * Math.sin(rad(b.latitude)) - Math.sin(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.cos(dLon)
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360
+}
+
 export function formaterDistance(m: number): string {
   if (m < 1000) return `${Math.round(m / 10) * 10} m`
   return `${(m / 1000).toFixed(1).replace('.', ',')} km`

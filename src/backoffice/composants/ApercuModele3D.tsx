@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { NOM_ANIMATION_COMBINEE } from '../../commun/constantes'
 
 /** Aperçu 3D avant validation de l'enregistrement (BF-36) : glisser pour tourner, animations jouées en boucle. */
 export default function ApercuModele3D({ url }: { url: string }) {
@@ -44,7 +45,7 @@ export default function ApercuModele3D({ url }: { url: string }) {
         pivot.add(gltf.scene)
         if (gltf.animations.length) {
           mixer = new THREE.AnimationMixer(gltf.scene)
-          gltf.animations.forEach((clip) => mixer!.clipAction(clip).play())
+          gltf.animations.filter((c) => c.name !== NOM_ANIMATION_COMBINEE).forEach((clip) => mixer!.clipAction(clip).play())
         }
       })
       .catch(() => actif && setErreur('Aperçu impossible : modèle illisible.'))

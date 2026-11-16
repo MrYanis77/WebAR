@@ -46,6 +46,16 @@ async function preparer(u: Utilisateur, d: DonneesAnimation) {
     transcription_fr: d.transcription.fr,
     transcription_en: d.transcription.en || null,
     transcription_de: d.transcription.de || null,
+    // Placement GPS en 3D : animation de lieu uniquement (une animation d'affiche suit l'affiche).
+    ...(d.type === 'LIEU' && d.placement
+      ? {
+          position_latitude: d.placement.latitude,
+          position_longitude: d.placement.longitude,
+          position_hauteur_m: d.placement.hauteurM,
+          position_orientation_deg: d.placement.orientationDeg ?? null,
+          position_taille_m: d.placement.tailleM,
+        }
+      : { position_latitude: null, position_longitude: null, position_hauteur_m: 0, position_orientation_deg: null, position_taille_m: 10 }),
   }
 }
 

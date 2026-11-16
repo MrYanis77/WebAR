@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { NOM_ANIMATION_COMBINEE } from '../../commun/constantes'
 import { Icone } from '../../commun/Icone'
 import type { Animation, PlacementQr } from '../../commun/types'
 import { arreterSon, couperSon, deverrouillerSon, jouerFichier } from '../../visiteur/services/son'
@@ -154,7 +155,8 @@ export default function ApercuAnimationAffiche({
         if (gltf.animations.length) {
           mixer = new THREE.AnimationMixer(gltf.scene)
           const choisi = animation?.clipIndice !== undefined ? gltf.animations[animation.clipIndice] : undefined
-          for (const clip of choisi ? [choisi] : gltf.animations) {
+          // Sans clip choisi : toutes les animations d'origine (l'animation combinée ferait doublon).
+          for (const clip of choisi ? [choisi] : gltf.animations.filter((c) => c.name !== NOM_ANIMATION_COMBINEE)) {
             const action = mixer.clipAction(clip)
             if (animation?.lecture === 'UNE_FOIS') {
               action.setLoop(THREE.LoopOnce, 1)

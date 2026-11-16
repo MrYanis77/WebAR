@@ -516,10 +516,6 @@
 
 .sous-titres { position: absolute; left: 18px; right: 18px; bottom: 200px; z-index: 6; padding: 10px 12px; border-radius: 10px; background: rgb(0 0 0 / 0.72); color: #fff; font-size: 13px; line-height: 1.45; text-align: center; }
 
-.selecteur-demo { position: absolute; left: 50%; bottom: 128px; z-index: 10; display: flex; align-items: center; overflow: hidden; border-radius: 9px; background: rgb(30 32 36 / 0.78); transform: translateX(-50%); }
-.selecteur-demo span { padding: 0 8px; color: var(--cyan); font-size: 10px; font-weight: 700; text-transform: uppercase; }
-.selecteur-demo button { padding: 7px 9px; border: 0; border-left: 1px solid #555; background: none; color: #fff; font-size: 10.5px; white-space: nowrap; }
-.selecteur-demo button.actif { background: rgb(79 209 197 / 0.25); }
 
 .score-ra {
   position: absolute;
@@ -603,7 +599,6 @@
 .zone-camera-affiche .flux-camera { position: absolute; inset: 0; }
 .zone-camera-affiche .puces-ra { top: calc(max(12px, env(safe-area-inset-top)) + 52px); }
 .zone-camera-affiche .sous-titres { bottom: 58px; }
-.zone-camera-affiche .selecteur-demo { bottom: 12px; left: 16px; transform: none; }
 .affiche-maquette {
   position: absolute;
   top: 128px;
@@ -780,9 +775,13 @@
 .affiche-maquette.importee { padding: 0; background: #e7e2da; }
 .affiche-maquette.importee .affiche-qr-cadre { box-shadow: none; }
 
-/* Modèle 3D de l'animation (Three.js) superposé à la caméra. */
+/* Réalité augmentée (8th Wall + Three.js) : image de la caméra et modèle 3D dans le même canevas. */
+.scene-ra { position: absolute; inset: 0; }
+.canevas-ra { display: block; width: 100%; height: 100%; touch-action: none; }
+/* Aperçu simulé (ordinateur, caméra refusée) : modèle Three.js superposé au fond. */
 .modele-ra { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 .modele-ra canvas { display: block; width: 100% !important; height: 100% !important; }
-.erreur-modele-ra { position: absolute; left: 50%; top: 50%; padding: 6px 10px; border-radius: 8px; background: rgb(30 32 36 / 0.75); color: #fff; font-size: 12px; transform: translate(-50%, -50%); }
+.zone-camera-affiche .modele-ra { inset: 56px 0 64px; }
+.erreur-modele-ra { position: absolute; left: 50%; top: 50%; z-index: 4; padding: 6px 10px; border-radius: 8px; background: rgb(30 32 36 / 0.75); color: #fff; font-size: 12px; transform: translate(-50%, -50%); }
 /* Caméra simulée sans visuel du lieu : fond neutre. */
 .fond-simule { background: radial-gradient(circle at 50% 35%, #4a4d53, #1e2024); }

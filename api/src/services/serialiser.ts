@@ -105,6 +105,16 @@ export function serialiserAnimation(a: AnimationComplete, proprio: Proprietaires
     fin: versLocal(a.fin),
     statut: a.statut,
     transcription: { fr: a.transcription_fr, en: a.transcription_en ?? '', de: a.transcription_de ?? '' },
+    placement:
+      a.position_latitude !== null && a.position_longitude !== null
+        ? {
+            latitude: Number(a.position_latitude),
+            longitude: Number(a.position_longitude),
+            hauteurM: Number(a.position_hauteur_m),
+            orientationDeg: a.position_orientation_deg ?? undefined,
+            tailleM: Number(a.position_taille_m),
+          }
+        : undefined,
     lancements,
     modifieLe: versLocal(a.modifie_le),
   }

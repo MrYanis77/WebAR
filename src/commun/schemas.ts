@@ -76,6 +76,14 @@ export const schemaZone = z.object({
   active: z.boolean(),
 })
 
+export const schemaPlacementGps = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  hauteurM: z.number().min(0).max(300),
+  orientationDeg: z.number().int().min(0).max(359).nullable().optional(),
+  tailleM: z.number().min(0.5).max(200),
+})
+
 export const schemaAnimation = z
   .object({
     titre: texte(120),
@@ -90,6 +98,7 @@ export const schemaAnimation = z
     debut: zDate,
     fin: zDate.nullable().optional(),
     transcription: zTexte3,
+    placement: schemaPlacementGps.nullable().optional(),
     publier: z.boolean().default(false),
   })
   .refine((a) => a.type === 'AFFICHE' || a.lieuId, { message: 'Une animation de lieu doit avoir un lieu', path: ['lieuId'] })

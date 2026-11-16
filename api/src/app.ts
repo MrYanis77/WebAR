@@ -34,11 +34,13 @@ export function creerApplication() {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
+          // Moteur 8th Wall (/xr8/) et décodeurs Draco / KTX2 (/draco/, /basis/) : servis par l'application,
+          // WebAssembly compilé dans le navigateur ; workers créés depuis des URL blob:.
           scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
           styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
           fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-          imgSrc: ["'self'", 'data:', 'blob:', 'https://tiles.openfreemap.org'],
-          connectSrc: ["'self'", 'https://tiles.openfreemap.org', 'https://routing.openstreetmap.de'],
+          imgSrc: ["'self'", 'data:', 'blob:', 'https://tiles.openfreemap.org', 'https://data.geopf.fr'],
+          connectSrc: ["'self'", 'blob:', 'data:', 'https://tiles.openfreemap.org', 'https://routing.openstreetmap.de', 'https://data.geopf.fr', 'https://api-adresse.data.gouv.fr'],
           workerSrc: ["'self'", 'blob:'],
           mediaSrc: ["'self'", 'blob:'],
         },

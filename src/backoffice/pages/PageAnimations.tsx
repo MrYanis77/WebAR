@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { BUDGETS_3D, MODELE_3D_MAX_MO } from '../../commun/constantes'
+import { BUDGETS_3D, MODELE_3D_MAX_MO, PLACEMENT_LIEU_DEFAUT } from '../../commun/constantes'
+import { distanceM } from '../../commun/geo'
+import { ChoixPosition } from '../composants/ChoixPosition'
 import { Icone } from '../../commun/Icone'
 import { messageErreur } from '../../commun/api'
 import { animationActive, attendreControle, basculerAnimation, enregistrerAnimation, importerFichier, nomProprietaire, supprimerAnimation, useEtat, validerFichier } from '../../commun/store'
-import type { Animation, Declencheur, TypeAnimation } from '../../commun/types'
+import type { Animation, Declencheur, PlacementGps, TypeAnimation } from '../../commun/types'
 import { peutCreer, proprietaireDe, useSession } from '../session'
 import { BadgeStatut, DialogueSuppression, EnTetePage, formaterDate, formaterPoids, Interrupteur, maintenantLocal, Onglets, Recherche, Tiroir, useToast, Vide } from '../ui'
 
@@ -295,6 +297,7 @@ function EditeurAnimation({
   const budget = BUDGETS_3D[a.type]
   const poids = (etat.fichiers.find((f) => f.id === a.modeleId)?.tailleOctets ?? 0) + (etat.fichiers.find((f) => f.id === a.sonId)?.tailleOctets ?? 0)
   const tri = etat.fichiers.find((f) => f.id === a.modeleId)?.nbTriangles ?? 0
+  const lieuChoisi = etat.lieux.find((l) => l.id === a.lieuId)
 
   const erreurs = {
     titre: !a.titre.trim(),
@@ -477,6 +480,13 @@ function EditeurAnimation({
             {tente && erreurs.dates && <span className="message-erreur">La fin doit être postérieure à la sortie.</span>}
           </label>
         </div>
+        {a.type === 'LIEU' && lieuChoisi && (
+          <PositionEspace
+            placement={a.placement}
+            lieu={lieuChoisi}
+            onChange={(placement) => maj({ placement })}
+          />
+        )}
         <fieldset className={`transcriptions ${tente && erreurs.transcription ? 'erreur' : ''}`}>
           <legend>Transcription du son (accessibilité, FR/EN/DE)</legend>
           <Onglets
@@ -509,5 +519,73 @@ function EditeurAnimation({
         )}
       </div>
     </Tiroir>
+  )
+}
+
+/**
+ * Placement GPS en 3D d'une animation de lieu : position du modèle sur la carte, hauteur du socle
+ * au-dessus du sol, orientation de sa face avant et taille réelle. Le téléphone du visiteur pose le
+ * modèle à cet endroit (GPS + boussole, repère SLAM) quand la façade n'est pas reconnue.
+ */
+function PositionEspace({ placement, lieu, onChange }: { placement?: PlacementGps; lieu: { nom: string; latitude: number; longitude: number }; onChange: (p: PlacementGps | undefined) => void }) {
+  const p = placement ?? { latitude: lieu.latitude, longitude: lieu.longitude, ...PLACEMENT_LIEU_DEFAUT }
+  const maj = (x: Partial<PlacementGps>) => onChange({ ...p, ...x })
+  const nombre = (v: string) => (v === '' ? 0 : Number(v.replace(',', '.')))
+  const ecart = distanceM(lieu, p)
+  return (
+    <fieldset className="position-espace">
+      <legend>Position du modèle dans l’espace (GPS en 3D)</legend>
+      <label className="case-a-cocher">
+        <input type="checkbox" checked={!!placement} onChange={(e) => onChange(e.target.checked ? p : undefined)} />
+        Position personnalisée <small>Sinon : position du lieu « {lieu.nom} », {PLACEMENT_LIEU_DEFAUT.hauteurM} m de haut, {PLACEMENT_LIEU_DEFAUT.tailleM} m de taille</small>
+      </label>
+      {placement && (
+        <>
+          <ChoixPosition
+            latitude={p.latitude}
+            longitude={p.longitude}
+            reference={lieu}
+            orientationDeg={p.orientationDeg}
+            onChange={(latitude, longitude) => maj({ latitude, longitude })}
+          />
+          <div className="grille-champs">
+            <label className="champ">
+              <span className="etiquette">Latitude</span>
+              <input type="number" step="0.000001" min={-90} max={90} value={p.latitude} onChange={(e) => maj({ latitude: nombre(e.target.value) })} />
+            </label>
+            <label className="champ">
+              <span className="etiquette">Longitude</span>
+              <input type="number" step="0.000001" min={-180} max={180} value={p.longitude} onChange={(e) => maj({ longitude: nombre(e.target.value) })} />
+            </label>
+            <label className="champ">
+              <span className="etiquette">
+                Hauteur du socle <small>Mètres au-dessus du sol</small>
+              </span>
+              <input type="number" step="0.5" min={0} max={300} value={p.hauteurM} onChange={(e) => maj({ hauteurM: nombre(e.target.value) })} />
+            </label>
+            <label className="champ">
+              <span className="etiquette">
+                Taille du modèle <small>Plus grande dimension, en mètres</small>
+              </span>
+              <input type="number" step="0.5" min={0.5} max={200} value={p.tailleM} onChange={(e) => maj({ tailleM: nombre(e.target.value) })} />
+            </label>
+            <label className="champ">
+              <span className="etiquette">Orientation</span>
+              <select value={p.orientationDeg ?? ''} onChange={(e) => maj({ orientationDeg: e.target.value === '' ? undefined : Number(e.target.value) })}>
+                <option value="">Toujours face au visiteur</option>
+                {[0, 45, 90, 135, 180, 225, 270, 315].map((d) => (
+                  <option key={d} value={d}>
+                    Face vers {['le nord', 'le nord-est', 'l’est', 'le sud-est', 'le sud', 'le sud-ouest', 'l’ouest', 'le nord-ouest'][d / 45]} ({d}°)
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <small className="aide-champ">
+            {ecart < 1 ? 'Sur le point du lieu.' : `À ${Math.round(ecart)} m du point du lieu.`} Précision attendue sur téléphone : quelques mètres (GPS et boussole) ; une photo de façade reconnue reste prioritaire.
+          </small>
+        </>
+      )}
+    </fieldset>
   )
 }

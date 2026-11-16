@@ -1,15 +1,19 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { useLangue } from '../../commun/i18n'
-import { useDonneesPubliques } from '../donneesPubliques'
+import { useCiblesLieu, useDonneesPubliques } from '../donneesPubliques'
 import { Consignes } from '../composants/Consignes'
 import { MessageErreur } from '../composants/MessageErreur'
 import { VueRA } from '../composants/VueRA'
 import { useCompatibilite } from '../hooks/capteurs'
+import { demanderCapteursMouvement, prechargerRA } from '../ra/moteur'
 import { deverrouillerSon } from '../services/son'
 import { animationsDuLieu, consignesVues, marquerConsignesVues } from '../utils'
 
-/** Animation de lieu : reconnaissance de la façade, ou lancement manuel dans le rayon (BF-17, BF-18). */
+/**
+ * Animation de lieu : 8th Wall reconnaît un détail de la façade et pose l'animation au-dessus du
+ * monument ; sinon lancement par GPS et boussole dans le rayon du lieu (BF-17, BF-18, section 4.1).
+ */
 export default function PageRA() {
   const { id } = useParams()
   const { t, date } = useLangue()
@@ -17,10 +21,18 @@ export default function PageRA() {
   const etat = useDonneesPubliques()
   const compat = useCompatibilite()
   const [simulee, setSimulee] = useState(false)
-  const [etape, setEtape] = useState<'consignes' | 'ra' | 'refus' | 'incompatible'>(() =>
-    !compat.compatible ? 'incompatible' : consignesVues() ? 'ra' : 'consignes',
-  )
+  // Consignes toujours proposées (le dernier écran seulement si elles ont déjà été lues) : sur iPhone,
+  // leur bouton est le geste qui autorise les capteurs de mouvement (SLAM) et la boussole.
+  const [etape, setEtape] = useState<'consignes' | 'ra' | 'refus' | 'incompatible'>(() => (!compat.compatible ? 'incompatible' : 'consignes'))
   const lieu = etat.lieux.find((l) => l.id === id && l.actif)
+  const { cibles, pret: ciblesPretes } = useCiblesLieu(lieu?.id)
+  const aPrecharger = lieu ? animationsDuLieu(etat, lieu.id).active : undefined
+
+  // Téléchargement en arrière-plan pendant les consignes : moteur de RA, modèle 3D et son.
+  const [modeleUrl, sonUrl] = [aPrecharger?.modeleUrl, aPrecharger?.sonUrl]
+  useEffect(() => {
+    if (modeleUrl && compat.compatible) prechargerRA([modeleUrl, sonUrl])
+  }, [modeleUrl, sonUrl, compat.compatible])
   const quitter = useCallback(() => navigate(id ? `/?lieu=${id}` : '/'), [navigate, id])
   const refus = useCallback(() => setEtape('refus'), [])
 
@@ -53,7 +65,10 @@ export default function PageRA() {
     return (
       <Consignes
         onRetour={() => navigate(-1)}
+        etapeDepart={consignesVues() ? 2 : 0}
         onTerminer={() => {
+          // Dans le clic : autorisations demandées pendant le geste du visiteur (iPhone).
+          void demanderCapteursMouvement()
           deverrouillerSon()
           marquerConsignesVues()
           setEtape('ra')
@@ -95,12 +110,21 @@ export default function PageRA() {
     )
   }
 
+  // Le moteur démarre avec la liste des cibles de la façade : on attend qu'elle soit lue.
+  if (!ciblesPretes)
+    return (
+      <div className="page page-centree">
+        <span className="spinner" />
+      </div>
+    )
+
   return (
     <VueRA
       key={active.id}
       mode="monument"
       lieu={lieu}
       animation={active}
+      cibles={cibles}
       cameraAutorisee={!simulee}
       onQuitter={quitter}
       onCameraRefusee={refus}

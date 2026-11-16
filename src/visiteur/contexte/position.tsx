@@ -9,6 +9,8 @@ export type EtatPosition = 'inconnu' | 'demande' | 'accorde' | 'refuse' | 'indis
 interface ContextePosition {
   etat: EtatPosition
   coords: Coordonnees | null
+  /** Précision de la position en mètres (rayon à 68 %), utile au placement GPS en réalité augmentée. */
+  precisionM: number | null
   simulee: boolean
   demander: () => void
   simuler: (c: Coordonnees | null) => void
@@ -19,6 +21,7 @@ const Contexte = createContext<ContextePosition | null>(null)
 export function FournisseurPosition({ children }: { children: ReactNode }) {
   const [etat, setEtat] = useState<EtatPosition>('inconnu')
   const [coords, setCoords] = useState<Coordonnees | null>(null)
+  const [precisionM, setPrecisionM] = useState<number | null>(null)
   const [simulee, setSimulee] = useState<Coordonnees | null>(null)
   const surveillance = useRef<number | null>(null)
 
@@ -33,6 +36,7 @@ export function FournisseurPosition({ children }: { children: ReactNode }) {
       (p) => {
         setEtat('accorde')
         setCoords({ latitude: p.coords.latitude, longitude: p.coords.longitude })
+        setPrecisionM(p.coords.accuracy)
       },
       (err) => {
         setEtat(err.code === err.PERMISSION_DENIED ? 'refuse' : 'indisponible')
@@ -69,11 +73,12 @@ export function FournisseurPosition({ children }: { children: ReactNode }) {
     () => ({
       etat: simulee ? 'accorde' : etat,
       coords: simulee ?? coords,
+      precisionM: simulee ? 5 : precisionM,
       simulee: !!simulee,
       demander: demarrer,
       simuler: setSimulee,
     }),
-    [etat, coords, simulee, demarrer],
+    [etat, coords, precisionM, simulee, demarrer],
   )
 
   return <Contexte.Provider value={valeur}>{children}</Contexte.Provider>

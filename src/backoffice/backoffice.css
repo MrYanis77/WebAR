@@ -691,3 +691,29 @@ i.cyan { background: var(--cyan); }
 .liste-affiches-accueil li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .liste-affiches-accueil li > div { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; }
 .liste-affiches-accueil .vignette img { width: 34px; height: 46px; object-fit: cover; border-radius: 4px; }
+
+/* Placement GPS en 3D d'une animation de lieu */
+.position-espace { display: grid; gap: 12px; margin: 0; padding: 14px; border: 1px solid var(--bordure, #e2ddd3); border-radius: 12px; }
+.position-espace legend { padding: 0 6px; font-weight: 600; }
+.position-espace .case-a-cocher { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.position-espace .case-a-cocher small { flex-basis: 100%; color: var(--texte-doux, #6b6560); }
+.position-espace .aide-champ { color: var(--texte-doux, #6b6560); }
+.epingle.reference { z-index: 2; color: #4fd1c5; }
+
+/* Choix d'une position sur la carte MapLibre (satellite IGN / plan OpenStreetMap). */
+.bloc-position { grid-template-columns: minmax(0, 1fr); }
+.bloc-position > div:last-child { grid-template-columns: minmax(0, 1fr) auto auto; align-items: end; gap: 12px 20px; }
+.choix-position { display: grid; gap: 8px; }
+.barre-choix-position { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.recherche-adresse { display: flex; flex: 1 1 280px; align-items: center; gap: 8px; padding: 0 0 0 10px; border: 1px solid var(--line, #e2ddd3); border-radius: 10px; background: #fff; color: var(--muted); }
+.recherche-adresse input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 9px 0; background: transparent; font: inherit; color: var(--ink, #1e2024); }
+.recherche-adresse .btn { border-radius: 0 9px 9px 0; padding: 9px 14px; }
+.choix-fond { display: inline-flex; padding: 3px; border-radius: 10px; background: #ebe5d9; }
+.choix-fond button { padding: 7px 14px; border: 0; border-radius: 8px; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.choix-fond button.actif { background: #fff; color: var(--ink, #1e2024); box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); }
+.carte-choix-position { height: min(480px, 60vh); border-radius: 12px; overflow: hidden; cursor: crosshair; }
+.carte-choix-position .maplibregl-canvas-container { cursor: crosshair; }
+.choix-position .coordonnees { position: static; justify-self: start; background: none; padding: 0; }
+.repere-carte { color: var(--wine, #7b1e2e); cursor: grab; filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.45)); }
+.repere-carte.reference { color: #4fd1c5; cursor: default; }
+@media (max-width: 700px) { .bloc-position > div:last-child { grid-template-columns: minmax(0, 1fr); } }

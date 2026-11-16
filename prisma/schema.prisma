@@ -86,6 +86,11 @@ model animation {
   transcription_fr                                String                @db.Text
   transcription_en                                String?               @db.Text
   transcription_de                                String?               @db.Text
+  position_latitude                               Decimal?              @db.Decimal(9, 6)
+  position_longitude                              Decimal?              @db.Decimal(9, 6)
+  position_hauteur_m                              Decimal               @default(0.0) @db.Decimal(5, 1)
+  position_orientation_deg                        Int?                  @db.UnsignedSmallInt
+  position_taille_m                               Decimal               @default(10.0) @db.Decimal(5, 1)
   cree_le                                         DateTime              @default(now()) @db.DateTime(0)
   modifie_le                                      DateTime              @default(now()) @db.DateTime(0)
   affiche_affiche_animation_affiche_idToanimation affiche[]             @relation("affiche_animation_affiche_idToanimation")

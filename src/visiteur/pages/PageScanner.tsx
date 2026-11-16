@@ -16,7 +16,7 @@ export default function PageScanner() {
   const etat = useDonneesPubliques()
   const { coords } = usePosition()
   const lieux = useMemo(() => lieuxVisibles(etat), [etat])
-  // En attendant la reconnaissance MindAR, le scanner ouvre une affiche diffusée (même parcours que le QR code).
+  // Le scanner intégré ouvre une affiche diffusée (même parcours que le scan de son QR code).
   const diffusees = useAffichesDiffusees()
   const afficheDemo = diffusees[0]
 

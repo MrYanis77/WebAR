@@ -4,15 +4,33 @@
     {
       "name": "webar",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 5173
     },
     {
       "name": "webar-mobile",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:mobile"],
+      "runtimeArgs": [
+        "run",
+        "dev:mobile"
+      ],
       "port": 5173,
       "url": "https://localhost:5173"
+    },
+    {
+      "name": "webar-build",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "preview",
+        "--port",
+        "4173",
+        "--strictPort"
+      ],
+      "port": 4173
     }
   ]
 }

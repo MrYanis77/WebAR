@@ -4,8 +4,11 @@ export const DOMAINE_APPLICATION = 'https://experiences.montbeliard.fr'
 export const VERSION_CHARTE = '1.0'
 
 export const RAYON_PAR_DEFAUT_M = 50
+/** Sans reconnaissance dans ce délai, un conseil s'affiche (section 4.2). */
 export const DELAI_AFFICHE_NON_RECONNUE_S = 15
 export const DELAI_MONUMENT_NON_RECONNU_S = 20
+/** Placement GPS par défaut d'une animation de lieu (position du lieu) : hauteur du socle et taille, en mètres. */
+export const PLACEMENT_LIEU_DEFAUT = { hauteurM: 10, tailleM: 12 } as const
 export const LIMITE_SIGNALEMENTS_PAR_HEURE = 5
 export const COMMENTAIRE_MAX = 500
 
@@ -31,3 +34,10 @@ export const SECTEURS = [
   'Association',
   'Autre',
 ]
+
+/**
+ * Nom de l'animation ajoutée aux GLB qui en contiennent plusieurs : elle les joue toutes ensemble
+ * (l'aperçu <model-viewer> du back-office ne joue qu'une animation à la fois). Elle n'apparaît pas
+ * dans la liste des clips.
+ */
+export const NOM_ANIMATION_COMBINEE = 'Toutes les animations (WebAR)'

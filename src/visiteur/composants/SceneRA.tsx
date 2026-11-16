@@ -1,0 +1,377 @@
+// Scène de réalité augmentée : moteur 8th Wall (caméra, reconnaissance d'image, SLAM) + Three.js.
+// Le moteur affiche la caméra dans le canevas et pilote la caméra Three.js ; ce composant y ajoute le
+// modèle de l'animation et le pose dans l'environnement du visiteur :
+//  - sur l'affiche (ou un détail de façade) dès qu'elle est reconnue, puis le SLAM le garde en place
+//    quand le visiteur détourne le téléphone ; viser de nouveau la cible recale l'animation ;
+//  - à une position GPS en 3D (latitude, longitude, hauteur, orientation) : le GPS et la boussole sont
+//    échantillonnés en continu pour relier le repère géographique au repère SLAM (ra/ancrageGps.ts) ;
+//  - devant le visiteur, à la demande.
+// Chargé seulement à l'ouverture de la caméra (import dynamique depuis VueRA).
+import { useEffect, useImperativeHandle, useRef, type Ref } from 'react'
+import * as THREE from 'three'
+import { capVers, type Coordonnees } from '../../commun/geo'
+import type { Animation, CibleImage, PlacementGps } from '../../commun/types'
+import { AncrageGps } from '../ra/ancrageGps'
+import { appliquerPose, chargerGlb, eclairer, ModeleAnime, poseDevant, poseSurCible, REGLAGE_AFFICHE_DEFAUT, type Pose, type ReglageAffiche } from '../ra/contenu3d'
+import { chargerMoteur, suivreCap, type DetailCible, type ModulePipeline, type Xr8 } from '../ra/moteur'
+
+export type EvenementScene =
+  | { type: 'camera' } // image de la caméra reçue : la recherche commence
+  | { type: 'camera-refusee' }
+  | { type: 'incompatible' }
+  | { type: 'erreur'; message: string }
+  | { type: 'modele-indisponible' }
+  | { type: 'cible-trouvee'; nom: string }
+  | { type: 'cible-perdue' }
+  | { type: 'suivi'; normal: boolean }
+  | { type: 'lumiere'; sombre: boolean }
+  /** Animation posée mais hors du champ de la caméra : de quel côté tourner le téléphone. */
+  | { type: 'direction'; cote: 'gauche' | 'droite' | null }
+
+export interface CommandesScene {
+  /** Pose l'animation devant le visiteur (affiche non reconnue). Renvoie false si la scène n'est pas prête. */
+  poserDevant(): boolean
+  /**
+   * Pose l'animation à une position GPS en 3D. « sans-boussole » : aucune mesure de la boussole, le
+   * téléphone est supposé viser la position ; « pas-pret » : caméra ou position pas encore disponibles.
+   */
+  poserGps(placement: PlacementGps): 'ok' | 'sans-boussole' | 'pas-pret'
+  /** Photo de la caméra et de la scène 3D (data URL JPEG), assemblée dans le téléphone. */
+  photo(): Promise<string | null>
+}
+
+interface Props {
+  animation: Animation
+  /** Cibles d'image à reconnaître (affiche, ou détails de la façade). */
+  cibles: CibleImage[]
+  /** Façade : l'animation est posée au-dessus du détail reconnu, en plus grand. */
+  mode: 'affiche' | 'monument'
+  reglage?: ReglageAffiche
+  /** Recherche (re)lancée : l'animation est retirée jusqu'à la prochaine reconnaissance. */
+  recherche: boolean
+  /** Relance : l'animation repart du début, à la même place. */
+  cycle: number
+  /** Position GPS du visiteur et sa précision (mètres), pour le placement GPS en 3D. */
+  gps: { coords: Coordonnees; precisionM: number } | null
+  commandes: Ref<CommandesScene>
+  onEvenement: (e: EvenementScene) => void
+}
+
+const REGLAGE_FACADE: ReglageAffiche = { position: 'dessus', taille: 3 }
+/** Exposition moyenne de l'image (−1 à 1) en dessous de laquelle l'éclairage est jugé trop faible. */
+const SEUIL_SOMBRE = -0.55
+
+/** Intervalle entre deux échantillons GPS + boussole + pose SLAM, et entre deux recalculs de la pose GPS. */
+const INTERVALLE_ECHANTILLON_MS = 500
+/** Une mesure de la boussole plus ancienne est ignorée. */
+const AGE_CAP_MAX_MS = 1000
+
+export default function SceneRA({ animation, cibles, mode, reglage = REGLAGE_AFFICHE_DEFAUT, recherche, cycle, gps, commandes, onEvenement }: Props) {
+  const gpsRef = useRef(gps)
+  gpsRef.current = gps
+  const conteneur = useRef<HTMLDivElement>(null)
+  const canevas = useRef<HTMLCanvasElement>(null)
+  const signaler = useRef(onEvenement)
+  signaler.current = onEvenement
+  const reglageCible = mode === 'monument' ? REGLAGE_FACADE : reglage
+  const reglageRef = useRef(reglageCible)
+  reglageRef.current = reglageCible
+
+  // État partagé entre le pipeline du moteur (hors React) et les commandes.
+  const etat = useRef<{
+    xr8: Xr8 | null
+    camera: THREE.PerspectiveCamera | null
+    modele: ModeleAnime | null
+    /** Pose visée : la racine du modèle la rejoint en douceur à chaque image. */
+    pose: Pose | null
+    /** Pose en attente quand le modèle n'est pas encore chargé. */
+    attente: Pose | null
+    recherche: boolean
+    /** Correspondance GPS ↔ SLAM, alimentée en continu pendant toute la séance. */
+    ancrage: AncrageGps
+    /** Placement GPS en cours : la pose est recalculée à chaque nouvel échantillon (le modèle se stabilise). */
+    placementGps: PlacementGps | null
+    /** Dernière mesure de la boussole. */
+    cap: { valeur: number; instant: number } | null
+  }>({ xr8: null, camera: null, modele: null, pose: null, attente: null, recherche, ancrage: new AncrageGps(), placementGps: null, cap: null })
+
+  /** Pose (ou recale) le modèle ; `suivre` = recalage doux sur une cible déjà posée. */
+  function poser(pose: Pose, suivre = false) {
+    const e = etat.current
+    if (!e.modele) {
+      e.attente = pose
+      return
+    }
+    const deja = e.modele.visible
+    e.pose = pose
+    if (!deja || !suivre) {
+      appliquerPose(e.modele.racine, pose)
+      if (!deja) e.modele.lancer()
+    }
+  }
+
+  useImperativeHandle(commandes, () => ({
+    poserDevant() {
+      const { camera } = etat.current
+      if (!camera) return false
+      etat.current.recherche = false
+      poser(poseDevant(camera, mode === 'monument' ? 2 : 1))
+      return true
+    },
+    poserGps(placement) {
+      const e = etat.current
+      const position = gpsRef.current
+      if (!e.camera || !position) return 'pas-pret'
+      let resultat: 'ok' | 'sans-boussole' = 'ok'
+      if (!e.ancrage.nombre) {
+        // Pas de boussole : on suppose que le visiteur vise la position (cap de la caméra = cap de la cible).
+        resultat = 'sans-boussole'
+        e.ancrage.ajouter({
+          position: position.coords,
+          precisionM: Math.min(position.precisionM, 30),
+          capDeg: capVers(position.coords, placement),
+          camera: e.camera.getWorldPosition(new THREE.Vector3()),
+          regard: e.camera.getWorldDirection(new THREE.Vector3()).setY(0),
+        })
+      }
+      const pose = e.ancrage.pose(placement, e.camera.getWorldPosition(new THREE.Vector3()))
+      if (!pose) return 'pas-pret'
+      e.recherche = false
+      e.placementGps = placement
+      poser(pose)
+      return resultat
+    },
+    async photo() {
+      const xr8 = etat.current.xr8
+      if (!xr8) return null
+      try {
+        return `data:image/jpeg;base64,${await xr8.CanvasScreenshot.takeScreenshot()}`
+      } catch {
+        return null
+      }
+    },
+  }))
+
+  // Nouvelle recherche : l'animation disparaît jusqu'à la prochaine reconnaissance.
+  useEffect(() => {
+    const e = etat.current
+    e.recherche = recherche
+    if (recherche) {
+      e.modele?.masquer()
+      e.pose = null
+      e.attente = null
+      e.placementGps = null
+    }
+  }, [recherche, cycle])
+
+  // Relance : l'animation repart du début, à la même place.
+  useEffect(() => {
+    const e = etat.current
+    if (cycle > 0 && !e.recherche && e.pose) e.modele?.lancer()
+  }, [cycle])
+
+  // Boussole suivie pendant toute la séance (placement GPS) ; autorisation demandée pendant les consignes.
+  useEffect(() => suivreCap((valeur) => (etat.current.cap = { valeur, instant: performance.now() })), [])
+
+  // Cycle de vie du moteur : chargé une fois, démarré à l'ouverture de la vue, arrêté en la quittant.
+  const cleCibles = cibles.map((c) => c.name).join(',')
+  useEffect(() => {
+    const canvas = canevas.current
+    const boite = conteneur.current
+    if (!canvas || !boite) return
+    if (!animation.modeleUrl) {
+      signaler.current({ type: 'modele-indisponible' })
+      return
+    }
+    let annule = false
+    let demarre = false
+    let liberer: (() => void) | null = null
+    const e = etat.current
+
+    // Le moteur dessine dans le canevas à sa taille réelle en pixels.
+    const redimensionner = () => {
+      const ratio = Math.min(2, window.devicePixelRatio || 1)
+      canvas.width = Math.max(1, Math.round(boite.clientWidth * ratio))
+      canvas.height = Math.max(1, Math.round(boite.clientHeight * ratio))
+    }
+    redimensionner()
+    const observateur = new ResizeObserver(redimensionner)
+    observateur.observe(boite)
+
+    const surCible = (detail: DetailCible, nouvelle: boolean) => {
+      if (!cibles.some((c) => c.name === detail.name)) return
+      // Pendant une recherche, ou pour recaler l'animation déjà posée sur cette cible.
+      if (!e.recherche && !e.modele?.visible && !e.attente) return
+      const premiere = e.recherche
+      e.recherche = false
+      // La façade reconnue est plus précise que le GPS : le placement GPS s'arrête.
+      e.placementGps = null
+      poser(poseSurCible(detail, reglageRef.current), !premiere)
+      if (nouvelle || premiere) signaler.current({ type: 'cible-trouvee', nom: detail.name })
+    }
+
+    let dernierSuivi: boolean | null = null
+    let dernierEchantillon = 0
+    let derniereDirection: 'gauche' | 'droite' | null = null
+    let dernierSombre = false
+    let horloge = performance.now()
+
+    /** Échantillon GPS + boussole + pose SLAM, puis nouvelle pose si un placement GPS est en cours. */
+    const echantillonner = (camera: THREE.PerspectiveCamera, suiviNormal: boolean, maintenant: number) => {
+      const position = gpsRef.current
+      const cap = e.cap
+      if (suiviNormal && position && cap && maintenant - cap.instant < AGE_CAP_MAX_MS)
+        e.ancrage.ajouter({
+          position: position.coords,
+          precisionM: position.precisionM,
+          capDeg: cap.valeur,
+          camera: camera.getWorldPosition(new THREE.Vector3()),
+          regard: camera.getWorldDirection(new THREE.Vector3()),
+        })
+      if (e.placementGps && e.modele?.visible) {
+        const pose = e.ancrage.pose(e.placementGps, camera.getWorldPosition(new THREE.Vector3()))
+        if (pose) e.pose = pose // rejointe en douceur à chaque image
+      }
+    }
+
+    /** Animation hors du champ : indique de quel côté tourner le téléphone. */
+    const signalerDirection = (camera: THREE.PerspectiveCamera) => {
+      let cote: 'gauche' | 'droite' | null = null
+      if (e.modele?.visible) {
+        const centre = e.modele.racine.getWorldPosition(new THREE.Vector3())
+        centre.y += e.modele.racine.scale.y * 0.5
+        const local = centre.applyMatrix4(camera.matrixWorldInverse)
+        const angle = Math.atan2(local.x, -local.z) / (Math.PI / 180)
+        const demiChamp = (camera.fov * Math.max(camera.aspect, 0.3)) / 2
+        if (Math.abs(angle) > demiChamp) cote = angle > 0 ? 'droite' : 'gauche'
+      }
+      if (cote !== derniereDirection) {
+        derniereDirection = cote
+        signaler.current({ type: 'direction', cote })
+      }
+    }
+
+    const moduleScene: ModulePipeline = {
+      name: 'montbeliard-scene',
+      onStart: () => {
+        const xr8 = e.xr8!
+        const { scene, camera, renderer } = xr8.Threejs.xrScene()
+        renderer.outputColorSpace = THREE.SRGBColorSpace
+        renderer.shadowMap.enabled = false
+        // Origine du repère SLAM : caméra à 1,6 m du sol, unités proches du mètre.
+        camera.position.set(0, 1.6, 0)
+        xr8.XrController.updateCameraProjectionMatrix({ origin: camera.position, facing: camera.quaternion })
+        e.camera = camera
+        const eteindre = eclairer(scene, renderer)
+        chargerGlb(animation.modeleUrl!, renderer)
+          .then((gltf) => {
+            if (annule) return
+            const modele = new ModeleAnime(gltf, animation)
+            scene.add(modele.racine)
+            e.modele = modele
+            if (e.attente) {
+              const pose = e.attente
+              e.attente = null
+              poser(pose)
+            }
+          })
+          .catch(() => !annule && signaler.current({ type: 'modele-indisponible' }))
+        liberer = () => {
+          eteindre()
+          e.modele?.liberer()
+          e.modele = null
+          e.camera = null
+        }
+      },
+      onUpdate: ({ processCpuResult }) => {
+        const maintenant = performance.now()
+        const dt = Math.min(0.1, (maintenant - horloge) / 1000)
+        horloge = maintenant
+        if (e.modele && e.pose) appliquerPose(e.modele.racine, e.pose, 1 - Math.exp(-dt * 8))
+        e.modele?.mettreAJour(dt)
+        const realite = processCpuResult.reality
+        if (!realite) return
+        const normal = realite.trackingStatus !== 'LIMITED'
+        if (e.camera && maintenant - dernierEchantillon > INTERVALLE_ECHANTILLON_MS) {
+          dernierEchantillon = maintenant
+          echantillonner(e.camera, normal, maintenant)
+          signalerDirection(e.camera)
+        }
+        if (normal !== dernierSuivi) {
+          dernierSuivi = normal
+          signaler.current({ type: 'suivi', normal })
+        }
+        const exposition = realite.lighting?.exposure
+        if (typeof exposition === 'number') {
+          const sombre = dernierSombre ? exposition < SEUIL_SOMBRE + 0.1 : exposition < SEUIL_SOMBRE
+          if (sombre !== dernierSombre) {
+            dernierSombre = sombre
+            signaler.current({ type: 'lumiere', sombre })
+          }
+        }
+      },
+      onCameraStatusChange: ({ status, reason }) => {
+        if (status === 'hasVideo') signaler.current({ type: 'camera' })
+        if (status === 'failed') signaler.current(reason === 'DENY_CAMERA' ? { type: 'camera-refusee' } : { type: 'erreur', message: reason ?? 'camera' })
+      },
+      onException: (erreur) => {
+        // Autorisation refusée : { type: 'permission', permission: 'camera' | 'deviceorientation' | … }.
+        const refus = erreur as { type?: string; permission?: string } | null
+        if (refus?.type === 'permission' && refus.permission === 'camera') return signaler.current({ type: 'camera-refusee' })
+        // Capteurs de mouvement refusés ou absents, navigateur non pris en charge : repli sur l'aperçu simulé.
+        signaler.current({ type: 'erreur', message: erreur instanceof Error ? erreur.message : JSON.stringify(erreur) })
+      },
+      listeners: [
+        { event: 'reality.imagefound', process: ({ detail }) => surCible(detail as DetailCible, true) },
+        { event: 'reality.imageupdated', process: ({ detail }) => surCible(detail as DetailCible, false) },
+        { event: 'reality.imagelost', process: () => signaler.current({ type: 'cible-perdue' }) },
+      ],
+    }
+
+    chargerMoteur()
+      .then((xr8) => {
+        if (annule) return
+        if (!xr8.XrDevice.isDeviceBrowserCompatible({ allowedDevices: xr8.XrConfig.device().MOBILE_AND_HEADSETS })) {
+          signaler.current({ type: 'incompatible' })
+          return
+        }
+        e.xr8 = xr8
+        // Reconnaissance des cibles + SLAM (le suivi de l'environnement garde l'animation en place).
+        xr8.XrController.configure({ imageTargetData: cibles, disableWorldTracking: false, enableLighting: true, scale: 'responsive' })
+        xr8.CanvasScreenshot.configure({ maxDimension: 1620, jpgCompression: 88 })
+        xr8.addCameraPipelineModules([
+          xr8.GlTextureRenderer.pipelineModule(), // image de la caméra
+          xr8.Threejs.pipelineModule(), // scène Three.js pilotée par le moteur
+          xr8.XrController.pipelineModule(), // reconnaissance d'image et SLAM
+          xr8.CanvasScreenshot.pipelineModule(), // photo
+          moduleScene,
+        ])
+        xr8.run({ canvas, allowedDevices: xr8.XrConfig.device().MOBILE_AND_HEADSETS })
+        demarre = true
+      })
+      .catch((err: Error) => !annule && signaler.current({ type: 'erreur', message: err.message }))
+
+    return () => {
+      annule = true
+      observateur.disconnect()
+      if (demarre && e.xr8) {
+        e.xr8.stop()
+        e.xr8.clearCameraPipelineModules()
+      }
+      liberer?.()
+      e.xr8 = null
+      e.pose = null
+      e.attente = null
+      e.placementGps = null
+      e.ancrage.vider()
+    }
+    // Le moteur n'est redémarré que si le modèle ou les cibles changent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animation.modeleUrl, animation.clipIndice, animation.lecture, cleCibles])
+
+  return (
+    <div className="scene-ra" ref={conteneur}>
+      <canvas ref={canevas} className="canevas-ra" />
+    </div>
+  )
+}

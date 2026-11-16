@@ -240,6 +240,13 @@ CREATE TABLE animation (
   transcription_fr  TEXT NOT NULL COMMENT 'Transcription du son (BNF-11)',
   transcription_en  TEXT NULL,
   transcription_de  TEXT NULL,
+  -- Placement GPS en 3D (animation de lieu) : le modèle est posé à cette position, dans le repère SLAM
+  -- du téléphone, quand la façade n'est pas reconnue. Position vide : coordonnées du lieu.
+  position_latitude        DECIMAL(9,6) NULL COMMENT 'Position du modèle ; vide = position du lieu',
+  position_longitude       DECIMAL(9,6) NULL,
+  position_hauteur_m       DECIMAL(5,1) NOT NULL DEFAULT 0 COMMENT 'Socle du modèle au-dessus du sol (m)',
+  position_orientation_deg SMALLINT UNSIGNED NULL COMMENT 'Cap de la face avant du modèle (0 = nord) ; vide = face au visiteur',
+  position_taille_m        DECIMAL(5,1) NOT NULL DEFAULT 10 COMMENT 'Plus grande dimension du modèle (m)',
   cree_le           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   modifie_le        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -254,7 +261,11 @@ CREATE TABLE animation (
   CONSTRAINT ck_animation_lieu CHECK (type = 'AFFICHE' OR lieu_id IS NOT NULL),
   CONSTRAINT ck_animation_declencheur CHECK ((type = 'AFFICHE') = (declencheur = 'AFFICHE')),
   CONSTRAINT ck_animation_dates CHECK (fin IS NULL OR fin > debut),
-  CONSTRAINT ck_animation_duree CHECK (duree_s BETWEEN 5 AND 1800)
+  CONSTRAINT ck_animation_duree CHECK (duree_s BETWEEN 5 AND 1800),
+  CONSTRAINT ck_animation_position CHECK ((position_latitude IS NULL) = (position_longitude IS NULL)
+    AND (position_latitude IS NULL OR (position_latitude BETWEEN -90 AND 90 AND position_longitude BETWEEN -180 AND 180))),
+  CONSTRAINT ck_animation_placement CHECK (position_hauteur_m BETWEEN 0 AND 300 AND position_taille_m BETWEEN 0.5 AND 200
+    AND (position_orientation_deg IS NULL OR position_orientation_deg < 360))
 ) ENGINE=InnoDB;
 
 CREATE TABLE affiche (

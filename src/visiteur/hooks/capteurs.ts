@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 
-/** Teste au démarrage caméra, WebGL et WebAssembly (useCompatibilite). */
+/** Le moteur 8th Wall exige iOS 16.4 au minimum (section 9.1) ; un iPad en mode bureau n'indique pas sa version. */
+export function iosCompatible(ua = navigator.userAgent): boolean {
+  const ios = /(?:iPhone|iPad|iPod).*? OS (\d+)_(\d+)/.exec(ua)
+  if (!ios) return true
+  const [majeure, mineure] = [Number(ios[1]), Number(ios[2])]
+  return majeure > 16 || (majeure === 16 && mineure >= 4)
+}
+
+/** Teste au démarrage caméra, WebGL, WebAssembly et la version d'iOS (useCompatibilite). */
 export function useCompatibilite() {
   const [resultat] = useState(() => {
     let webgl = false
@@ -12,7 +20,8 @@ export function useCompatibilite() {
     }
     const wasm = typeof WebAssembly === 'object'
     const camera = !!navigator.mediaDevices?.getUserMedia
-    return { webgl, wasm, camera, compatible: webgl && wasm && camera }
+    const ios = iosCompatible()
+    return { webgl, wasm, camera, ios, compatible: webgl && wasm && camera && ios }
   })
   return resultat
 }

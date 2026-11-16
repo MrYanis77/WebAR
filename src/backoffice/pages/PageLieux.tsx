@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { CarteInteractive } from '../../commun/Carte'
+import { ChoixPosition } from '../composants/ChoixPosition'
 import { RAYON_PAR_DEFAUT_M } from '../../commun/constantes'
-import { deprojeter, METRES_PAR_UNITE, projeter } from '../../commun/geo'
+import { projeter } from '../../commun/geo'
 import { Icone } from '../../commun/Icone'
 import { messageErreur } from '../../commun/api'
 import { ajouterPhotoFacade, attendreControle, attribuerZone, enregistrerLieu, enregistrerZone, importerFichier, nomProprietaire, supprimerLieu, useEtat } from '../../commun/store'
@@ -274,31 +275,6 @@ export default function PageLieux() {
       />
       {toast.element}
     </>
-  )
-}
-
-function ChoixPosition({ latitude, longitude, rayonM, onChange }: { latitude: number; longitude: number; rayonM?: number; onChange: (lat: number, lng: number) => void }) {
-  const p = projeter({ latitude, longitude })
-  return (
-    <div className="carte-bo petite">
-      <CarteInteractive
-        vueInitiale={{ x: p.x - 110, y: p.y - 110, w: 220, h: 220 }}
-        boutonsZoom
-        onClicCarte={(x, y) => {
-          const c = deprojeter(x, y)
-          onChange(Number(c.latitude.toFixed(6)), Number(c.longitude.toFixed(6)))
-        }}
-        calques={rayonM ? <circle cx={p.x} cy={p.y} r={rayonM / METRES_PAR_UNITE} fill="rgb(123 30 46 / 0.12)" stroke="#7b1e2e" strokeDasharray="3 3" /> : null}
-        surcouche={(versEcran) => (
-          <span className="epingle" style={versEcran(p.x, p.y)}>
-            <Icone nom="pin" taille={22} />
-          </span>
-        )}
-      />
-      <small className="coordonnees">
-        Cliquez sur la carte · {latitude.toFixed(5)}, {longitude.toFixed(5)}
-      </small>
-    </div>
   )
 }
 

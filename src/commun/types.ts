@@ -96,6 +96,21 @@ export interface Fichier {
   controleTermine?: boolean
 }
 
+/**
+ * Placement GPS en 3D d'une animation de lieu : le téléphone pose le modèle à cette position
+ * (convertie dans le repère SLAM grâce au GPS et à la boussole) quand la façade n'est pas reconnue.
+ */
+export interface PlacementGps {
+  latitude: number
+  longitude: number
+  /** Hauteur du socle du modèle au-dessus du sol, en mètres. */
+  hauteurM: number
+  /** Cap vers lequel est tournée la face avant du modèle (0 = nord, 90 = est) ; vide = face au visiteur. */
+  orientationDeg?: number
+  /** Plus grande dimension du modèle, en mètres. */
+  tailleM: number
+}
+
 export interface Animation {
   id: string
   proprietaireId: string
@@ -115,6 +130,8 @@ export interface Animation {
   transcription: Texte3
   lancements: number
   modifieLe: string
+  /** Animation de lieu : position du modèle dans l'espace (vide = position du lieu, valeurs par défaut). */
+  placement?: PlacementGps
   /** URL du modèle GLB et du son, pour l'aperçu et l'application visiteur. */
   modeleUrl?: string
   sonUrl?: string
@@ -153,6 +170,22 @@ export interface ImageAffiche {
   hauteur: number
   octets: number
   url?: string
+}
+
+/**
+ * Cible de reconnaissance 8th Wall (image target), au format lu par XR8.XrController.configure({ imageTargetData }).
+ * Générée par le serveur à partir du visuel de l'affiche ou d'une photo de façade (même format que
+ * l'outil officiel @8thwall/image-target-cli) : recadrage 3:4 et image de luminance 480 × 640.
+ */
+export interface CibleImage {
+  /** Nom unique parmi les cibles actives, renvoyé dans les événements reality.imagefound. */
+  name: string
+  type: 'PLANAR'
+  /** URL de l'image de luminance (niveaux de gris, 480 × 640). */
+  imagePath: string
+  metadata: null
+  /** Recadrage dans l'image d'origine (tournée d'un quart de tour si elle est en paysage). */
+  properties: { left: number; top: number; width: number; height: number; isRotated: boolean; originalWidth: number; originalHeight: number }
 }
 
 export interface Affiche {

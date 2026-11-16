@@ -1,33 +1,47 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { DELAI_AFFICHE_NON_RECONNUE_S, DELAI_MONUMENT_NON_RECONNU_S } from '../../commun/constantes'
+import { DELAI_AFFICHE_NON_RECONNUE_S, DELAI_MONUMENT_NON_RECONNU_S, PLACEMENT_LIEU_DEFAUT } from '../../commun/constantes'
 import { distanceM } from '../../commun/geo'
 import { useLangue } from '../../commun/i18n'
 import { Icone } from '../../commun/Icone'
 import { compterLancement } from '../../commun/store'
-import type { Affiche, Animation, Lieu } from '../../commun/types'
+import type { Affiche, Animation, CibleImage, Lieu, PlacementGps } from '../../commun/types'
 import { usePosition } from '../contexte/position'
 import { AfficheAvecQr, QR_DEFAUT } from '../../commun/AfficheQr'
 import { useCamera, useLuminosite } from '../hooks/capteurs'
+import { appareilMobile } from '../ra/moteur'
 import { capturerPhoto, partagerPhoto } from '../services/photo'
 import { useDonneesPubliques } from '../donneesPubliques'
 import { arreterSon, couperSon, estMuet, jouerFichier } from '../services/son'
 import { CoucheModale, EnteteFeuille } from './Couche'
 import { FormulaireSignalement, type CibleSignalement } from './FormulaireSignalement'
+import type { CommandesScene, EvenementScene } from './SceneRA'
 
 type Phase = 'recherche' | 'detecte' | 'echec' | 'fin'
 
-// Rendu Three.js du modèle GLB : chargé seulement à l'ouverture de la réalité augmentée.
-const ModeleRA = lazy(() => import('./ModeleRA'))
+// Three.js et le moteur 8th Wall ne sont chargés qu'à l'ouverture de la caméra (section 9.2).
+const SceneRA = lazy(() => import('./SceneRA'))
+const ModeleSimule = lazy(() => import('./ModeleSimule'))
 
-// Le moteur de reconnaissance (MindAR / LocAR) sera branché derrière cette vue. En démonstration,
-// la détection est simulée : succès automatique, ou forçage d'un état avec le sélecteur « Démo ».
-const DELAI_DETECTION_DEMO_MS = 3500
+/** Aperçu simulé (ordinateur, caméra refusée) : l'animation démarre sans reconnaissance. */
+const DELAI_SIMULATION_MS = 800
+/** Affiche sans cible de reconnaissance : l'animation est posée devant le visiteur. */
+const DELAI_SANS_CIBLE_MS = 1500
+/** Lieu sans photo de façade : délai avant le placement GPS (quelques mesures de la boussole). */
+const DELAI_PLACEMENT_GPS_MS = 2500
 
+/**
+ * Expérience de réalité augmentée (affiche ou monument). Sur smartphone, le moteur 8th Wall reconnaît
+ * l'affiche ou un détail de la façade, y pose l'animation 3D, puis le SLAM la garde en place dans
+ * l'environnement du visiteur. Sans reconnaissance : conseils, puis pose devant le visiteur (affiche)
+ * ou à sa position GPS en 3D (lieu : position, hauteur, orientation et taille réglées dans le
+ * back-office, sinon position du lieu). Sur ordinateur : aperçu simulé.
+ */
 export function VueRA({
   mode,
   lieu,
   animation,
   affiche,
+  cibles = [],
   proprietaire,
   cameraAutorisee,
   onQuitter,
@@ -38,6 +52,8 @@ export function VueRA({
   lieu: Lieu
   animation: Animation
   affiche?: Affiche
+  /** Cibles de reconnaissance 8th Wall : visuel de l'affiche, ou détails de la façade du lieu. */
+  cibles?: CibleImage[]
   /** Structure propriétaire de l'affiche (partenaire ou Ville), renvoyée par l'API publique. */
   proprietaire?: string
   cameraAutorisee: boolean
@@ -49,11 +65,24 @@ export function VueRA({
   const etat = useDonneesPubliques()
   const position = usePosition()
   const lieuVivant = etat.lieux.find((l) => l.id === lieu.id) ?? lieu // score mis à jour en direct (BF-52)
-  const { etat: etatCam, flux } = useCamera(cameraAutorisee)
+
+  // Moteur de RA sur smartphone ; s'il échoue (navigateur incompatible), repli sur l'aperçu simulé.
+  const [moteurEnPanne, setMoteurEnPanne] = useState(false)
+  const moteur = cameraAutorisee && appareilMobile() && !moteurEnPanne
+  const commandes = useRef<CommandesScene>(null)
+  const [cameraPrete, setCameraPrete] = useState(false)
+  const [suiviNormal, setSuiviNormal] = useState(true)
+  const [sombreMoteur, setSombreMoteur] = useState(false)
+  const [modeleIndisponible, setModeleIndisponible] = useState(false)
+  /** Animation hors du champ de la caméra : côté vers lequel tourner le téléphone. */
+  const [direction, setDirection] = useState<'gauche' | 'droite' | null>(null)
+  const [sansBoussole, setSansBoussole] = useState(false)
+
+  // Sans moteur : caméra de la page (webcam) et modèle superposé.
+  const { etat: etatCam, flux } = useCamera(cameraAutorisee && !moteur)
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const image = useRef<HTMLImageElement>(null)
   const [phase, setPhase] = useState<Phase>('recherche')
-  const [forcage, setForcage] = useState<'auto' | 'recherche'>('auto')
   const [manuel, setManuel] = useState(false)
   const [muet, setMuet] = useState(estMuet())
   const [sousTitres, setSousTitres] = useState(false)
@@ -62,9 +91,9 @@ export function VueRA({
   const [cycle, setCycle] = useState(0)
   const [redirection, setRedirection] = useState(false)
 
-  const simulee = etatCam !== 'active'
-  const sombre = useLuminosite(video, etatCam === 'active' && phase === 'recherche')
-  const delaiEchec = (mode === 'affiche' ? DELAI_AFFICHE_NON_RECONNUE_S : DELAI_MONUMENT_NON_RECONNU_S) * 1000
+  const simulee = !moteur && etatCam !== 'active'
+  const sombreVideo = useLuminosite(video, !moteur && etatCam === 'active' && phase === 'recherche')
+  const sombre = moteur ? sombreMoteur : sombreVideo
   // Habillage : tableau de score si le lieu en a un (BF-52), sinon décor lumineux.
   const theme = mode === 'affiche' ? 'affiche' : lieuVivant.equipeDomicile ? 'stade' : 'lieu'
 
@@ -79,14 +108,84 @@ export function VueRA({
     }
   }, [video, flux])
 
-  // Recherche : succès simulé, ou échec après 15 s (affiche) / 20 s (monument) — BF-09.
+  const surEvenement = useCallback(
+    (e: EvenementScene) => {
+      switch (e.type) {
+        case 'camera':
+          setCameraPrete(true)
+          break
+        case 'camera-refusee':
+          onCameraRefusee()
+          break
+        case 'incompatible':
+        case 'erreur':
+          if (e.type === 'erreur') console.warn('[RA] moteur 8th Wall :', e.message)
+          setMoteurEnPanne(true)
+          break
+        case 'modele-indisponible':
+          setModeleIndisponible(true)
+          break
+        case 'cible-trouvee':
+          // Affiche ou façade reconnue : l'animation est posée (ou recalée si elle l'était déjà).
+          setPhase((p) => (p === 'recherche' || p === 'echec' ? 'detecte' : p))
+          setManuel(false)
+          break
+        case 'suivi':
+          setSuiviNormal(e.normal)
+          break
+        case 'lumiere':
+          setSombreMoteur(e.sombre)
+          break
+        case 'direction':
+          setDirection(e.cote)
+          break
+      }
+    },
+    [onCameraRefusee],
+  )
+
+  // Position du modèle de l'animation de lieu : réglée dans le back-office, sinon celle du lieu.
+  const placement: PlacementGps = animation.placement ?? { latitude: lieu.latitude, longitude: lieu.longitude, ...PLACEMENT_LIEU_DEFAUT }
+  const distance = position.coords ? distanceM(position.coords, lieu) : null
+  const dansZone = distance !== null && distance <= lieu.rayonM
+  const gps = position.coords ? { coords: position.coords, precisionM: position.precisionM ?? 15 } : null
+
+  /** Pose l'animation à sa position GPS en 3D ; renvoie false si la caméra ou la position ne sont pas prêtes. */
+  const placerParGps = useCallback(() => {
+    const r = commandes.current?.poserGps(placement)
+    if (!r || r === 'pas-pret') return false
+    setSansBoussole(r === 'sans-boussole')
+    setManuel(true)
+    setRedirection(false)
+    setPhase('detecte')
+    return true
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placement.latitude, placement.longitude, placement.hauteurM, placement.orientationDeg, placement.tailleM])
+
+  // Démarrage de la recherche.
   useEffect(() => {
     if (phase !== 'recherche') return
-    const ids: number[] = []
-    if (forcage === 'auto') ids.push(window.setTimeout(() => setPhase('detecte'), DELAI_DETECTION_DEMO_MS))
-    ids.push(window.setTimeout(() => setPhase('echec'), delaiEchec))
-    return () => ids.forEach((id) => window.clearTimeout(id))
-  }, [phase, forcage, delaiEchec, cycle])
+    // Aperçu simulé : l'animation apparaît dès que la vue est prête (le QR code ou le GPS a déclenché l'expérience).
+    if (!moteur) {
+      const id = window.setTimeout(() => setPhase('detecte'), DELAI_SIMULATION_MS)
+      return () => window.clearTimeout(id)
+    }
+    if (!cameraPrete) return
+    // Affiche sans cible (visuel trop petit) : l'animation est posée devant le visiteur.
+    if (mode === 'affiche' && !cibles.length) {
+      const id = window.setTimeout(() => commandes.current?.poserDevant() && setPhase('detecte'), DELAI_SANS_CIBLE_MS)
+      return () => window.clearTimeout(id)
+    }
+    // Lieu sans photo de façade : dans le rayon, l'animation est posée à sa position GPS en 3D.
+    if (mode === 'monument' && !cibles.length && dansZone) {
+      const id = window.setTimeout(() => placerParGps() || setPhase('echec'), DELAI_PLACEMENT_GPS_MS)
+      return () => window.clearTimeout(id)
+    }
+    // Sans reconnaissance dans le délai : conseils et solutions de repli (la recherche continue).
+    const delai = !cibles.length ? 3 : mode === 'affiche' ? DELAI_AFFICHE_NON_RECONNUE_S : DELAI_MONUMENT_NON_RECONNU_S
+    const id = window.setTimeout(() => setPhase('echec'), delai * 1000)
+    return () => window.clearTimeout(id)
+  }, [phase, cycle, moteur, cameraPrete, mode, cibles.length, dansZone, placerParGps])
 
   // Animation : son, statistique anonyme de lancement, puis fin.
   useEffect(() => {
@@ -94,7 +193,7 @@ export function VueRA({
     compterLancement(animation.id, mode === 'affiche' ? 'AFFICHE' : manuel ? 'MANUEL' : 'MONUMENT')
     // Son importé avec l'animation (facultatif), joué en boucle pendant sa durée.
     if (animation.sonUrl) jouerFichier(animation.sonUrl, animation.lecture !== 'UNE_FOIS')
-    const duree = Math.min(animation.dureeS, mode === 'affiche' ? 9 : 30) * 1000
+    const duree = Math.min(animation.dureeS, mode === 'affiche' ? 20 : 30) * 1000
     const id = window.setTimeout(() => setPhase('fin'), duree)
     return () => {
       window.clearTimeout(id)
@@ -119,16 +218,50 @@ export function VueRA({
     setPhase('detecte')
   }, [])
 
+  const reessayer = useCallback(() => {
+    setRedirection(false)
+    setManuel(false)
+    setCycle((c) => c + 1)
+    setPhase('recherche')
+  }, [])
+
+  /** Affiche non reconnue : l'animation est posée devant le visiteur, dans son environnement. */
+  function poserIci() {
+    if (!moteur) return relancer()
+    if (commandes.current?.poserDevant()) {
+      setRedirection(false)
+      setPhase('detecte')
+    }
+  }
+
+  /** Monument non reconnu : animation posée à sa position GPS en 3D (GPS + boussole). */
+  function lancerParPosition() {
+    if (!moteur) {
+      setManuel(true)
+      return relancer()
+    }
+    placerParGps()
+  }
+
   function basculerSon() {
     couperSon(!muet)
     setMuet(!muet)
   }
 
-  function prendrePhoto() {
+  async function prendrePhoto() {
     const titre = mode === 'affiche' ? (affiche?.nom ?? animation.titre) : animation.titre
+    let source: HTMLImageElement | HTMLVideoElement | null = simulee ? image.current : video
+    // RA : image de la caméra et scène 3D assemblées par le moteur, dans le téléphone.
+    if (moteur) {
+      const capture = await commandes.current?.photo()
+      if (!capture) return
+      source = new Image()
+      source.src = capture
+      await source.decode().catch(() => {})
+    }
     setPhoto(
       capturerPhoto({
-        source: simulee ? image.current : video,
+        source,
         theme,
         titre,
         sousTitre: lieu.nom,
@@ -140,14 +273,13 @@ export function VueRA({
     )
   }
 
-  const distance = position.coords ? distanceM(position.coords, lieu) : null
-  const dansZone = distance !== null && distance <= lieu.rayonM
-
   const libellePhase =
     phase === 'recherche'
-      ? mode === 'affiche'
-        ? t('affiche.recherche')
-        : t('ra.recherche')
+      ? moteur && !cameraPrete
+        ? t('ra.demarrage')
+        : mode === 'affiche'
+          ? t('affiche.recherche')
+          : t('ra.recherche')
       : phase === 'echec'
         ? t('ra.nonReconnu')
         : phase === 'fin'
@@ -169,7 +301,20 @@ export function VueRA({
 
   const flux_ = (
     <div className="flux-camera">
-      {!simulee ? (
+      {moteur ? (
+        <Suspense fallback={<div className="video-camera fond-simule" />}>
+          <SceneRA
+            animation={animation}
+            cibles={cibles}
+            mode={mode}
+            recherche={phase === 'recherche' || phase === 'echec'}
+            cycle={cycle}
+            gps={gps}
+            commandes={commandes}
+            onEvenement={surEvenement}
+          />
+        </Suspense>
+      ) : !simulee ? (
         <video ref={setVideo} playsInline muted autoPlay className="video-camera" />
       ) : mode === 'affiche' ? (
         <>
@@ -182,11 +327,12 @@ export function VueRA({
         <div className="video-camera fond-simule" />
       )}
       <div className="vignette-camera" />
-      {enAnimation && (
+      {!moteur && enAnimation && (
         <Suspense fallback={null}>
-          <ModeleRA animation={animation} actif={enAnimation} cycle={cycle} />
+          <ModeleSimule animation={animation} cycle={cycle} />
         </Suspense>
       )}
+      {modeleIndisponible && <span className="erreur-modele-ra">{t('ra.modeleIndisponible')}</span>}
     </div>
   )
 
@@ -230,12 +376,27 @@ export function VueRA({
           <Icone nom="boussole" taille={12} /> {t('ra.manuel')}
         </span>
       )}
+      {moteur && enAnimation && direction && (
+        <span>
+          <Icone nom={direction === 'gauche' ? 'gauche' : 'droite'} taille={12} /> {direction === 'gauche' ? t('ra.directionGauche') : t('ra.directionDroite')}
+        </span>
+      )}
+      {manuel && enAnimation && sansBoussole && (
+        <span className="alerte">
+          <Icone nom="boussole" taille={12} /> {t('ra.boussole')}
+        </span>
+      )}
+      {moteur && enAnimation && !suiviNormal && (
+        <span className="alerte">
+          <Icone nom="scan" taille={12} /> {mode === 'affiche' ? t('ra.suiviPerduAffiche') : t('ra.suiviPerduFacade')}
+        </span>
+      )}
       {sombre && phase === 'recherche' && (
         <span className="alerte">
           <Icone nom="soleil" taille={12} /> {t('ra.lumiere')}
         </span>
       )}
-      {phase === 'recherche' && mode === 'monument' && <span>{t('ra.conseilFacade')}</span>}
+      {phase === 'recherche' && mode === 'monument' && cibles.length > 0 && <span>{t('ra.conseilFacade')}</span>}
     </div>
   )
 
@@ -243,30 +404,6 @@ export function VueRA({
     <p className="sous-titres" aria-live="polite">
       {tr(animation.transcription)}
     </p>
-  )
-
-  const selecteurDemo = (
-    <div className="selecteur-demo" role="group" aria-label="Démo">
-      <span>Démo</span>
-      <button
-        type="button"
-        className={phase === 'recherche' ? 'actif' : ''}
-        onClick={() => {
-          setForcage('recherche')
-          setManuel(false)
-          setCycle((c) => c + 1)
-          setPhase('recherche')
-        }}
-      >
-        {t('ra.recherche')}
-      </button>
-      <button type="button" className={enAnimation ? 'actif' : ''} onClick={relancer}>
-        ✓
-      </button>
-      <button type="button" className={phase === 'echec' ? 'actif' : ''} onClick={() => setPhase('echec')}>
-        ✕
-      </button>
-    </div>
   )
 
   const feuilles = (
@@ -307,7 +444,7 @@ export function VueRA({
           {puces}
           {sousTitresBloc}
           <div className="outils-affiche">
-            <button type="button" onClick={prendrePhoto} aria-label={t('ra.photo')} disabled={!enAnimation}>
+            <button type="button" onClick={() => void prendrePhoto()} aria-label={t('ra.photo')} disabled={!enAnimation}>
               <Icone nom="appareil" taille={19} />
             </button>
             <button type="button" onClick={relancer} aria-label={t('ra.relancer')} disabled={!enAnimation}>
@@ -317,7 +454,6 @@ export function VueRA({
               <Icone nom="drapeau" taille={19} />
             </button>
           </div>
-          {selecteurDemo}
         </div>
         <section className="panneau-affiche" aria-live="polite">
           {phase === 'recherche' && (
@@ -326,9 +462,9 @@ export function VueRA({
               <h2>{t('affiche.cadrez')}</h2>
               <p>{t('affiche.conseil')}</p>
               <div className="actions-panneau">
-                <button type="button" className="btn btn-secondaire" onClick={relancer}>
-                  <Icone nom="scan" taille={17} />
-                  {t('affiche.simuler')}
+                <button type="button" className="btn btn-secondaire" onClick={poserIci} disabled={moteur && !cameraPrete}>
+                  <Icone nom={moteur ? 'cube' : 'scan'} taille={17} />
+                  {moteur ? t('ra.poserIci') : t('affiche.simuler')}
                 </button>
               </div>
             </>
@@ -339,22 +475,18 @@ export function VueRA({
               <h2>{t('erreur.affiche.titre')}</h2>
               <p>{t('erreur.affiche.texte')}</p>
               <div className="actions-panneau">
-                <button type="button" className="btn btn-secondaire" onClick={onVoirLieu}>
-                  {t('ra.voirCarte')}
+                <button type="button" className="btn btn-secondaire" onClick={poserIci}>
+                  <Icone nom="cube" taille={17} />
+                  {t('ra.poserIci')}
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-primaire"
-                  onClick={() => {
-                    setForcage('auto')
-                    setCycle((c) => c + 1)
-                    setPhase('recherche')
-                  }}
-                >
+                <button type="button" className="btn btn-primaire" onClick={reessayer}>
                   <Icone nom="relancer" taille={17} />
                   {t('erreur.affiche.action')}
                 </button>
               </div>
+              <button type="button" className="btn-texte btn-bloc" onClick={onVoirLieu}>
+                {t('ra.voirCarte')}
+              </button>
             </>
           )}
           {enAnimation && (
@@ -416,7 +548,8 @@ export function VueRA({
           <small>{lieuVivant.minute?.toUpperCase()}</small>
         </div>
       )}
-      {enAnimation && theme !== 'stade' && (
+      {/* Décor lumineux de l'aperçu simulé (en RA, le modèle 3D est posé dans la scène réelle). */}
+      {enAnimation && simulee && theme !== 'stade' && (
         <div className="scene-chateau" aria-hidden="true">
           <div className="arche-lumiere" />
           <span className="neige s1">❄</span>
@@ -442,15 +575,7 @@ export function VueRA({
           </span>
           <h2>{t('ra.monumentNonReconnu')}</h2>
           <p>{dansZone ? t('ra.monumentNonReconnuTexte') : t('ra.horsZone', { r: lieu.rayonM })}</p>
-          <button
-            type="button"
-            className="btn btn-primaire btn-bloc"
-            disabled={!dansZone}
-            onClick={() => {
-              setManuel(true)
-              relancer()
-            }}
-          >
+          <button type="button" className="btn btn-primaire btn-bloc" disabled={!dansZone} onClick={lancerParPosition}>
             <Icone nom="boussole" taille={17} />
             {t('ra.lancerManuel')}
           </button>
@@ -460,17 +585,11 @@ export function VueRA({
               {t('carte.maPosition')}
             </button>
           )}
-          <button
-            type="button"
-            className="btn-texte btn-bloc clair"
-            onClick={() => {
-              setForcage('auto')
-              setCycle((c) => c + 1)
-              setPhase('recherche')
-            }}
-          >
-            {t('ra.reessayer')}
-          </button>
+          {cibles.length > 0 && (
+            <button type="button" className="btn-texte btn-bloc clair" onClick={reessayer}>
+              {t('ra.reessayer')}
+            </button>
+          )}
         </div>
       )}
 
@@ -493,18 +612,16 @@ export function VueRA({
         </div>
       )}
 
-      {selecteurDemo}
-
       <div className="controles-ra">
         <button type="button" onClick={basculerSon} aria-pressed={muet}>
           <Icone nom={muet ? 'muet' : 'son'} taille={22} />
           <small>{muet ? t('ra.muet') : t('ra.son')}</small>
         </button>
-        <button type="button" onClick={relancer} disabled={phase === 'recherche'}>
+        <button type="button" onClick={relancer} disabled={!enAnimation}>
           <Icone nom="relancer" taille={22} />
           <small>{t('ra.relancer')}</small>
         </button>
-        <button type="button" className="capture" onClick={prendrePhoto} aria-label={t('ra.photo')} disabled={!enAnimation}>
+        <button type="button" className="capture" onClick={() => void prendrePhoto()} aria-label={t('ra.photo')} disabled={!enAnimation}>
           <Icone nom="appareil" taille={24} />
         </button>
         <button type="button" onClick={signaler}>

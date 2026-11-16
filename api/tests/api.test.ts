@@ -3,6 +3,8 @@
 // de publication, parcours visiteur public, signalement anonyme, modération et suppressions.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import request from 'supertest'
+import sharp from 'sharp'
+import { NOM_ANIMATION_COMBINEE } from '../../src/commun/constantes.js'
 import { prisma } from '../src/db.js'
 import { attendreTraitements } from '../src/services/file.js'
 import { ALTCHA_TEST, app, connecterAgent, creerAgent, dernierCode, connecterPartenaire, dateLocale, genererGlb, genererMp3, genererPng, importer, MOT_DE_PASSE, type Client } from './outils.js'
@@ -113,8 +115,19 @@ describe('Contrôle automatique des fichiers', () => {
       ['Danse', 2],
     ])
     expect(corps.url).toMatch(/^\/uploads\/3d\/.+\.glb$/)
-    // Le fichier est servi tel quel pour l'aperçu.
-    expect((await request(app).get(corps.url)).status).toBe(200)
+    // Le fichier servi contient en plus l'animation combinée (toutes les animations ensemble, pour
+    // model-viewer), absente de la liste des clips proposés à l'éditeur.
+    const servi = await request(app).get(corps.url).buffer(true).parse((res, fin) => {
+      const morceaux: Buffer[] = []
+      res.on('data', (m: Buffer) => morceaux.push(m))
+      res.on('end', () => fin(null, Buffer.concat(morceaux)))
+    })
+    expect(servi.status).toBe(200)
+    const fichierServi = servi.body as Buffer
+    const json = JSON.parse(fichierServi.subarray(20, 20 + fichierServi.readUInt32LE(12)).toString()) as { animations: { name: string; channels: unknown[] }[] }
+    expect(json.animations.map((a) => a.name)).toEqual(['Apparition', 'Vide', 'Danse', NOM_ANIMATION_COMBINEE])
+    expect(json.animations[3].channels).toHaveLength(2)
+    expect(corps.tailleOctets).toBe(fichierServi.length)
     await agent.c.patch(`${API}/fichiers/${corps.id}/valider`).set('X-CSRF-Token', agent.jeton).expect(200)
   })
 
@@ -205,6 +218,25 @@ describe('Parcours affiche : création, conditions, publication, visiteur, modé
     expect(anim.body.modeleUrl).toMatch(/^\/uploads\/3d\//)
     const pub = await request(app).get(`${API}/public/lieux`).expect(200)
     expect(pub.body.animations.map((a: { id: string }) => a.id)).toContain(animLieuId)
+    // Sans position personnalisée : le téléphone utilise la position du lieu.
+    expect(anim.body.placement).toBeUndefined()
+  })
+
+  it('enregistre le placement GPS en 3D d’une animation de lieu et le transmet au visiteur', async () => {
+    const corps = { titre: 'Lumières du château', type: 'LIEU', lieuId, modeleId: modeleLieuId, declencheur: 'MONUMENT', dureeS: 60, debut: dateLocale(-1), transcription: { fr: 'Musique' }, publier: true }
+    const placement = { latitude: 47.51012, longitude: 6.79835, hauteurM: 18.5, orientationDeg: 135, tailleM: 25 }
+    const r = await agent.c.patch(`${API}/animations/${animLieuId}`).set('X-CSRF-Token', agent.jeton).send({ ...corps, placement }).expect(200)
+    expect(r.body.placement).toEqual(placement)
+    const pub = await request(app).get(`${API}/public/lieux`).expect(200)
+    expect(pub.body.animations.find((a: { id: string }) => a.id === animLieuId).placement).toEqual(placement)
+    // Valeurs hors limites refusées (hauteur, orientation).
+    expect((await agent.c.patch(`${API}/animations/${animLieuId}`).set('X-CSRF-Token', agent.jeton).send({ ...corps, placement: { ...placement, hauteurM: 500 } })).status).toBe(400)
+    expect((await agent.c.patch(`${API}/animations/${animLieuId}`).set('X-CSRF-Token', agent.jeton).send({ ...corps, placement: { ...placement, orientationDeg: 360 } })).status).toBe(400)
+    // Sans orientation : face au visiteur ; placement retiré : retour à la position du lieu.
+    const sansOrientation = await agent.c.patch(`${API}/animations/${animLieuId}`).set('X-CSRF-Token', agent.jeton).send({ ...corps, placement: { ...placement, orientationDeg: null } }).expect(200)
+    expect(sansOrientation.body.placement.orientationDeg).toBeUndefined()
+    const retire = await agent.c.patch(`${API}/animations/${animLieuId}`).set('X-CSRF-Token', agent.jeton).send({ ...corps, placement: null }).expect(200)
+    expect(retire.body.placement).toBeUndefined()
   })
 
   it('refuse une animation avec un modèle non validé ou un clip inexistant', async () => {
@@ -292,6 +324,11 @@ describe('Parcours affiche : création, conditions, publication, visiteur, modé
     expect(r.body.animationAffiche.id).toBe(animAfficheId)
     expect(r.body.lieu.id).toBe(lieuId)
     expect(r.body.proprietaire).toMatch(/^Structure/)
+    // Cible 8th Wall générée à partir du visuel (800 × 1131) : recadrage 3:4 centré, luminance 480 × 640.
+    expect(r.body.cible).toMatchObject({ type: 'PLANAR', properties: { left: 0, top: 32, width: 800, height: 1067, isRotated: false, originalWidth: 800, originalHeight: 1131 } })
+    const luminance = await request(app).get(r.body.cible.imagePath).buffer(true).expect(200)
+    expect(luminance.headers['content-type']).toBe('image/jpeg')
+    expect(await sharp(luminance.body as Buffer).metadata()).toMatchObject({ width: 480, height: 640, channels: 1 })
     expect((await request(app).get(`${API}/public/affiches/inconnu-0000000000000`)).status).toBe(404)
     await request(app).post(`${API}/public/statistiques`).send({ type: 'SCAN', afficheId }).expect(204)
     await request(app).post(`${API}/public/statistiques`).send({ type: 'LANCEMENT', animationId: animAfficheId, declencheur: 'AFFICHE' }).expect(204)

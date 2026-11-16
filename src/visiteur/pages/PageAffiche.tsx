@@ -7,12 +7,15 @@ import { MessageErreur } from '../composants/MessageErreur'
 import { VueRA } from '../composants/VueRA'
 import { useAffichePublique } from '../donneesPubliques'
 import { useCompatibilite } from '../hooks/capteurs'
+import { demanderCapteursMouvement, prechargerRA } from '../ra/moteur'
 import { deverrouillerSon } from '../services/son'
 import { consignesVues, marquerConsignesVues } from '../utils'
 
 /**
- * Entrée par QR code (/a/:code) : description de l'affiche, consignes, animation d'affiche,
- * puis carte centrée sur l'animation de lieu promue (BF-02, BF-16, BF-30 à BF-33).
+ * Entrée par QR code (/a/:code) : consignes (le dernier écran seulement si elles ont déjà été lues),
+ * puis « Autoriser et commencer » ouvre la caméra : 8th Wall reconnaît l'affiche, l'animation 3D en
+ * surgit et le SLAM la garde en place dans l'environnement du visiteur. Le moteur, le modèle et le son
+ * sont téléchargés pendant les consignes. Ensuite : carte centrée sur le lieu promu (BF-02, BF-16, BF-30 à BF-33).
  */
 export default function PageAffiche() {
   const { code = '' } = useParams()
@@ -24,7 +27,9 @@ export default function PageAffiche() {
   const affiche = resultat.donnees?.affiche
   const animAffiche = resultat.donnees?.animationAffiche
   const lieu = resultat.donnees?.lieu
-  const [etape, setEtape] = useState<'consignes' | 'ra' | 'refus'>(() => (consignesVues() ? 'ra' : 'consignes'))
+  // Les consignes sont toujours proposées : sur iPhone, le bouton du dernier écran est le geste qui
+  // autorise les capteurs de mouvement (SLAM) et le son.
+  const [etape, setEtape] = useState<'consignes' | 'ra' | 'refus'>('consignes')
   const [simulee, setSimulee] = useState(false)
   const compte = useRef(false)
 
@@ -35,6 +40,13 @@ export default function PageAffiche() {
       compterScan(affiche.id)
     }
   }, [affiche, resultat.raison])
+
+  // Téléchargement en arrière-plan pendant les consignes : moteur de RA, modèle 3D, son, cible (section 4.1).
+  const cible = resultat.donnees?.cible
+  const [modeleUrl, sonUrl, cibleUrl] = [animAffiche?.modeleUrl, animAffiche?.sonUrl, cible?.imagePath]
+  useEffect(() => {
+    if (modeleUrl && compat.compatible) prechargerRA([modeleUrl, sonUrl, cibleUrl])
+  }, [modeleUrl, sonUrl, cibleUrl, compat.compatible])
 
   const voirLieu = useCallback(() => {
     navigate(lieu ? `/?lieu=${lieu.id}&affiche=${code}` : '/', { replace: true })
@@ -80,7 +92,10 @@ export default function PageAffiche() {
     return (
       <Consignes
         onRetour={voirLieu}
+        etapeDepart={consignesVues() ? 2 : 0}
         onTerminer={() => {
+          // Dans le clic : autorisations demandées pendant le geste du visiteur (iPhone).
+          void demanderCapteursMouvement()
           deverrouillerSon()
           marquerConsignesVues()
           setEtape('ra')
@@ -106,6 +121,7 @@ export default function PageAffiche() {
       lieu={lieu}
       animation={animAffiche}
       affiche={affiche}
+      cibles={cible ? [cible] : []}
       proprietaire={resultat.donnees?.proprietaire}
       cameraAutorisee={!simulee}
       onQuitter={voirLieu}
