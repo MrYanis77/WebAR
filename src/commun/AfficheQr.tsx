@@ -1,5 +1,5 @@
 import QRCode from 'qrcode'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { DOMAINE_APPLICATION } from './constantes'
 import { Icone } from './Icone'
 import type { Affiche, PlacementQr } from './types'
@@ -12,9 +12,43 @@ import type { Affiche, PlacementQr } from './types'
 export function origineApplication() {
   if (import.meta.env.VITE_URL_PUBLIQUE) return import.meta.env.VITE_URL_PUBLIQUE.replace(/\/$/, '')
   if (typeof window === 'undefined') return DOMAINE_APPLICATION
-  const local = /^(localhost|127\.|\[::1\])/.test(window.location.hostname)
-  if (local && __URL_RESEAU__) return __URL_RESEAU__
+  if (pageLocale() && urlReseau) return urlReseau
   return window.location.origin
+}
+
+const pageLocale = () => typeof window !== 'undefined' && /^(localhost|127\.|\[::1\])/.test(window.location.hostname)
+
+/** Adresse réseau du PC (développement) : valeur de départ, puis adresse actuelle lue auprès de Vite. */
+let urlReseau = __URL_RESEAU__
+const abonnes = new Set<() => void>()
+
+/**
+ * En développement, sur « localhost » : relit l'adresse que le téléphone doit ouvrir (IP actuelle du
+ * Wi-Fi, vrai port, ou URL_RESEAU de .env) — elle peut avoir changé depuis le démarrage du serveur.
+ */
+export const urlReseauChargee: Promise<void> =
+  import.meta.env.DEV && pageLocale()
+    ? fetch('/__url-reseau')
+        .then((r) => (r.ok ? (r.json() as Promise<{ url: string | null }>) : null))
+        .then((d) => {
+          if (d?.url && d.url !== urlReseau) {
+            urlReseau = d.url
+            abonnes.forEach((f) => f())
+          }
+        })
+        .catch(() => {})
+    : Promise.resolve()
+
+/** Origine encodée dans les QR codes, à jour (le composant se redessine quand l'adresse réseau est connue). */
+export function useOrigineApplication() {
+  return useSyncExternalStore(
+    (f) => {
+      abonnes.add(f)
+      return () => abonnes.delete(f)
+    },
+    origineApplication,
+    origineApplication,
+  )
 }
 
 /** URL du QR code d'une affiche : /a/<code unique>. */
@@ -43,6 +77,8 @@ export function largeurImpressionMm(a: Pick<Affiche, 'format' | 'image'>) {
 
 export function QrCode({ code, taille = 120, className }: { code: string; taille?: number; className?: string }) {
   const [src, setSrc] = useState('')
+  // Redessiné quand l'adresse réseau du PC est connue (test avec un téléphone).
+  const origine = useOrigineApplication()
   useEffect(() => {
     let actif = true
     QRCode.toDataURL(urlQr(code), { margin: 1, width: Math.round(taille * 2), errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#ffffff' } })
@@ -51,7 +87,7 @@ export function QrCode({ code, taille = 120, className }: { code: string; taille
     return () => {
       actif = false
     }
-  }, [code, taille])
+  }, [code, taille, origine])
   return src ? <img src={src} alt={`QR code vers ${urlQr(code)}`} className={className} draggable={false} /> : <span className={className} />
 }
 

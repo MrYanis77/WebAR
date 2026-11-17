@@ -1,5 +1,5 @@
 // Moteur de réalité augmentée 8th Wall (binaire distribué @8thwall/engine-binary, licence Niantic Spatial).
-// Le moteur lit la caméra, reconnaît les cibles d'image (affiche, détails de façade) puis suit
+// Le moteur lit la caméra, reconnaît l'affiche (cible d'image) puis suit
 // l'environnement (SLAM) : l'animation reste en place même quand la cible n'est plus filmée.
 // Il pilote la caméra Three.js : on utilise Three.js directement (cahier des charges, section 3.1).
 // Tout est calculé dans le téléphone : aucune image ni position n'est envoyée.
@@ -29,7 +29,8 @@ export interface ModulePipeline {
   name: string
   onStart?: (a: { canvas: HTMLCanvasElement }) => void
   onUpdate?: (a: { processCpuResult: ResultatCpu }) => void
-  onCameraStatusChange?: (a: { status: EtatCameraMoteur; reason?: string }) => void
+  onCameraStatusChange?: (a: { status: EtatCameraMoteur; reason?: string; video?: HTMLVideoElement }) => void
+  onVideoSizeChange?: (a: { videoWidth: number; videoHeight: number }) => void
   onException?: (erreur: unknown) => void
   listeners?: { event: string; process: (e: { name: string; detail: unknown }) => void }[]
 }

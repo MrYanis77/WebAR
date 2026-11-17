@@ -109,6 +109,8 @@ CREATE TABLE fichier (
   statut_controle   ENUM('EN_COURS','CONFORME','REFUSE') NOT NULL DEFAULT 'EN_COURS',
   raison_refus      VARCHAR(500) NULL,
   controle_termine_le DATETIME NULL COMMENT 'Contrôle automatique terminé : aperçu prêt, en attente de validation',
+  reglages_3d       JSON NULL COMMENT 'Atelier 3D : échelle, rotation, ancrage, hauteur, vitesse, luminosité',
+  optimisation      JSON NULL COMMENT 'Dernière optimisation glTF-Transform : paramètres, mesures avant/après',
   cree_le           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_fichier_chemin (chemin),
@@ -247,6 +249,9 @@ CREATE TABLE animation (
   position_hauteur_m       DECIMAL(5,1) NOT NULL DEFAULT 0 COMMENT 'Socle du modèle au-dessus du sol (m)',
   position_orientation_deg SMALLINT UNSIGNED NULL COMMENT 'Cap de la face avant du modèle (0 = nord) ; vide = face au visiteur',
   position_taille_m        DECIMAL(5,1) NOT NULL DEFAULT 10 COMMENT 'Plus grande dimension du modèle (m)',
+  -- Animation d'affiche : placement par rapport à l'affiche reconnue (section 5.3).
+  affiche_position  ENUM('DEVANT','DESSUS') NOT NULL DEFAULT 'DEVANT',
+  affiche_taille    DECIMAL(3,1) NOT NULL DEFAULT 1.5 COMMENT 'Taille du modèle en hauteurs d’affiche',
   cree_le           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   modifie_le        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -264,6 +269,7 @@ CREATE TABLE animation (
   CONSTRAINT ck_animation_duree CHECK (duree_s BETWEEN 5 AND 1800),
   CONSTRAINT ck_animation_position CHECK ((position_latitude IS NULL) = (position_longitude IS NULL)
     AND (position_latitude IS NULL OR (position_latitude BETWEEN -90 AND 90 AND position_longitude BETWEEN -180 AND 180))),
+  CONSTRAINT ck_animation_affiche_taille CHECK (affiche_taille BETWEEN 0.3 AND 5),
   CONSTRAINT ck_animation_placement CHECK (position_hauteur_m BETWEEN 0 AND 300 AND position_taille_m BETWEEN 0.5 AND 200
     AND (position_orientation_deg IS NULL OR position_orientation_deg < 360))
 ) ENGINE=InnoDB;

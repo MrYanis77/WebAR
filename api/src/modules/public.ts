@@ -1,5 +1,5 @@
 // Module « public » : API sans compte de l'application visiteur (aucun cookie posé).
-// GET /public/lieux, /public/lieux/:id/cibles, /public/affiches/:code, POST /public/statistiques, /public/signalements.
+// GET /public/lieux, /public/affiches/:code, POST /public/statistiques, /public/signalements.
 import { Router } from 'express'
 import { schemaSignalement, schemaStatistique } from '../../../src/commun/schemas.js'
 import { heureArrondie } from '../dates.js'
@@ -16,7 +16,7 @@ import { cibleImage } from '../traitements/cibleImage.js'
 export const routesPublic = Router()
 
 const inclusAnimation = { fichier_clip: true, fichier_animation_modele_idTofichier: true, fichier_animation_son_idTofichier: true } as const
-const inclusLieu = { fichier: true, _count: { select: { photo_facade: true } } } as const
+const inclusLieu = { fichier: true } as const
 
 /** Défi ALTCHA pour le widget anti-robot (inscription, signalement). */
 routesPublic.get('/altcha', async (_req, res) => {
@@ -45,24 +45,6 @@ routesPublic.get('/lieux', async (_req, res) => {
     lieux: lieux.map(serialiserLieu),
     animations: animations.map((a) => serialiserAnimation(a, proprio)),
   })
-})
-
-/**
- * Cibles de reconnaissance de la façade d'un lieu (photos de détails, de jour et de nuit), au format
- * 8th Wall : le téléphone les compare à l'image de la caméra pour poser l'animation au-dessus du monument.
- */
-routesPublic.get('/lieux/:id/cibles', async (req, res) => {
-  const id = Number(req.params.id)
-  const lieu = Number.isInteger(id) ? await prisma.lieu.findFirst({ where: { id, actif: true }, select: { id: true } }) : null
-  if (!lieu) throw introuvable('Lieu introuvable.')
-  const photos = await prisma.photo_facade.findMany({
-    where: { lieu_id: lieu.id, fichier: { statut_controle: 'CONFORME' } },
-    include: { fichier: { select: { id: true, chemin: true } } },
-    orderBy: { id: 'asc' },
-  })
-  // 8th Wall suit 32 cibles actives au plus.
-  const cibles = await Promise.all(photos.slice(0, 32).map((p) => cibleImage(p.fichier.chemin, `visuel-${p.fichier.id}`)))
-  res.set('Cache-Control', 'public, max-age=60').json(cibles.filter((c) => c !== null))
 })
 
 /** Affiches diffusées (scanner intégré à l'application visiteur). */

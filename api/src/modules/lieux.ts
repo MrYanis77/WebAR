@@ -1,4 +1,4 @@
-// Module « lieux » : lieux, fiches FR/EN/DE, rayon, visuel, photos de façade et score du match.
+// Module « lieux » : lieux (monuments), fiches FR/EN/DE, rayon, visuel et score du match.
 // Un nouveau lieu s'ajoute sans modifier le code (BF-24, BF-27, BF-52, BNF-13).
 import { Router } from 'express'
 import { schemaLieu, schemaScore, type DonneesLieu } from '../../../src/commun/schemas.js'
@@ -7,13 +7,11 @@ import { ErreurApi, introuvable } from '../erreurs.js'
 import { auteur, exigerConnexion, exigerRole, valider } from '../middlewares/index.js'
 import { journaliser } from '../services/journal.js'
 import { serialiserLieu } from '../services/serialiser.js'
-import { rangerFichier, reception } from '../services/stockage.js'
-import { planifierControle } from '../traitements/controleFichiers.js'
 import { idParam } from './outils.js'
 
 export const routesLieux = Router()
 routesLieux.use(exigerConnexion)
-const inclus = { fichier: true, _count: { select: { photo_facade: true } } } as const
+const inclus = { fichier: true } as const
 
 const versLieu = (d: DonneesLieu) => ({
   nom: d.nom,
@@ -96,18 +94,3 @@ routesLieux.put('/:id/score', exigerRole('AGENT'), valider(schemaScore), async (
   res.json(serialiserLieu(l))
 })
 
-/** Photo de détail de façade (jour/nuit) pour la cible de reconnaissance du monument. */
-routesLieux.post('/:id/photos', exigerRole('AGENT'), reception.single('fichier'), async (req, res) => {
-  const l = await prisma.lieu.findUnique({ where: { id: idParam(req) } })
-  if (!l) throw introuvable('Lieu introuvable.')
-  if (!req.file) throw new ErreurApi(400, 'Aucun fichier reçu.')
-  const range = await rangerFichier(req.file)
-  if (range.type !== 'IMAGE') throw new ErreurApi(400, 'Une photo de façade doit être une image.')
-  const f = await prisma.fichier.create({
-    data: { proprietaire_id: req.utilisateur!.compteId, type: 'IMAGE', nom_original: req.file.originalname.slice(0, 255), chemin: range.chemin, type_mime: range.mime, taille_octets: req.file.size },
-  })
-  await prisma.photo_facade.create({ data: { lieu_id: l.id, fichier_id: f.id, moment: req.body?.moment === 'NUIT' ? 'NUIT' : 'JOUR' } })
-  planifierControle(f.id)
-  const maj = await prisma.lieu.findUniqueOrThrow({ where: { id: l.id }, include: inclus })
-  res.status(201).json(serialiserLieu(maj))
-})

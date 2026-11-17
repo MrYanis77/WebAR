@@ -76,6 +76,27 @@ export const schemaZone = z.object({
   active: z.boolean(),
 })
 
+const angle = z.number().min(-180).max(180)
+export const schemaReglages3D = z.object({
+  rotation: z.object({ x: angle, y: angle, z: angle }),
+  ancrage: z.enum(['sol', 'centre']),
+  hauteur: z.number().min(-1).max(1),
+  vitesse: z.number().min(0.1).max(4),
+  luminosite: z.number().min(0.1).max(4),
+})
+
+export const schemaReglageAffiche = z.object({
+  position: z.enum(['devant', 'dessus']),
+  taille: z.number().min(0.3).max(5),
+})
+
+export const schemaOptimisation = z.object({
+  textureMaxPx: z.union([z.literal(256), z.literal(512), z.literal(1024), z.literal(2048), z.literal(4096)]).nullable(),
+  webp: z.boolean(),
+  simplification: z.number().min(0).max(0.9),
+  compression: z.boolean(),
+})
+
 export const schemaPlacementGps = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
@@ -99,6 +120,7 @@ export const schemaAnimation = z
     fin: zDate.nullable().optional(),
     transcription: zTexte3,
     placement: schemaPlacementGps.nullable().optional(),
+    reglageAffiche: schemaReglageAffiche.nullable().optional(),
     publier: z.boolean().default(false),
   })
   .refine((a) => a.type === 'AFFICHE' || a.lieuId, { message: 'Une animation de lieu doit avoir un lieu', path: ['lieuId'] })

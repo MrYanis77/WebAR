@@ -43,7 +43,7 @@ const NAVIGATION: { groupe?: string; elements: ElementNav[] }[] = [
   {
     groupe: 'Ville',
     elements: [
-      { to: '/backoffice/lieux', libelle: 'Lieux & zones', icone: 'carte', role: 'AGENT', badge: (e) => e.affiches.filter((a) => a.zoneProposeeId || (!a.zoneId && a.proprietaireId !== 'ville')).length },
+      { to: '/backoffice/lieux', libelle: 'Monuments & zones', icone: 'carte', role: 'AGENT', badge: (e) => e.affiches.filter((a) => a.zoneProposeeId || (!a.zoneId && a.proprietaireId !== 'ville')).length },
       { to: '/backoffice/score', libelle: 'Score du match', icone: 'trophee', role: 'AGENT' },
     ],
   },

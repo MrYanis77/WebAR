@@ -11,9 +11,24 @@ const FORMATS_MM: Record<string, [number, number]> = { A4: [210, 297], A3: [297,
 const MM_EN_PT = 72 / 25.4
 export const MENTION_QR = 'Scannez · expérience RA'
 
-export const urlQr = (code: string) => `${config.domaine}/a/${code}`
+/**
+ * Origine encodée dans les QR codes des PDF. En production : toujours le domaine officiel (jamais une
+ * adresse venue de la requête, BNF-18). En développement : URL_RESEAU (.env), sinon l'adresse réseau du
+ * PC transmise par le serveur Vite (en-tête X-Url-Reseau), pour tester l'affiche imprimée avec un téléphone.
+ */
+export function origineQr(enTeteUrlReseau?: string | string[]): string {
+  if (config.production) return config.domaine
+  if (config.urlReseau) return config.urlReseau.replace(/\/$/, '')
+  const valeur = Array.isArray(enTeteUrlReseau) ? enTeteUrlReseau[0] : enTeteUrlReseau
+  if (valeur && /^https?:\/\/[\w.-]+(:\d{2,5})?$/.test(valeur)) return valeur
+  return config.domaine
+}
+
+export const urlQr = (code: string, origine = config.domaine) => `${origine}/a/${code}`
 
 interface DonneesPdf {
+  /** Origine des QR codes (voir origineQr). */
+  origine?: string
   nom: string
   codeQr: string
   format: string
@@ -51,7 +66,7 @@ export async function genererPdfAffiche(d: DonneesPdf): Promise<Uint8Array> {
   if (d.qr.fond || d.qr.mention) {
     page.drawRectangle({ x: xBloc, y: yHautBloc - largeurBloc - hauteurMention, width: largeurBloc, height: largeurBloc + hauteurMention, color: rgb(1, 1, 1) })
   }
-  const pngQr = await QRCode.toBuffer(urlQr(d.codeQr), { type: 'png', width: 1200, margin: 1, errorCorrectionLevel: 'M' })
+  const pngQr = await QRCode.toBuffer(urlQr(d.codeQr, d.origine), { type: 'png', width: 1200, margin: 1, errorCorrectionLevel: 'M' })
   const qr = await pdf.embedPng(pngQr)
   page.drawImage(qr, { x: xBloc + marge, y: yHautBloc - marge - coteQr, width: coteQr, height: coteQr })
   if (d.qr.mention) {

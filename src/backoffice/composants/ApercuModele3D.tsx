@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { chargerGlb } from '../../visiteur/ra/contenu3d'
 import { NOM_ANIMATION_COMBINEE } from '../../commun/constantes'
 
 /** Aperçu 3D avant validation de l'enregistrement (BF-36) : glisser pour tourner, animations jouées en boucle. */
@@ -32,8 +32,7 @@ export default function ApercuModele3D({ url }: { url: string }) {
 
     // Modèle servi par l'API (/uploads/3d/...) : chargé tel qu'il sera diffusé, animations intégrées comprises.
     let actif = true
-    new GLTFLoader()
-      .loadAsync(url)
+    chargerGlb(url, renderer)
       .then((gltf) => {
         if (!actif) return
         const boite = new THREE.Box3().setFromObject(gltf.scene)

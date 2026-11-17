@@ -13,7 +13,7 @@ import { Icone } from '../../commun/Icone'
 type Fond = 'satellite' | 'plan'
 
 /** Orthophotos de l'IGN (Géoplateforme, flux WMTS public). */
-const SATELLITE: StyleSpecification = {
+export const SATELLITE: StyleSpecification = {
   version: 8,
   sources: {
     ortho: {
@@ -32,7 +32,7 @@ const PLAN = 'https://tiles.openfreemap.org/styles/liberty'
 
 const vide: FeatureCollection = { type: 'FeatureCollection', features: [] }
 
-function cercle(c: Coordonnees, rayonM: number): Feature<Polygon> {
+export function cercle(c: Coordonnees, rayonM: number): Feature<Polygon> {
   const points: [number, number][] = []
   const dLat = rayonM / 111_320
   const dLng = rayonM / (111_320 * Math.cos((c.latitude * Math.PI) / 180))
@@ -44,16 +44,16 @@ function cercle(c: Coordonnees, rayonM: number): Feature<Polygon> {
 }
 
 /** Point à `distanceM` mètres de `c` dans la direction `capDeg` (0 = nord). */
-function decaler(c: Coordonnees, capDeg: number, distanceM: number): [number, number] {
+export function decaler(c: Coordonnees, capDeg: number, distanceM: number): [number, number] {
   const a = (capDeg * Math.PI) / 180
   return [c.longitude + (Math.sin(a) * distanceM) / (111_320 * Math.cos((c.latitude * Math.PI) / 180)), c.latitude + (Math.cos(a) * distanceM) / 111_320]
 }
 
-function ligne(points: [number, number][]): Feature<LineString> {
+export function ligne(points: [number, number][]): Feature<LineString> {
   return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: points } }
 }
 
-function element(classe: string, taille: number) {
+export function element(classe: string, taille: number) {
   const el = document.createElement('div')
   el.className = classe
   el.innerHTML = `<svg width="${taille}" height="${taille}" viewBox="0 0 24 24" fill="currentColor" stroke="#fff" stroke-width="1.5" aria-hidden="true"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3" fill="#fff"/></svg>`
@@ -66,8 +66,11 @@ export function ChoixPosition({
   rayonM,
   reference,
   orientationDeg,
+  rechercheInitiale = '',
   onChange,
 }: {
+  /** Texte proposé dans la recherche d'adresse (ex. l'adresse saisie pour le lieu). */
+  rechercheInitiale?: string
   latitude: number
   longitude: number
   rayonM?: number
@@ -84,7 +87,7 @@ export function ChoixPosition({
   surChangement.current = onChange
   const [fond, setFond] = useState<Fond>('satellite')
   const [prete, setPrete] = useState(0) // incrémenté à chaque (re)chargement du style
-  const [recherche, setRecherche] = useState('')
+  const [recherche, setRecherche] = useState(rechercheInitiale)
   const [messageRecherche, setMessageRecherche] = useState<string | null>(null)
 
   const choisir = (lat: number, lng: number) => surChangement.current(Number(lat.toFixed(6)), Number(lng.toFixed(6)))

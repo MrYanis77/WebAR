@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { useLangue } from '../../commun/i18n'
-import { useCiblesLieu, useDonneesPubliques } from '../donneesPubliques'
+import { useDonneesPubliques } from '../donneesPubliques'
 import { Consignes } from '../composants/Consignes'
 import { MessageErreur } from '../composants/MessageErreur'
 import { VueRA } from '../composants/VueRA'
@@ -11,8 +11,8 @@ import { deverrouillerSon } from '../services/son'
 import { animationsDuLieu, consignesVues, marquerConsignesVues } from '../utils'
 
 /**
- * Animation de lieu : 8th Wall reconnaît un détail de la façade et pose l'animation au-dessus du
- * monument ; sinon lancement par GPS et boussole dans le rayon du lieu (BF-17, BF-18, section 4.1).
+ * Animation de monument : posée à son point GPS en 3D (position, hauteur, orientation, taille réglées
+ * dans le back-office) dès que le visiteur est dans le rayon du lieu, grâce au GPS et à la boussole.
  */
 export default function PageRA() {
   const { id } = useParams()
@@ -25,7 +25,6 @@ export default function PageRA() {
   // leur bouton est le geste qui autorise les capteurs de mouvement (SLAM) et la boussole.
   const [etape, setEtape] = useState<'consignes' | 'ra' | 'refus' | 'incompatible'>(() => (!compat.compatible ? 'incompatible' : 'consignes'))
   const lieu = etat.lieux.find((l) => l.id === id && l.actif)
-  const { cibles, pret: ciblesPretes } = useCiblesLieu(lieu?.id)
   const aPrecharger = lieu ? animationsDuLieu(etat, lieu.id).active : undefined
 
   // Téléchargement en arrière-plan pendant les consignes : moteur de RA, modèle 3D et son.
@@ -110,21 +109,12 @@ export default function PageRA() {
     )
   }
 
-  // Le moteur démarre avec la liste des cibles de la façade : on attend qu'elle soit lue.
-  if (!ciblesPretes)
-    return (
-      <div className="page page-centree">
-        <span className="spinner" />
-      </div>
-    )
-
   return (
     <VueRA
       key={active.id}
       mode="monument"
       lieu={lieu}
       animation={active}
-      cibles={cibles}
       cameraAutorisee={!simulee}
       onQuitter={quitter}
       onCameraRefusee={refus}

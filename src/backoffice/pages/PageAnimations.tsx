@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { BUDGETS_3D, MODELE_3D_MAX_MO, PLACEMENT_LIEU_DEFAUT } from '../../commun/constantes'
-import { distanceM } from '../../commun/geo'
-import { ChoixPosition } from '../composants/ChoixPosition'
+import { BUDGETS_3D, MODELE_3D_MAX_MO, PLACEMENT_LIEU_DEFAUT, REGLAGE_AFFICHE_RA_DEFAUT } from '../../commun/constantes'
+import { EditeurPlacement3D } from '../composants/EditeurPlacement3D'
 import { Icone } from '../../commun/Icone'
 import { messageErreur } from '../../commun/api'
 import { animationActive, attendreControle, basculerAnimation, enregistrerAnimation, importerFichier, nomProprietaire, supprimerAnimation, useEtat, validerFichier } from '../../commun/store'
-import type { Animation, Declencheur, PlacementGps, TypeAnimation } from '../../commun/types'
+import type { Animation, Declencheur, PlacementGps, ReglageAfficheRA, TypeAnimation } from '../../commun/types'
+const Atelier3D = lazy(() => import('../composants/Atelier3D'))
 import { peutCreer, proprietaireDe, useSession } from '../session'
 import { BadgeStatut, DialogueSuppression, EnTetePage, formaterDate, formaterPoids, Interrupteur, maintenantLocal, Onglets, Recherche, Tiroir, useToast, Vide } from '../ui'
 
@@ -207,12 +207,19 @@ export default function PageAnimations() {
   )
 }
 
-function EditeurAnimation({
+/**
+ * Formulaire d'une animation, en étapes numérotées : 1. type et lieu, 2. modèle 3D et son (réglages
+ * dans l'atelier 3D), 3. placement (autour du bâtiment en 3D, ou par rapport à l'affiche), 4. diffusion,
+ * 5. accessibilité. `lieuImpose` : ouvert depuis un monument, l'animation lui est rattachée.
+ */
+export function EditeurAnimation({
   animation,
+  lieuImpose,
   onFermer,
   onEnregistrer,
   onSupprimer,
 }: {
+  lieuImpose?: boolean
   animation: Animation
   onFermer: () => void
   /** Envoi à l'API ; une erreur (validation zod, droits, fichier non conforme) est affichée dans le tiroir. */
@@ -231,6 +238,8 @@ function EditeurAnimation({
   const [importEnCours, setImportEnCours] = useState<{ type: 'MODELE_3D' | 'SON'; progression: number; etape: string } | null>(null)
   const [erreurImport, setErreurImport] = useState<string | null>(null)
   const maj = (p: Partial<Animation>) => setA((x) => ({ ...x, ...p }))
+  /** Modèle ouvert dans l'atelier 3D depuis ce formulaire. */
+  const [atelier, setAtelier] = useState(false)
 
   /**
    * Import direct d'un modèle GLB (ou d'un son) depuis le formulaire : envoi à l'API, contrôle
@@ -298,6 +307,12 @@ function EditeurAnimation({
   const poids = (etat.fichiers.find((f) => f.id === a.modeleId)?.tailleOctets ?? 0) + (etat.fichiers.find((f) => f.id === a.sonId)?.tailleOctets ?? 0)
   const tri = etat.fichiers.find((f) => f.id === a.modeleId)?.nbTriangles ?? 0
   const lieuChoisi = etat.lieux.find((l) => l.id === a.lieuId)
+  // Modèle dessiné sur la carte de placement, avec ses réglages de l'atelier 3D.
+  const fichierModele = etat.fichiers.find((f) => f.id === a.modeleId)
+  const modeleCarte = useMemo(
+    () => (fichierModele ? { modeleUrl: fichierModele.url, reglages3d: fichierModele.reglages3d, clipIndice: a.clipIndice, lecture: a.lecture } : undefined),
+    [fichierModele, a.clipIndice, a.lecture],
+  )
 
   const erreurs = {
     titre: !a.titre.trim(),
@@ -326,8 +341,9 @@ function EditeurAnimation({
   return (
     <Tiroir
       ouvert
-      titre={animation.titre ? 'Modifier l’animation' : 'Nouvelle animation'}
-      sousTitre="Paramétrez le lieu, le déclencheur, la durée et la période de diffusion."
+      large
+      titre={animation.titre ? `Modifier « ${animation.titre} »` : a.type === 'LIEU' ? 'Nouvelle animation de monument' : 'Nouvelle animation d’affiche'}
+      sousTitre="Suivez les étapes : modèle, placement, diffusion. Rien n’est visible des visiteurs avant « Enregistrer et activer »."
       onFermer={onFermer}
       pied={
         <>
@@ -348,117 +364,133 @@ function EditeurAnimation({
         </>
       }
     >
-      <div className="formulaire-bo">
-        <label className={`champ ${tente && erreurs.titre ? 'erreur' : ''}`}>
-          <span className="etiquette">Titre</span>
-          <input value={a.titre} onChange={(e) => maj({ titre: e.target.value })} maxLength={120} placeholder="Ex. La légende des lumières" />
-        </label>
-        <div className="choix-type">
-          {(['LIEU', 'AFFICHE'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={a.type === t ? 'actif' : ''}
-              disabled={t === 'LIEU' && !agent}
-              onClick={() => maj({ type: t, declencheur: t === 'AFFICHE' ? 'AFFICHE' : 'MONUMENT', lieuId: t === 'LIEU' ? (a.lieuId ?? etat.lieux[0]?.id) : undefined })}
-            >
-              <Icone nom={t === 'LIEU' ? 'pin' : 'affiche'} taille={18} />
-              <strong>{t === 'LIEU' ? 'Animation de lieu' : 'Animation d’affiche'}</strong>
-              <small>{t === 'LIEU' ? 'Grande animation ancrée sur un monument' : 'Courte, promotionnelle, sur l’affiche'}</small>
-              {t === 'LIEU' && !agent && <em>Réservé aux agents</em>}
-            </button>
-          ))}
-        </div>
-        {erreurImport && (
-          <p className="erreur-acces" role="alert">
-            <Icone nom="alerte" taille={15} />
-            {erreurImport}
-          </p>
-        )}
-        <div className="grille-champs">
-          {a.type === 'LIEU' && (
-            <label className={`champ ${tente && erreurs.lieu ? 'erreur' : ''}`}>
-              <span className="etiquette">Lieu</span>
-              <select value={a.lieuId ?? ''} onChange={(e) => maj({ lieuId: e.target.value })}>
-                {etat.lieux.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.nom}
-                    {l.actif ? '' : ' (inactif)'}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label className="champ">
-            <span className="etiquette">Déclencheur</span>
-            <select value={a.declencheur} onChange={(e) => maj({ declencheur: e.target.value as Declencheur })}>
-              {a.type === 'AFFICHE' ? (
-                <option value="AFFICHE">Reconnaissance de l’affiche</option>
-              ) : (
-                <>
-                  <option value="MONUMENT">Reconnaissance du monument (+ secours GPS)</option>
-                  <option value="MANUEL">Lancement manuel dans le rayon</option>
-                </>
-              )}
-            </select>
+      <div className="formulaire-bo formulaire-etapes">
+        <section className="etape-formulaire">
+          <h3>
+            <span>1</span> Animation
+          </h3>
+          <label className={`champ ${tente && erreurs.titre ? 'erreur' : ''}`}>
+            <span className="etiquette">Titre</span>
+            <input value={a.titre} onChange={(e) => maj({ titre: e.target.value })} maxLength={120} placeholder={a.type === 'LIEU' ? 'Ex. La légende des lumières' : 'Ex. Le traîneau du marché de Noël'} />
           </label>
-          <label className={`champ ${tente && erreurs.modele ? 'erreur' : ''}`}>
-            <span className="etiquette">
-              Modèle 3D {boutonImport('MODELE_3D')}
-            </span>
-            <select value={a.modeleId ?? ''} onChange={(e) => maj({ modeleId: e.target.value || undefined, clipIndice: undefined })}>
-              <option value="">Choisir un modèle conforme…</option>
-              {modeles.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.nomOriginal} · {formaterPoids(f.tailleOctets)}
-                  {f.clips?.length ? ` · ${f.clips.length} animation${f.clips.length > 1 ? 's' : ''}` : ''}
-                </option>
+          {!lieuImpose && (
+            <div className="choix-type">
+              {(['LIEU', 'AFFICHE'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={a.type === t ? 'actif' : ''}
+                  disabled={t === 'LIEU' && !agent}
+                  onClick={() => maj({ type: t, declencheur: t === 'AFFICHE' ? 'AFFICHE' : 'MONUMENT', lieuId: t === 'LIEU' ? (a.lieuId ?? etat.lieux[0]?.id) : undefined })}
+                >
+                  <Icone nom={t === 'LIEU' ? 'pin' : 'affiche'} taille={18} />
+                  <strong>{t === 'LIEU' ? 'Animation de monument' : 'Animation d’affiche'}</strong>
+                  <small>{t === 'LIEU' ? 'Grande animation placée autour d’un bâtiment' : 'Courte, elle surgit de l’affiche scannée'}</small>
+                  {t === 'LIEU' && !agent && <em>Réservé aux agents</em>}
+                </button>
               ))}
-            </select>
-          </label>
-          {clipsModele.length > 0 && (
-            <>
-              <label className="champ">
-                <span className="etiquette">
-                  Animation du modèle <small>Intégrée au fichier GLB</small>
-                </span>
-                <select value={a.clipIndice ?? ''} onChange={(e) => maj({ clipIndice: e.target.value === '' ? undefined : Number(e.target.value) })}>
-                  <option value="">Toutes les animations ensemble</option>
-                  {clipsModele.map((c, i) => (
-                    <option key={`${i}-${c.nom}`} value={c.indice ?? i}>
-                      {c.nom} · {c.dureeS.toString().replace('.', ',')} s
+            </div>
+          )}
+          {a.type === 'LIEU' && (
+            <div className="grille-champs">
+              <label className={`champ ${tente && erreurs.lieu ? 'erreur' : ''}`}>
+                <span className="etiquette">Monument</span>
+                <select value={a.lieuId ?? ''} onChange={(e) => maj({ lieuId: e.target.value, placement: undefined })} disabled={lieuImpose}>
+                  {etat.lieux.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.nom}
+                      {l.actif ? '' : ' (masqué)'}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="champ">
-                <span className="etiquette">Lecture</span>
-                <select value={a.lecture ?? 'BOUCLE'} onChange={(e) => maj({ lecture: e.target.value as 'BOUCLE' | 'UNE_FOIS' })}>
-                  <option value="BOUCLE">En boucle pendant la durée de l’animation</option>
-                  <option value="UNE_FOIS">Une seule fois</option>
+                <span className="etiquette">Lancement</span>
+                <select value={a.declencheur} onChange={(e) => maj({ declencheur: e.target.value as Declencheur })}>
+                  <option value="MONUMENT">Automatique dès que le visiteur arrive dans le rayon</option>
+                  <option value="MANUEL">Le visiteur appuie sur « Lancer » dans le rayon</option>
                 </select>
               </label>
-            </>
+            </div>
           )}
-          <label className="champ">
-            <span className="etiquette">
-              Son <small>Facultatif</small> {boutonImport('SON')}
-            </span>
-            <select value={a.sonId ?? ''} onChange={(e) => maj({ sonId: e.target.value || undefined })}>
-              <option value="">Aucun son</option>
-              {sons.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.nomOriginal} · {f.dureeS} s
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="champ">
-            <span className="etiquette">Durée (secondes)</span>
-            <input type="number" min={5} max={1800} value={a.dureeS} onChange={(e) => maj({ dureeS: Number(e.target.value) })} />
-          </label>
+        </section>
+
+        <section className="etape-formulaire">
+          <h3>
+            <span>2</span> Modèle 3D et son
+          </h3>
+          {erreurImport && (
+            <p className="erreur-acces" role="alert">
+              <Icone nom="alerte" taille={15} />
+              {erreurImport}
+            </p>
+          )}
+          <div className="grille-champs">
+            <label className={`champ ${tente && erreurs.modele ? 'erreur' : ''}`}>
+              <span className="etiquette">
+                Modèle 3D {boutonImport('MODELE_3D')}
+              </span>
+              <select value={a.modeleId ?? ''} onChange={(e) => maj({ modeleId: e.target.value || undefined, clipIndice: undefined })}>
+                <option value="">Choisir un modèle conforme…</option>
+                {modeles.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.nomOriginal} · {formaterPoids(f.tailleOctets)}
+                    {f.clips?.length ? ` · ${f.clips.length} animation${f.clips.length > 1 ? 's' : ''}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="champ">
+              <span className="etiquette">
+                Son <small>Facultatif</small> {boutonImport('SON')}
+              </span>
+              <select value={a.sonId ?? ''} onChange={(e) => maj({ sonId: e.target.value || undefined })}>
+                <option value="">Aucun son</option>
+                {sons.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.nomOriginal} · {f.dureeS} s
+                  </option>
+                ))}
+              </select>
+            </label>
+            {clipsModele.length > 0 && (
+              <>
+                <label className="champ">
+                  <span className="etiquette">
+                    Animation du modèle <small>Intégrée au fichier GLB</small>
+                  </span>
+                  <select value={a.clipIndice ?? ''} onChange={(e) => maj({ clipIndice: e.target.value === '' ? undefined : Number(e.target.value) })}>
+                    <option value="">Toutes les animations ensemble</option>
+                    {clipsModele.map((c, i) => (
+                      <option key={`${i}-${c.nom}`} value={c.indice ?? i}>
+                        {c.nom} · {c.dureeS.toString().replace('.', ',')} s
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="champ">
+                  <span className="etiquette">Lecture</span>
+                  <select value={a.lecture ?? 'BOUCLE'} onChange={(e) => maj({ lecture: e.target.value as 'BOUCLE' | 'UNE_FOIS' })}>
+                    <option value="BOUCLE">En boucle pendant la durée de l’animation</option>
+                    <option value="UNE_FOIS">Une seule fois</option>
+                  </select>
+                </label>
+              </>
+            )}
+          </div>
+          {fichierModele && (
+            <div className="ouvrir-atelier">
+              <div>
+                <strong>Orientation, ancrage, vitesse, luminosité, optimisation</strong>
+                <small>Redressez le modèle s’il est couché ou tourné, allégez-le si besoin. La taille se règle à l’étape 3.</small>
+              </div>
+              <button type="button" className="btn btn-secondaire" onClick={() => setAtelier(true)}>
+                <Icone nom="reglages" taille={15} /> Régler dans l’atelier 3D
+              </button>
+            </div>
+          )}
           <div className={`budget ${erreurs.budget ? 'depasse' : ''}`}>
-            <small>Budget {a.type === 'AFFICHE' ? 'animation d’affiche' : 'animation de lieu'}</small>
+            <small>Budget {a.type === 'AFFICHE' ? 'animation d’affiche' : 'animation de monument'}</small>
             <div>
               <span>
                 {formaterPoids(poids)} / {budget.poidsMo} Mo
@@ -468,34 +500,52 @@ function EditeurAnimation({
               </span>
             </div>
           </div>
-          <label className="champ">
-            <span className="etiquette">Date et heure de sortie</span>
-            <input type="datetime-local" value={versLocal(a.debut)} onChange={(e) => maj({ debut: `${e.target.value}:00` })} />
-          </label>
-          <label className={`champ ${tente && erreurs.dates ? 'erreur' : ''}`}>
-            <span className="etiquette">
-              Fin <small>{a.type === 'LIEU' ? 'Vide = permanente' : 'Obligatoire'}</small>
-            </span>
-            <input type="datetime-local" value={versLocal(a.fin)} onChange={(e) => maj({ fin: e.target.value ? `${e.target.value}:00` : undefined })} />
-            {tente && erreurs.dates && <span className="message-erreur">La fin doit être postérieure à la sortie.</span>}
-          </label>
-        </div>
-        {a.type === 'LIEU' && lieuChoisi && (
-          <PositionEspace
-            placement={a.placement}
-            lieu={lieuChoisi}
-            onChange={(placement) => maj({ placement })}
-          />
-        )}
-        <fieldset className={`transcriptions ${tente && erreurs.transcription ? 'erreur' : ''}`}>
-          <legend>Transcription du son (accessibilité, FR/EN/DE)</legend>
+        </section>
+
+        <section className="etape-formulaire">
+          <h3>
+            <span>3</span> {a.type === 'LIEU' ? 'Placement autour du bâtiment' : 'Placement sur l’affiche'}
+          </h3>
+          {a.type === 'LIEU' && lieuChoisi && <PositionEspace placement={a.placement} lieu={lieuChoisi} modele={modeleCarte} onChange={(placement) => maj({ placement })} />}
+          {a.type === 'LIEU' && !lieuChoisi && <p className="aide">Choisissez d’abord le monument.</p>}
+          {a.type === 'AFFICHE' && <PlacementAffiche reglage={a.reglageAffiche ?? REGLAGE_AFFICHE_RA_DEFAUT} onChange={(reglageAffiche) => maj({ reglageAffiche })} />}
+        </section>
+
+        <section className="etape-formulaire">
+          <h3>
+            <span>4</span> Diffusion
+          </h3>
+          <div className="grille-champs">
+            <label className="champ">
+              <span className="etiquette">Durée de l’animation (secondes)</span>
+              <input type="number" min={5} max={1800} value={a.dureeS} onChange={(e) => maj({ dureeS: Number(e.target.value) })} />
+            </label>
+            <span />
+            <label className="champ">
+              <span className="etiquette">Date et heure de sortie</span>
+              <input type="datetime-local" value={versLocal(a.debut)} onChange={(e) => maj({ debut: `${e.target.value}:00` })} />
+            </label>
+            <label className={`champ ${tente && erreurs.dates ? 'erreur' : ''}`}>
+              <span className="etiquette">
+                Fin <small>{a.type === 'LIEU' ? 'Vide = permanente' : 'Obligatoire'}</small>
+              </span>
+              <input type="datetime-local" value={versLocal(a.fin)} onChange={(e) => maj({ fin: e.target.value ? `${e.target.value}:00` : undefined })} />
+              {tente && erreurs.dates && <span className="message-erreur">La fin doit être postérieure à la sortie.</span>}
+            </label>
+          </div>
+        </section>
+
+        <section className={`etape-formulaire transcriptions ${tente && erreurs.transcription ? 'erreur' : ''}`}>
+          <h3>
+            <span>5</span> Transcription du son <small>accessibilité, FR obligatoire</small>
+          </h3>
           <Onglets
             valeur={langue}
             onChange={setLangue}
             options={[
-              { id: 'fr', libelle: 'Français' },
-              { id: 'en', libelle: 'English' },
-              { id: 'de', libelle: 'Deutsch' },
+              { id: 'fr', libelle: `Français${a.transcription.fr ? ' ✓' : ''}` },
+              { id: 'en', libelle: `English${a.transcription.en ? ' ✓' : ''}` },
+              { id: 'de', libelle: `Deutsch${a.transcription.de ? ' ✓' : ''}` },
             ]}
           />
           <textarea
@@ -504,11 +554,13 @@ function EditeurAnimation({
             rows={3}
             placeholder="Décrivez les sons et la narration pour les personnes sourdes ou malentendantes…"
           />
-        </fieldset>
+        </section>
         {tente && !valide && (
           <p className="erreur-acces" role="alert">
             <Icone nom="alerte" taille={15} />
-            {erreurs.budget ? 'Les fichiers dépassent le budget 3D de ce type d’animation.' : 'Complétez les champs signalés (titre, modèle, transcription française…).'}
+            {erreurs.budget
+              ? 'Les fichiers dépassent le budget 3D de ce type d’animation : allégez le modèle dans l’atelier 3D.'
+              : `À compléter : ${[erreurs.titre && 'titre (1)', erreurs.lieu && 'monument (1)', erreurs.modele && 'modèle 3D (2)', erreurs.dates && 'dates (4)', erreurs.transcription && 'transcription française (5)'].filter(Boolean).join(', ')}.`}
           </p>
         )}
         {erreurServeur && (
@@ -518,74 +570,70 @@ function EditeurAnimation({
           </p>
         )}
       </div>
+      {atelier && fichierModele && (
+        <Suspense fallback={null}>
+          <Atelier3D key={fichierModele.id} fichier={fichierModele} onFermer={() => setAtelier(false)} />
+        </Suspense>
+      )}
     </Tiroir>
   )
 }
 
 /**
- * Placement GPS en 3D d'une animation de lieu : position du modèle sur la carte, hauteur du socle
- * au-dessus du sol, orientation de sa face avant et taille réelle. Le téléphone du visiteur pose le
- * modèle à cet endroit (GPS + boussole, repère SLAM) quand la façade n'est pas reconnue.
+ * Placement en 3D d'une animation de lieu : le modèle est dessiné sur une carte satellite avec les
+ * bâtiments en relief ; on le place où l'on veut autour du bâtiment (position, hauteur, orientation,
+ * taille). Le téléphone du visiteur le pose à cet endroit (GPS + boussole, repère SLAM) dès qu'il est
+ * dans le rayon du monument.
  */
-function PositionEspace({ placement, lieu, onChange }: { placement?: PlacementGps; lieu: { nom: string; latitude: number; longitude: number }; onChange: (p: PlacementGps | undefined) => void }) {
-  const p = placement ?? { latitude: lieu.latitude, longitude: lieu.longitude, ...PLACEMENT_LIEU_DEFAUT }
-  const maj = (x: Partial<PlacementGps>) => onChange({ ...p, ...x })
-  const nombre = (v: string) => (v === '' ? 0 : Number(v.replace(',', '.')))
-  const ecart = distanceM(lieu, p)
+function PositionEspace({
+  placement,
+  lieu,
+  modele,
+  onChange,
+}: {
+  placement?: PlacementGps
+  lieu: { nom: string; latitude: number; longitude: number; rayonM: number }
+  modele?: Pick<Animation, 'modeleUrl' | 'reglages3d' | 'clipIndice' | 'lecture'>
+  onChange: (p: PlacementGps | undefined) => void
+}) {
+  // Nouvelle position personnalisée : posée au sol, à côté du point du lieu, face au sud.
+  const nouveau: PlacementGps = { latitude: lieu.latitude, longitude: lieu.longitude, hauteurM: 0, tailleM: PLACEMENT_LIEU_DEFAUT.tailleM, orientationDeg: 180 }
   return (
     <fieldset className="position-espace">
-      <legend>Position du modèle dans l’espace (GPS en 3D)</legend>
+      <legend>Placement de l’animation autour du bâtiment (3D)</legend>
       <label className="case-a-cocher">
-        <input type="checkbox" checked={!!placement} onChange={(e) => onChange(e.target.checked ? p : undefined)} />
-        Position personnalisée <small>Sinon : position du lieu « {lieu.nom} », {PLACEMENT_LIEU_DEFAUT.hauteurM} m de haut, {PLACEMENT_LIEU_DEFAUT.tailleM} m de taille</small>
+        <input type="checkbox" checked={!!placement} onChange={(e) => onChange(e.target.checked ? nouveau : undefined)} />
+        Placer l’animation moi-même
+        <small>
+          Sinon : au-dessus du point du lieu « {lieu.nom} », à {PLACEMENT_LIEU_DEFAUT.hauteurM} m de haut, {PLACEMENT_LIEU_DEFAUT.tailleM} m de taille, face au visiteur.
+        </small>
       </label>
-      {placement && (
-        <>
-          <ChoixPosition
-            latitude={p.latitude}
-            longitude={p.longitude}
-            reference={lieu}
-            orientationDeg={p.orientationDeg}
-            onChange={(latitude, longitude) => maj({ latitude, longitude })}
-          />
-          <div className="grille-champs">
-            <label className="champ">
-              <span className="etiquette">Latitude</span>
-              <input type="number" step="0.000001" min={-90} max={90} value={p.latitude} onChange={(e) => maj({ latitude: nombre(e.target.value) })} />
-            </label>
-            <label className="champ">
-              <span className="etiquette">Longitude</span>
-              <input type="number" step="0.000001" min={-180} max={180} value={p.longitude} onChange={(e) => maj({ longitude: nombre(e.target.value) })} />
-            </label>
-            <label className="champ">
-              <span className="etiquette">
-                Hauteur du socle <small>Mètres au-dessus du sol</small>
-              </span>
-              <input type="number" step="0.5" min={0} max={300} value={p.hauteurM} onChange={(e) => maj({ hauteurM: nombre(e.target.value) })} />
-            </label>
-            <label className="champ">
-              <span className="etiquette">
-                Taille du modèle <small>Plus grande dimension, en mètres</small>
-              </span>
-              <input type="number" step="0.5" min={0.5} max={200} value={p.tailleM} onChange={(e) => maj({ tailleM: nombre(e.target.value) })} />
-            </label>
-            <label className="champ">
-              <span className="etiquette">Orientation</span>
-              <select value={p.orientationDeg ?? ''} onChange={(e) => maj({ orientationDeg: e.target.value === '' ? undefined : Number(e.target.value) })}>
-                <option value="">Toujours face au visiteur</option>
-                {[0, 45, 90, 135, 180, 225, 270, 315].map((d) => (
-                  <option key={d} value={d}>
-                    Face vers {['le nord', 'le nord-est', 'l’est', 'le sud-est', 'le sud', 'le sud-ouest', 'l’ouest', 'le nord-ouest'][d / 45]} ({d}°)
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <small className="aide-champ">
-            {ecart < 1 ? 'Sur le point du lieu.' : `À ${Math.round(ecart)} m du point du lieu.`} Précision attendue sur téléphone : quelques mètres (GPS et boussole) ; une photo de façade reconnue reste prioritaire.
-          </small>
-        </>
-      )}
+      {placement && <EditeurPlacement3D placement={placement} lieu={lieu} modele={modele} onChange={onChange} />}
+      <small className="aide-champ">Sur le téléphone, la précision dépend du GPS et de la boussole (quelques mètres).</small>
     </fieldset>
+  )
+}
+
+/** Animation d'affiche : où le modèle surgit (devant / au-dessus de l'affiche) et sa taille. */
+function PlacementAffiche({ reglage, onChange }: { reglage: ReglageAfficheRA; onChange: (r: ReglageAfficheRA) => void }) {
+  return (
+    <div className="placement-affiche">
+      <div className="choix-type compact">
+        {(['devant', 'dessus'] as const).map((p) => (
+          <button key={p} type="button" className={reglage.position === p ? 'actif' : ''} onClick={() => onChange({ ...reglage, position: p })}>
+            <Icone nom={p === 'devant' ? 'affiche' : 'haut'} taille={18} />
+            <strong>{p === 'devant' ? 'Devant l’affiche' : 'Au-dessus de l’affiche'}</strong>
+            <small>{p === 'devant' ? 'Le modèle sort de l’affiche, face au visiteur' : 'Le modèle se pose sur le bord haut de l’affiche'}</small>
+          </button>
+        ))}
+      </div>
+      <label className="reglage-curseur">
+        <span>
+          Taille du modèle <b>{reglage.taille.toString().replace('.', ',')} × la hauteur de l’affiche</b>
+        </span>
+        <input type="range" min={0.3} max={5} step={0.1} value={reglage.taille} onChange={(e) => onChange({ ...reglage, taille: Number(e.target.value) })} />
+      </label>
+      <small className="aide-champ">Pour une affiche A3 (42 cm), 1,5 correspond à un modèle d’environ 60 cm ; 3 à environ 1,25 m.</small>
+    </div>
   )
 }

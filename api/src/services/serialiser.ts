@@ -9,7 +9,9 @@ import type {
   EntreeJournal,
   Fichier,
   Lieu,
+  Optimisation,
   Partenaire,
+  Reglages3D,
   Signalement,
   Zone,
 } from '../../../src/commun/types.js'
@@ -22,6 +24,16 @@ export type Proprietaires = Map<number, string>
 export async function chargerProprietaires(): Promise<Proprietaires> {
   const comptes = await prisma.compte.findMany({ select: { id: true, role: true, partenaire: { select: { id: true } } } })
   return new Map(comptes.map((c) => [c.id, c.role === 'AGENT' ? 'ville' : String(c.partenaire?.id ?? `compte-${c.id}`)]))
+}
+
+/** Lecture d'une colonne JSON (texte) ; valeur absente ou illisible : undefined. */
+export function lireJson<T>(texte: string | null | undefined): T | undefined {
+  if (!texte) return undefined
+  try {
+    return JSON.parse(texte) as T
+  } catch {
+    return undefined
+  }
 }
 
 /** URL publique d'un fichier importé : le dossier des imports est servi sous /uploads. */
@@ -51,10 +63,13 @@ export function serialiserFichier(f: FichierAvecClips, proprio: Proprietaires): 
     creeLe: versLocal(f.cree_le),
     usage: f.usage_fichier ?? 'AFFICHE',
     url: urlFichier(f.chemin)!,
+    reglages3d: lireJson<Reglages3D>(f.reglages_3d),
+    optimisation: lireJson<Optimisation>(f.optimisation),
+    aOriginal: !!f.chemin_original,
   }
 }
 
-type LieuComplet = Prisma.lieuGetPayload<{ include: { fichier: true; _count: { select: { photo_facade: true } } } }>
+type LieuComplet = Prisma.lieuGetPayload<{ include: { fichier: true } }>
 
 export function serialiserLieu(l: LieuComplet): Lieu {
   return {
@@ -69,7 +84,6 @@ export function serialiserLieu(l: LieuComplet): Lieu {
     rayonM: l.rayon_m,
     visuelId: l.visuel_id ? String(l.visuel_id) : undefined,
     image: urlFichier(l.fichier?.chemin),
-    photosFacade: l._count.photo_facade,
     scoreDomicile: l.score_domicile ?? undefined,
     scoreExterieur: l.score_exterieur ?? undefined,
     equipeDomicile: l.equipe_domicile ?? undefined,
@@ -95,6 +109,7 @@ export function serialiserAnimation(a: AnimationComplete, proprio: Proprietaires
     lieuId: a.lieu_id ? String(a.lieu_id) : undefined,
     modeleId: String(a.modele_id),
     modeleUrl: urlFichier(a.fichier_animation_modele_idTofichier.chemin),
+    reglages3d: lireJson<Reglages3D>(a.fichier_animation_modele_idTofichier.reglages_3d),
     clipIndice: a.fichier_clip?.indice ?? undefined,
     lecture: a.lecture,
     sonId: a.son_id ? String(a.son_id) : undefined,
@@ -105,6 +120,7 @@ export function serialiserAnimation(a: AnimationComplete, proprio: Proprietaires
     fin: versLocal(a.fin),
     statut: a.statut,
     transcription: { fr: a.transcription_fr, en: a.transcription_en ?? '', de: a.transcription_de ?? '' },
+    reglageAffiche: a.type === 'AFFICHE' ? { position: a.affiche_position === 'DESSUS' ? 'dessus' : 'devant', taille: Number(a.affiche_taille) } : undefined,
     placement:
       a.position_latitude !== null && a.position_longitude !== null
         ? {

@@ -7,6 +7,7 @@ import sharp from 'sharp'
 import { NOM_ANIMATION_COMBINEE } from '../../src/commun/constantes.js'
 import { prisma } from '../src/db.js'
 import { attendreTraitements } from '../src/services/file.js'
+import { origineQr } from '../src/traitements/genererPDF.js'
 import { ALTCHA_TEST, app, connecterAgent, creerAgent, dernierCode, connecterPartenaire, dateLocale, genererGlb, genererMp3, genererPng, importer, MOT_DE_PASSE, type Client } from './outils.js'
 
 const API = '/api/v1'
@@ -222,6 +223,66 @@ describe('Parcours affiche : création, conditions, publication, visiteur, modé
     expect(anim.body.placement).toBeUndefined()
   })
 
+  it('atelier 3D : enregistre les réglages d’un modèle et les transmet au visiteur', async () => {
+    const reglages = { rotation: { x: -90, y: 45, z: 0 }, ancrage: 'centre', hauteur: 0.2, vitesse: 0.5, luminosite: 1.3 }
+    const r = await agent.c.patch(`${API}/fichiers/${modeleLieuId}/reglages`).set('X-CSRF-Token', agent.jeton).send(reglages).expect(200)
+    expect(r.body.reglages3d).toEqual(reglages)
+    // Valeurs hors limites refusées.
+    expect((await agent.c.patch(`${API}/fichiers/${modeleLieuId}/reglages`).set('X-CSRF-Token', agent.jeton).send({ ...reglages, vitesse: 100 })).status).toBe(400)
+    expect((await agent.c.patch(`${API}/fichiers/${modeleLieuId}/reglages`).set('X-CSRF-Token', agent.jeton).send({ ...reglages, ancrage: 'plafond' })).status).toBe(400)
+    // Un partenaire ne règle pas le modèle d'un autre compte.
+    expect((await partenaire.c.patch(`${API}/fichiers/${modeleLieuId}/reglages`).set('X-CSRF-Token', partenaire.jeton).send(reglages)).status).toBe(403)
+    const pub = await request(app).get(`${API}/public/lieux`).expect(200)
+    expect(pub.body.animations.find((a: { id: string }) => a.id === animLieuId).reglages3d).toEqual(reglages)
+    // Une ancienne « échelle » envoyée est ignorée : la taille se règle au placement de l'animation.
+    const sansEchelle = await agent.c.patch(`${API}/fichiers/${modeleLieuId}/reglages`).set('X-CSRF-Token', agent.jeton).send({ ...reglages, echelle: 8 }).expect(200)
+    expect(sansEchelle.body.reglages3d).toEqual(reglages)
+  })
+
+  it('atelier 3D : optimise un modèle en conservant l’original, puis le restaure', async () => {
+    // Modèle alourdi par des données inutilisées (1 Mo), avec deux animations.
+    const glb = await importer(agent.c, agent.jeton, await genererGlb({ triangles: 200, clips: [{ nom: 'Entrée', dureeS: 2 }, { nom: 'Feu', dureeS: 3 }], octetsSupplementaires: 1_000_000 }), 'lourd.glb', 'LIEU')
+    const id = glb.corps.id
+    const avant = glb.corps as { url: string; tailleOctets: number }
+    const r = await agent.c
+      .post(`${API}/fichiers/${id}/optimiser`)
+      .set('X-CSRF-Token', agent.jeton)
+      .send({ textureMaxPx: 1024, webp: true, simplification: 0, compression: true })
+      .expect(202)
+    expect(r.body.optimisation.etat).toBe('EN_COURS')
+    await attendreTraitements()
+    const liste = await agent.c.get(`${API}/fichiers`).expect(200)
+    const apres = liste.body.find((f: { id: string }) => f.id === id)
+    expect(apres.optimisation.etat).toBe('TERMINEE')
+    expect(apres.aOriginal).toBe(true)
+    expect(apres.url).not.toBe(avant.url)
+    expect(apres.tailleOctets).toBeLessThan(avant.tailleOctets / 10)
+    expect(apres.optimisation.avant.octets).toBe(avant.tailleOctets)
+    expect(apres.optimisation.apres.triangles).toBe(200)
+    expect(apres.clips).toHaveLength(2)
+    // Le fichier optimisé (compressé Meshopt) est servi et relisible.
+    const servi = await request(app)
+      .get(apres.url)
+      .buffer(true)
+      .parse((res, fin) => {
+        const morceaux: Buffer[] = []
+        res.on('data', (m: Buffer) => morceaux.push(m))
+        res.on('end', () => fin(null, Buffer.concat(morceaux)))
+      })
+      .expect(200)
+    expect((servi.body as Buffer).subarray(0, 4).toString()).toBe('glTF')
+    // Paramètres invalides refusés ; un partenaire ne peut pas optimiser le modèle d'un autre compte.
+    expect((await agent.c.post(`${API}/fichiers/${id}/optimiser`).set('X-CSRF-Token', agent.jeton).send({ textureMaxPx: 300, webp: true, simplification: 0, compression: true })).status).toBe(400)
+    expect((await partenaire.c.post(`${API}/fichiers/${id}/optimiser`).set('X-CSRF-Token', partenaire.jeton).send({ textureMaxPx: null, webp: false, simplification: 0, compression: true })).status).toBe(403)
+    // Restauration : retour au fichier importé, le fichier optimisé disparaît.
+    const restaure = await agent.c.post(`${API}/fichiers/${id}/restaurer`).set('X-CSRF-Token', agent.jeton).expect(200)
+    expect(restaure.body.url).toBe(avant.url)
+    expect(restaure.body.aOriginal).toBe(false)
+    expect(restaure.body.tailleOctets).toBe(avant.tailleOctets)
+    expect((await request(app).get(apres.url)).status).toBe(404)
+    expect((await agent.c.post(`${API}/fichiers/${id}/restaurer`).set('X-CSRF-Token', agent.jeton)).status).toBe(409)
+  })
+
   it('enregistre le placement GPS en 3D d’une animation de lieu et le transmet au visiteur', async () => {
     const corps = { titre: 'Lumières du château', type: 'LIEU', lieuId, modeleId: modeleLieuId, declencheur: 'MONUMENT', dureeS: 60, debut: dateLocale(-1), transcription: { fr: 'Musique' }, publier: true }
     const placement = { latitude: 47.51012, longitude: 6.79835, hauteurM: 18.5, orientationDeg: 135, tailleM: 25 }
@@ -248,8 +309,17 @@ describe('Parcours affiche : création, conditions, publication, visiteur, modé
     expect((await partenaire.c.post(`${API}/animations`).set('X-CSRF-Token', partenaire.jeton).send({ ...base, clipIndice: 7 })).status).toBe(400)
     // Un partenaire ne peut pas créer d'animation de lieu.
     expect((await partenaire.c.post(`${API}/animations`).set('X-CSRF-Token', partenaire.jeton).send({ ...base, type: 'LIEU', lieuId, declencheur: 'MONUMENT' })).status).toBe(403)
+    // Réglage par défaut de l'animation d'affiche : devant l'affiche, 1,5 fois sa hauteur.
     const anim = await partenaire.c.post(`${API}/animations`).set('X-CSRF-Token', partenaire.jeton).send({ ...base, clipIndice: 0, publier: true }).expect(201)
     animAfficheId = anim.body.id
+    expect(anim.body.reglageAffiche).toEqual({ position: 'devant', taille: 1.5 })
+    const regle = await partenaire.c
+      .patch(`${API}/animations/${animAfficheId}`)
+      .set('X-CSRF-Token', partenaire.jeton)
+      .send({ ...base, clipIndice: 0, publier: true, reglageAffiche: { position: 'dessus', taille: 2.5 } })
+      .expect(200)
+    expect(regle.body.reglageAffiche).toEqual({ position: 'dessus', taille: 2.5 })
+    expect((await partenaire.c.patch(`${API}/animations/${animAfficheId}`).set('X-CSRF-Token', partenaire.jeton).send({ ...base, reglageAffiche: { position: 'dessus', taille: 9 } })).status).toBe(400)
   })
 
   it('crée l’affiche avec un QR code unique généré par le serveur', async () => {
@@ -317,6 +387,15 @@ describe('Parcours affiche : création, conditions, publication, visiteur, modé
     expect(pdf.status).toBe(200)
     expect(pdf.headers['content-type']).toBe('application/pdf')
     expect((pdf.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-')
+  })
+
+  it('QR code du PDF : adresse réseau du PC transmise par Vite en développement, domaine sinon', () => {
+    expect(origineQr('https://10.14.28.115:5173')).toBe('https://10.14.28.115:5173')
+    expect(origineQr(['https://192.168.1.20:5174'])).toBe('https://192.168.1.20:5174')
+    // Valeur qui n'est pas une simple origine (chemin, autre schéma) : domaine officiel.
+    expect(origineQr('https://pirate.example/a/x')).toBe('https://experiences.montbeliard.fr')
+    expect(origineQr('javascript:alert(1)')).toBe('https://experiences.montbeliard.fr')
+    expect(origineQr(undefined)).toBe('https://experiences.montbeliard.fr')
   })
 
   it('le visiteur ouvre l’affiche par son QR code et les statistiques sont comptées', async () => {

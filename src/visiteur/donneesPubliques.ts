@@ -54,18 +54,6 @@ export function useAffichePublique(code: string | null | undefined) {
   return { donnees: q.data, raison, chargement: q.isLoading, erreurReseau: q.isError && !raison }
 }
 
-/** Cibles de reconnaissance de la façade d'un lieu (photos de détails, jour et nuit), au format 8th Wall. */
-export function useCiblesLieu(lieuId: string | undefined) {
-  const q = useQuery({
-    queryKey: ['public-cibles-lieu', lieuId],
-    queryFn: () => appelApi<CibleImage[]>(`/public/lieux/${encodeURIComponent(lieuId!)}/cibles`, { publique: true }),
-    enabled: !!lieuId,
-    staleTime: 60_000,
-  })
-  // En cas d'erreur, le placement par GPS et boussole reste possible : liste vide.
-  return { cibles: q.data ?? [], pret: !q.isLoading }
-}
-
 /** Affiches actuellement diffusées (scanner intégré : ouvre une affiche sans passer par son QR code). */
 export function useAffichesDiffusees() {
   return useQuery({ queryKey: ['public-affiches'], queryFn: () => appelApi<{ codeQr: string; nom: string }[]>('/public/affiches', { publique: true }) }).data ?? []

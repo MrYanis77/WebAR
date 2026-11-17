@@ -18,6 +18,8 @@ export const config = {
   urlBase: requis('DATABASE_URL'),
   domaine: process.env.DOMAINE_APPLICATION ?? 'https://experiences.montbeliard.fr',
   urlFront: process.env.URL_FRONT ?? 'http://localhost:5173',
+  /** Développement : adresse forcée des QR codes (sinon celle transmise par Vite, X-Url-Reseau). */
+  urlReseau: process.env.URL_RESEAU,
   dossierUploads: process.env.DOSSIER_UPLOADS ?? 'uploads',
   secretSession: requis('SESSION_SECRET'),
   secretCsrf: requis('CSRF_SECRET'),

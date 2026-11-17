@@ -2,13 +2,14 @@
 // avec l'appareil photo du téléphone, qui ouvre l'application visiteur (caméra + animation).
 import { useEffect, useRef } from 'react'
 import { Link, useParams } from 'react-router'
-import { AfficheAvecQr, QR_DEFAUT, urlQr } from '../../commun/AfficheQr'
+import { AfficheAvecQr, QR_DEFAUT, urlQr, useOrigineApplication } from '../../commun/AfficheQr'
 import { Icone } from '../../commun/Icone'
 import { publiable, reglePublication, useEtat } from '../../commun/store'
 
 export default function PageVoirAffiche() {
   const { id } = useParams()
   const etat = useEtat()
+  useOrigineApplication() // l'adresse affichée suit l'adresse réseau actuelle du PC
   const cadre = useRef<HTMLDivElement>(null)
   const a = etat.affiches.find((x) => x.id === id)
 

@@ -717,3 +717,94 @@ i.cyan { background: var(--cyan); }
 .repere-carte { color: var(--wine, #7b1e2e); cursor: grab; filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.45)); }
 .repere-carte.reference { color: #4fd1c5; cursor: default; }
 @media (max-width: 700px) { .bloc-position > div:last-child { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------------------------------------------------------------- Atelier 3D */
+.ouvrir-atelier { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0; padding: 12px 14px; border: 1px solid var(--line, #e2ddd3); border-radius: 12px; background: #fff; }
+.ouvrir-atelier div { display: grid; gap: 2px; }
+.ouvrir-atelier small { color: var(--muted); }
+.atelier-3d { position: fixed; inset: 0; z-index: 200; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--chalk, #faf8f4); }
+.atelier-tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line, #e2ddd3); background: #fff; }
+.atelier-tete h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 20px; }
+.atelier-tete p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.atelier-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.atelier-corps { display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; }
+.atelier-vue { position: relative; min-height: 0; }
+.atelier-canevas { position: absolute; inset: 0; cursor: grab; }
+.atelier-canevas:active { cursor: grabbing; }
+.atelier-canevas canvas { display: block; }
+.atelier-outils-vue { position: absolute; top: 14px; left: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px; border-radius: 10px; background: rgb(255 255 255 / 0.92); box-shadow: 0 2px 10px rgb(0 0 0 / 0.08); }
+.atelier-outils-vue button, .boutons-rapides button, .choix-segment button { padding: 6px 11px; border: 0; border-radius: 7px; background: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.atelier-outils-vue button.actif, .boutons-rapides button.actif, .choix-segment button.actif { background: var(--wine, #7b1e2e); color: #fff; }
+.atelier-outils-vue .separateur { width: 1px; height: 18px; margin: 0 4px; background: var(--line, #e2ddd3); }
+.atelier-dimensions { position: absolute; left: 14px; bottom: 14px; display: grid; gap: 2px; max-width: 340px; padding: 10px 12px; border-radius: 10px; background: rgb(255 255 255 / 0.94); box-shadow: 0 2px 10px rgb(0 0 0 / 0.08); font-size: 13px; }
+.atelier-dimensions span { font-variant-numeric: tabular-nums; font-weight: 600; }
+.atelier-dimensions small { color: var(--muted); font-size: 11.5px; }
+.atelier-lecture { position: absolute; right: 14px; bottom: 14px; display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 10px; background: rgb(255 255 255 / 0.94); box-shadow: 0 2px 10px rgb(0 0 0 / 0.08); }
+.atelier-lecture select { max-width: 220px; padding: 6px 8px; border: 1px solid var(--line, #e2ddd3); border-radius: 7px; font: inherit; font-size: 13px; }
+.atelier-chargement { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); }
+.atelier-panneau { display: grid; align-content: start; gap: 14px; overflow-y: auto; padding: 16px; border-left: 1px solid var(--line, #e2ddd3); background: #fff; }
+.atelier-panneau fieldset { display: grid; gap: 10px; margin: 0; padding: 12px 14px 14px; border: 1px solid var(--line, #e2ddd3); border-radius: 12px; }
+.atelier-panneau legend { padding: 0 6px; font-weight: 700; }
+.reglage-curseur { display: grid; gap: 4px; font-size: 13px; }
+.reglage-curseur span { display: flex; justify-content: space-between; gap: 8px; }
+.reglage-curseur b { font-variant-numeric: tabular-nums; }
+.reglage-curseur input { width: 100%; accent-color: var(--wine, #7b1e2e); }
+.reglage-rotation { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.boutons-rapides, .choix-segment { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.boutons-rapides button, .choix-segment button { border: 1px solid var(--line, #e2ddd3); }
+.choix-segment span { margin-right: 6px; font-size: 13px; }
+.mesures-modele { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.mesures-modele li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; }
+.mesures-modele li.ok svg { color: #2f7d5b; }
+.mesures-modele li.ko svg, .mesures-modele li.ko b { color: var(--wine, #7b1e2e); }
+.comparaison-optimisation { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.comparaison-optimisation th, .comparaison-optimisation td { padding: 5px 6px; border-bottom: 1px solid var(--line, #e2ddd3); text-align: right; }
+.comparaison-optimisation th:first-child { text-align: left; }
+.comparaison-optimisation td:last-child { color: #2f7d5b; font-weight: 700; }
+@media (max-width: 900px) {
+  .atelier-corps { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(320px, 50vh) auto; overflow-y: auto; }
+  .atelier-panneau { border-left: 0; border-top: 1px solid var(--line, #e2ddd3); overflow: visible; }
+}
+
+/* Éditeur de placement 3D (animation de lieu) */
+.editeur-placement { display: grid; gap: 10px; }
+.carte-editeur-placement { height: min(560px, 65vh); border-radius: 12px; overflow: hidden; cursor: crosshair; }
+.carte-editeur-placement .maplibregl-canvas-container { cursor: crosshair; }
+.editeur-placement .coordonnees { position: static; background: none; padding: 0; line-height: 1.4; }
+.reglages-placement { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 20px; align-items: end; }
+.champs-coordonnees { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; grid-column: 1 / -1; }
+.champs-coordonnees .champ { flex: 1 1 160px; }
+.poignee-orientation { width: 18px; height: 18px; border: 3px solid #fff; border-radius: 50%; background: #4fd1c5; box-shadow: 0 2px 6px rgb(0 0 0 / 0.45); cursor: grab; }
+
+/* ---------------------------------------------------------------- Parcours « monument » et formulaires en étapes */
+.etapes-monument { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0 0 18px; padding: 0; list-style: none; counter-reset: etape; }
+.etapes-monument button { display: flex; width: 100%; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line, #e2ddd3); border-radius: 12px; background: #fff; font: inherit; text-align: left; cursor: pointer; }
+.etapes-monument button > span:last-child { display: grid; min-width: 0; }
+.etapes-monument strong { font-size: 13.5px; }
+.etapes-monument small { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.etapes-monument .numero { display: grid; flex: none; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #ebe5d9; color: var(--ink, #1e2024); font-weight: 700; font-size: 13px; }
+.etapes-monument li.faite .numero { background: #2f7d5b; color: #fff; }
+.etapes-monument li.courante button { border-color: var(--wine, #7b1e2e); box-shadow: 0 0 0 2px rgb(123 30 46 / 0.15); }
+.etapes-monument li.courante .numero { background: var(--wine, #7b1e2e); color: #fff; }
+@media (max-width: 760px) { .etapes-monument { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.formulaire-etapes { gap: 18px; }
+.etape-formulaire { display: grid; gap: 12px; margin: 0; padding: 16px; border: 1px solid var(--line, #e2ddd3); border-radius: 14px; background: #fff; }
+.etape-formulaire > h3 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 16px; }
+.etape-formulaire > h3 > span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--wine, #7b1e2e); color: #fff; font-size: 13px; }
+.etape-formulaire > h3 small { color: var(--muted); font-size: 12px; font-weight: 500; }
+.etape-formulaire .position-espace { padding: 0; border: 0; }
+.etape-formulaire .position-espace legend { display: none; }
+.choix-type.compact button { padding: 12px; }
+.placement-affiche { display: grid; gap: 12px; }
+
+.animations-monument { display: grid; gap: 14px; }
+.vide-animation { display: grid; justify-items: center; gap: 10px; padding: 28px 16px; border: 2px dashed var(--line, #e2ddd3); border-radius: 14px; color: var(--muted); text-align: center; }
+.vide-animation strong { color: var(--ink, #1e2024); }
+.liste-animations-monument { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.liste-animations-monument li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line, #e2ddd3); border-radius: 12px; background: #fff; }
+.liste-animations-monument li > div { display: grid; gap: 2px; min-width: 0; }
+.liste-animations-monument small { color: var(--muted); }
+@media (max-width: 640px) { .liste-animations-monument li { grid-template-columns: minmax(0, 1fr); } }
+.tiroir.large { width: min(1000px, 100%); }
+.atelier-3d { z-index: 300; }

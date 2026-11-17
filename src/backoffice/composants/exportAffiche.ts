@@ -1,7 +1,7 @@
 // Composition dans le navigateur de l'affiche importée et de son QR code (aperçu RA, export PNG).
 // Le PDF à imprimer est produit par l'API (pdf-lib + qrcode, BF-15, BF-38, BF-42).
 import QRCode from 'qrcode'
-import { MENTION_QR, urlQr } from '../../commun/AfficheQr'
+import { MENTION_QR, urlQr, urlReseauChargee } from '../../commun/AfficheQr'
 import type { PlacementQr } from '../../commun/types'
 
 const COTE_MAX = 7000
@@ -36,6 +36,7 @@ export async function composerAffiche(fichier: Blob, code: string, qr: Placement
     ctx.fill()
   }
   const toile = document.createElement('canvas')
+  await urlReseauChargee // adresse réseau actuelle du PC (développement)
   await QRCode.toCanvas(toile, urlQr(code), { width: coteQr, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#ffffff' } })
   ctx.imageSmoothingEnabled = false
   ctx.drawImage(toile, x + marge, y + marge, coteQr, coteQr)

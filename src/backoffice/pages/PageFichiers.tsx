@@ -9,6 +9,7 @@ import { peutCreer, useSession } from '../session'
 import { BadgeStatut, EnTetePage, formaterDate, formaterPoids, Onglets, Panneau, useToast, Vide } from '../ui'
 
 const ApercuModele3D = lazy(() => import('../composants/ApercuModele3D'))
+const Atelier3D = lazy(() => import('../composants/Atelier3D'))
 
 const ICONES: Record<TypeFichier, NomIcone> = { MODELE_3D: 'cube', SON: 'musique', IMAGE: 'image' }
 /** Étapes du contrôle automatique exécuté par l'API (file-type, glTF-Validator, glTF-Transform, ffprobe, sharp). */
@@ -53,6 +54,9 @@ export default function PageFichiers() {
   const [onglet, setOnglet] = useState<'tous' | TypeFichier>('tous')
   const [usage, setUsage] = useState<'AFFICHE' | 'LIEU'>(agent ? 'LIEU' : 'AFFICHE')
   const [selection, setSelection] = useState<string | null>(null)
+  /** Modèle ouvert dans l'atelier 3D. */
+  const [atelier, setAtelier] = useState<string | null>(null)
+  const fichierAtelier = etat.fichiers.find((f) => f.id === atelier)
   /** Envoi en cours : progression de 0 à 1. */
   const [envoi, setEnvoi] = useState<{ nom: string; progression: number } | null>(null)
   const [action, setAction] = useState(false)
@@ -212,6 +216,21 @@ export default function PageFichiers() {
                   <ApercuModele3D url={courant.url} />
                 </Suspense>
               )}
+              {courant.type === 'MODELE_3D' && !enControle(courant) && (
+                <div className="ouvrir-atelier">
+                  <div>
+                    <strong>Atelier 3D</strong>
+                    <small>
+                      Taille, rotation, ancrage, vitesse, luminosité et optimisation
+                      {courant.optimisation?.etat === 'TERMINEE' ? ' · optimisé' : ''}
+                      {courant.reglages3d ? ' · réglé' : ''}
+                    </small>
+                  </div>
+                  <button type="button" className="btn btn-primaire" onClick={() => setAtelier(courant.id)}>
+                    <Icone nom="reglages" taille={15} /> Ouvrir l’atelier
+                  </button>
+                </div>
+              )}
               {courant.type === 'SON' && (
                 <div className="apercu-son">
                   <Icone nom="musique" taille={28} />
@@ -300,6 +319,11 @@ export default function PageFichiers() {
           )}
         </div>
       </div>
+      {fichierAtelier && (
+        <Suspense fallback={null}>
+          <Atelier3D key={fichierAtelier.id} fichier={fichierAtelier} onFermer={() => setAtelier(null)} />
+        </Suspense>
+      )}
       {toast.element}
     </>
   )

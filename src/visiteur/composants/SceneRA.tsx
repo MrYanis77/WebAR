@@ -1,7 +1,7 @@
 // Scène de réalité augmentée : moteur 8th Wall (caméra, reconnaissance d'image, SLAM) + Three.js.
 // Le moteur affiche la caméra dans le canevas et pilote la caméra Three.js ; ce composant y ajoute le
 // modèle de l'animation et le pose dans l'environnement du visiteur :
-//  - sur l'affiche (ou un détail de façade) dès qu'elle est reconnue, puis le SLAM le garde en place
+//  - sur l'affiche dès qu'elle est reconnue, puis le SLAM le garde en place
 //    quand le visiteur détourne le téléphone ; viser de nouveau la cible recale l'animation ;
 //  - à une position GPS en 3D (latitude, longitude, hauteur, orientation) : le GPS et la boussole sont
 //    échantillonnés en continu pour relier le repère géographique au repère SLAM (ra/ancrageGps.ts) ;
@@ -25,6 +25,8 @@ export type EvenementScene =
   | { type: 'cible-perdue' }
   | { type: 'suivi'; normal: boolean }
   | { type: 'lumiere'; sombre: boolean }
+  /** Zoom nécessaire pour que l'image de la caméra remplisse tout l'écran (bouton « Plein écran »). */
+  | { type: 'cadrage'; couverture: number }
   /** Animation posée mais hors du champ de la caméra : de quel côté tourner le téléphone. */
   | { type: 'direction'; cote: 'gauche' | 'droite' | null }
 
@@ -42,7 +44,7 @@ export interface CommandesScene {
 
 interface Props {
   animation: Animation
-  /** Cibles d'image à reconnaître (affiche, ou détails de la façade). */
+  /** Cible d'image de l'affiche à reconnaître (aucune pour un monument : placement GPS). */
   cibles: CibleImage[]
   /** Façade : l'animation est posée au-dessus du détail reconnu, en plus grand. */
   mode: 'affiche' | 'monument'
@@ -51,13 +53,17 @@ interface Props {
   recherche: boolean
   /** Relance : l'animation repart du début, à la même place. */
   cycle: number
+  /**
+   * Zoom de l'affichage : 1 = tout le champ de la caméra, sans recadrage (bandes noires si l'écran n'a
+   * pas les proportions de la caméra). Agrandit ensemble l'image de la caméra et la scène 3D.
+   */
+  zoom: number
   /** Position GPS du visiteur et sa précision (mètres), pour le placement GPS en 3D. */
   gps: { coords: Coordonnees; precisionM: number } | null
   commandes: Ref<CommandesScene>
   onEvenement: (e: EvenementScene) => void
 }
 
-const REGLAGE_FACADE: ReglageAffiche = { position: 'dessus', taille: 3 }
 /** Exposition moyenne de l'image (−1 à 1) en dessous de laquelle l'éclairage est jugé trop faible. */
 const SEUIL_SOMBRE = -0.55
 
@@ -66,14 +72,15 @@ const INTERVALLE_ECHANTILLON_MS = 500
 /** Une mesure de la boussole plus ancienne est ignorée. */
 const AGE_CAP_MAX_MS = 1000
 
-export default function SceneRA({ animation, cibles, mode, reglage = REGLAGE_AFFICHE_DEFAUT, recherche, cycle, gps, commandes, onEvenement }: Props) {
+export default function SceneRA({ animation, cibles, mode, reglage = animation.reglageAffiche ?? REGLAGE_AFFICHE_DEFAUT, recherche, cycle, zoom, gps, commandes, onEvenement }: Props) {
+  const cadre = useRef<HTMLDivElement>(null)
   const gpsRef = useRef(gps)
   gpsRef.current = gps
   const conteneur = useRef<HTMLDivElement>(null)
   const canevas = useRef<HTMLCanvasElement>(null)
   const signaler = useRef(onEvenement)
   signaler.current = onEvenement
-  const reglageCible = mode === 'monument' ? REGLAGE_FACADE : reglage
+  const reglageCible = reglage
   const reglageRef = useRef(reglageCible)
   reglageRef.current = reglageCible
 
@@ -110,6 +117,31 @@ export default function SceneRA({ animation, cibles, mode, reglage = REGLAGE_AFF
     }
   }
 
+  /** Pose l'animation à une position GPS en 3D (voir CommandesScene.poserGps). */
+  function placerGps(placement: PlacementGps): 'ok' | 'sans-boussole' | 'pas-pret' {
+    const e = etat.current
+    const position = gpsRef.current
+    if (!e.camera || !position) return 'pas-pret'
+    let resultat: 'ok' | 'sans-boussole' = 'ok'
+    if (!e.ancrage.nombre) {
+      // Pas de boussole : on suppose que le visiteur vise la position (cap de la caméra = cap de la cible).
+      resultat = 'sans-boussole'
+      e.ancrage.ajouter({
+        position: position.coords,
+        precisionM: Math.min(position.precisionM, 30),
+        capDeg: capVers(position.coords, placement),
+        camera: e.camera.getWorldPosition(new THREE.Vector3()),
+        regard: e.camera.getWorldDirection(new THREE.Vector3()).setY(0),
+      })
+    }
+    const pose = e.ancrage.pose(placement, e.camera.getWorldPosition(new THREE.Vector3()))
+    if (!pose) return 'pas-pret'
+    e.recherche = false
+    e.placementGps = placement
+    poser(pose)
+    return resultat
+  }
+
   useImperativeHandle(commandes, () => ({
     poserDevant() {
       const { camera } = etat.current
@@ -118,29 +150,7 @@ export default function SceneRA({ animation, cibles, mode, reglage = REGLAGE_AFF
       poser(poseDevant(camera, mode === 'monument' ? 2 : 1))
       return true
     },
-    poserGps(placement) {
-      const e = etat.current
-      const position = gpsRef.current
-      if (!e.camera || !position) return 'pas-pret'
-      let resultat: 'ok' | 'sans-boussole' = 'ok'
-      if (!e.ancrage.nombre) {
-        // Pas de boussole : on suppose que le visiteur vise la position (cap de la caméra = cap de la cible).
-        resultat = 'sans-boussole'
-        e.ancrage.ajouter({
-          position: position.coords,
-          precisionM: Math.min(position.precisionM, 30),
-          capDeg: capVers(position.coords, placement),
-          camera: e.camera.getWorldPosition(new THREE.Vector3()),
-          regard: e.camera.getWorldDirection(new THREE.Vector3()).setY(0),
-        })
-      }
-      const pose = e.ancrage.pose(placement, e.camera.getWorldPosition(new THREE.Vector3()))
-      if (!pose) return 'pas-pret'
-      e.recherche = false
-      e.placementGps = placement
-      poser(pose)
-      return resultat
-    },
+    poserGps: placerGps,
     async photo() {
       const xr8 = etat.current.xr8
       if (!xr8) return null
@@ -188,11 +198,38 @@ export default function SceneRA({ animation, cibles, mode, reglage = REGLAGE_AFF
     let liberer: (() => void) | null = null
     const e = etat.current
 
-    // Le moteur dessine dans le canevas à sa taille réelle en pixels.
+    // Le moteur remplit le canevas avec l'image de la caméra, en la recadrant si leurs proportions
+    // diffèrent. Le canevas prend donc les proportions de la caméra et tient entièrement dans l'écran :
+    // tout le champ est visible (zoom 1). Le zoom agrandit ensuite le cadre (caméra et 3D ensemble).
+    let proportionCamera = 0 // largeur / hauteur de l'image de la caméra, une fois connue
+    let derniereCouverture = 0
+    const surTailleVideo = (largeur: number, hauteur: number) => {
+      if (!largeur || !hauteur) return
+      let p = largeur / hauteur
+      // L'image suit l'orientation de l'écran (portrait sur un téléphone tenu droit).
+      const portrait = boite.clientHeight > boite.clientWidth
+      if (portrait !== p < 1) p = 1 / p
+      if (Math.abs(p - proportionCamera) < 1e-3) return
+      proportionCamera = p
+      redimensionner()
+    }
     const redimensionner = () => {
+      const [bl, bh] = [boite.clientWidth, boite.clientHeight]
+      const p = proportionCamera || (bh > bl ? 3 / 4 : 4 / 3)
+      const [l, h] = bl / bh > p ? [bh * p, bh] : [bl, bl / p]
+      const cadreEl = cadre.current
+      if (cadreEl) {
+        cadreEl.style.width = `${l}px`
+        cadreEl.style.height = `${h}px`
+      }
       const ratio = Math.min(2, window.devicePixelRatio || 1)
-      canvas.width = Math.max(1, Math.round(boite.clientWidth * ratio))
-      canvas.height = Math.max(1, Math.round(boite.clientHeight * ratio))
+      canvas.width = Math.max(1, Math.round(l * ratio))
+      canvas.height = Math.max(1, Math.round(h * ratio))
+      const couverture = Math.max(bl / l, bh / h)
+      if (Math.abs(couverture - derniereCouverture) > 1e-3) {
+        derniereCouverture = couverture
+        signaler.current({ type: 'cadrage', couverture })
+      }
     }
     redimensionner()
     const observateur = new ResizeObserver(redimensionner)
@@ -204,7 +241,6 @@ export default function SceneRA({ animation, cibles, mode, reglage = REGLAGE_AFF
       if (!e.recherche && !e.modele?.visible && !e.attente) return
       const premiere = e.recherche
       e.recherche = false
-      // La façade reconnue est plus précise que le GPS : le placement GPS s'arrête.
       e.placementGps = null
       poser(poseSurCible(detail, reglageRef.current), !premiere)
       if (nouvelle || premiere) signaler.current({ type: 'cible-trouvee', nom: detail.name })
@@ -262,11 +298,12 @@ export default function SceneRA({ animation, cibles, mode, reglage = REGLAGE_AFF
         camera.position.set(0, 1.6, 0)
         xr8.XrController.updateCameraProjectionMatrix({ origin: camera.position, facing: camera.quaternion })
         e.camera = camera
-        const eteindre = eclairer(scene, renderer)
+        const eclairage = eclairer(scene, renderer)
         chargerGlb(animation.modeleUrl!, renderer)
           .then((gltf) => {
             if (annule) return
             const modele = new ModeleAnime(gltf, animation)
+            eclairage.regler(modele.luminosite)
             scene.add(modele.racine)
             e.modele = modele
             if (e.attente) {
@@ -277,7 +314,7 @@ export default function SceneRA({ animation, cibles, mode, reglage = REGLAGE_AFF
           })
           .catch(() => !annule && signaler.current({ type: 'modele-indisponible' }))
         liberer = () => {
-          eteindre()
+          eclairage.liberer()
           e.modele?.liberer()
           e.modele = null
           e.camera = null
@@ -310,8 +347,12 @@ export default function SceneRA({ animation, cibles, mode, reglage = REGLAGE_AFF
           }
         }
       },
-      onCameraStatusChange: ({ status, reason }) => {
-        if (status === 'hasVideo') signaler.current({ type: 'camera' })
+      onVideoSizeChange: ({ videoWidth, videoHeight }) => surTailleVideo(videoWidth, videoHeight),
+      onCameraStatusChange: ({ status, reason, video }) => {
+        if (status === 'hasVideo') {
+          if (video) surTailleVideo(video.videoWidth, video.videoHeight)
+          signaler.current({ type: 'camera' })
+        }
         if (status === 'failed') signaler.current(reason === 'DENY_CAMERA' ? { type: 'camera-refusee' } : { type: 'erreur', message: reason ?? 'camera' })
       },
       onException: (erreur) => {
@@ -371,7 +412,9 @@ export default function SceneRA({ animation, cibles, mode, reglage = REGLAGE_AFF
 
   return (
     <div className="scene-ra" ref={conteneur}>
-      <canvas ref={canevas} className="canevas-ra" />
+      <div className="cadre-ra" ref={cadre} style={{ transform: `translate(-50%, -50%) scale(${zoom})` }}>
+        <canvas ref={canevas} className="canevas-ra" />
+      </div>
     </div>
   )
 }

@@ -25,7 +25,7 @@ export default function ModeleSimule({ animation, cycle }: { animation: Animatio
     const camera = new THREE.PerspectiveCamera(45, el.clientWidth / Math.max(1, el.clientHeight), 0.05, 100)
     camera.position.set(0, 0.55, 3.2)
     camera.lookAt(0, 0.5, 0)
-    const eteindre = eclairer(scene, renderer)
+    const eclairage = eclairer(scene, renderer)
     let modele: ModeleAnime | null = null
     let annule = false
 
@@ -33,6 +33,7 @@ export default function ModeleSimule({ animation, cycle }: { animation: Animatio
       .then((gltf) => {
         if (annule) return
         modele = new ModeleAnime(gltf, animation)
+        eclairage.regler(modele.luminosite)
         modele.racine.scale.setScalar(1.3)
         modele.racine.position.y = -0.15
         scene.add(modele.racine)
@@ -62,12 +63,12 @@ export default function ModeleSimule({ animation, cycle }: { animation: Animatio
       renderer.setAnimationLoop(null)
       observateur.disconnect()
       modele?.liberer()
-      eteindre()
+      eclairage.liberer()
       renderer.dispose()
       renderer.domElement.remove()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [animation.modeleUrl, animation.clipIndice, animation.lecture, cycle])
+  }, [animation.modeleUrl, animation.clipIndice, animation.lecture, animation.reglages3d, cycle])
 
   return (
     <div className="modele-ra" ref={conteneur} aria-hidden="true">

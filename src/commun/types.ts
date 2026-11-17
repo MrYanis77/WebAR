@@ -28,7 +28,6 @@ export interface Lieu {
   /** Fichier image de la fiche (identifiant et URL servie par l'API). */
   visuelId?: string
   image?: string
-  photosFacade: number
   scoreDomicile?: number
   scoreExterieur?: number
   equipeDomicile?: string
@@ -74,6 +73,59 @@ export interface ClipGlb {
   pistes: number
 }
 
+/**
+ * Réglages d'un modèle 3D, sans modifier le fichier : appliqués par Three.js dans l'application visiteur
+ * et dans les aperçus du back-office (atelier 3D). La taille n'en fait pas partie : elle se règle à un
+ * seul endroit, là où l'animation est placée (par rapport à l'affiche, ou en mètres autour du monument).
+ */
+export interface Reglages3D {
+  /** Rotation (degrés) pour redresser un modèle exporté couché ou mal orienté. */
+  rotation: { x: number; y: number; z: number }
+  /** Point posé à la position de l'animation : le socle (au sol) ou le centre du modèle. */
+  ancrage: 'sol' | 'centre'
+  /** Décalage vertical, en fraction de la taille du modèle (−1 à 1). */
+  hauteur: number
+  /** Vitesse de lecture des animations intégrées (1 = normale). */
+  vitesse: number
+  /** Intensité de l'éclairage du modèle (1 = normale). */
+  luminosite: number
+}
+
+/** Placement d'une animation d'affiche par rapport à l'affiche reconnue (section 5.3). */
+export interface ReglageAfficheRA {
+  position: 'devant' | 'dessus'
+  /** Plus grande dimension du modèle, en hauteurs d'affiche (1 = hauteur de l'affiche). */
+  taille: number
+}
+
+/** Paramètres de l'optimisation d'un modèle par le serveur (glTF-Transform). */
+export interface ParametresOptimisation {
+  /** Côté maximal des textures en pixels ; vide = taille conservée. */
+  textureMaxPx: number | null
+  /** Textures réencodées en WebP (plus légères). */
+  webp: boolean
+  /** Part des triangles retirés par simplification (0 à 0,9). */
+  simplification: number
+  /** Compression de la géométrie (Meshopt). */
+  compression: boolean
+}
+
+export interface MesureModele {
+  octets: number
+  triangles: number
+  texturePx: number
+}
+
+/** Dernière optimisation d'un modèle (l'original est conservé et peut être restauré). */
+export interface Optimisation {
+  etat: 'EN_COURS' | 'TERMINEE' | 'ECHEC'
+  parametres: ParametresOptimisation
+  avant: MesureModele
+  apres?: MesureModele
+  erreur?: string
+  le: string
+}
+
 export interface Fichier {
   id: string
   proprietaireId: string
@@ -94,11 +146,17 @@ export interface Fichier {
   hauteurPx?: number
   /** Contrôle automatique terminé : aperçu prêt, en attente de validation par l'éditeur. */
   controleTermine?: boolean
+  /** Modèle 3D : réglages de l'atelier 3D (vide = valeurs par défaut). */
+  reglages3d?: Reglages3D
+  /** Modèle 3D : dernière optimisation par le serveur. */
+  optimisation?: Optimisation
+  /** Modèle 3D optimisé : l'original est conservé et peut être restauré. */
+  aOriginal?: boolean
 }
 
 /**
  * Placement GPS en 3D d'une animation de lieu : le téléphone pose le modèle à cette position
- * (convertie dans le repère SLAM grâce au GPS et à la boussole) quand la façade n'est pas reconnue.
+ * (convertie dans le repère SLAM grâce au GPS et à la boussole) dès que le visiteur est dans le rayon.
  */
 export interface PlacementGps {
   latitude: number
@@ -130,6 +188,10 @@ export interface Animation {
   transcription: Texte3
   lancements: number
   modifieLe: string
+  /** Réglages du modèle 3D (atelier 3D) : taille, rotation, ancrage, vitesse, luminosité. */
+  reglages3d?: Reglages3D
+  /** Animation d'affiche : position (devant, au-dessus) et taille par rapport à l'affiche. */
+  reglageAffiche?: ReglageAfficheRA
   /** Animation de lieu : position du modèle dans l'espace (vide = position du lieu, valeurs par défaut). */
   placement?: PlacementGps
   /** URL du modèle GLB et du son, pour l'aperçu et l'application visiteur. */
@@ -174,7 +236,7 @@ export interface ImageAffiche {
 
 /**
  * Cible de reconnaissance 8th Wall (image target), au format lu par XR8.XrController.configure({ imageTargetData }).
- * Générée par le serveur à partir du visuel de l'affiche ou d'une photo de façade (même format que
+ * Générée par le serveur à partir du visuel de l'affiche (même format que
  * l'outil officiel @8thwall/image-target-cli) : recadrage 3:4 et image de luminance 480 × 640.
  */
 export interface CibleImage {

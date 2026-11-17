@@ -6,10 +6,11 @@ import { RAYON_PAR_DEFAUT_M } from '../../commun/constantes'
 import { projeter } from '../../commun/geo'
 import { Icone } from '../../commun/Icone'
 import { messageErreur } from '../../commun/api'
-import { ajouterPhotoFacade, attendreControle, attribuerZone, enregistrerLieu, enregistrerZone, importerFichier, nomProprietaire, supprimerLieu, useEtat } from '../../commun/store'
-import type { Lieu, Texte3, Zone } from '../../commun/types'
-import { VILLE_ID } from '../session'
-import { BadgeStatut, DialogueSuppression, EnTetePage, executer, Interrupteur, Onglets, Panneau, Tiroir, useToast } from '../ui'
+import { attendreControle, attribuerZone, enregistrerAnimation, enregistrerLieu, enregistrerZone, importerFichier, nomProprietaire, supprimerLieu, useEtat } from '../../commun/store'
+import type { Animation, Lieu, Texte3, Zone } from '../../commun/types'
+import { EditeurAnimation } from './PageAnimations'
+import { proprietaireDe, useSession, VILLE_ID } from '../session'
+import { BadgeStatut, DialogueSuppression, EnTetePage, executer, Interrupteur, maintenantLocal, Onglets, Panneau, Tiroir, useToast } from '../ui'
 
 type Onglet = 'lieux' | 'zones' | 'attributions'
 
@@ -26,18 +27,18 @@ export default function PageLieux() {
 
   function nouveauLieu() {
     const vide: Texte3 = { fr: '', en: '', de: '' }
-    setLieu({ id: '', nom: '', nomCourt: '', categorie: { ...vide }, adresse: '', description: { ...vide }, latitude: 47.5085, longitude: 6.8005, rayonM: RAYON_PAR_DEFAUT_M, photosFacade: 0, actif: false, accesLibre: true })
+    setLieu({ id: '', nom: '', nomCourt: '', categorie: { ...vide }, adresse: '', description: { ...vide }, latitude: 47.5085, longitude: 6.8005, rayonM: RAYON_PAR_DEFAUT_M, actif: false, accesLibre: true })
   }
 
   return (
     <>
       <EnTetePage
-        titre="Lieux & zones"
-        description="Gérez les lieux culturels, leurs fiches FR/EN/DE et les zones d’affichage autorisées."
+        titre="Monuments & zones"
+        description="Créez les monuments et leur animation 3D (fiche, position GPS, placement autour du bâtiment), et les zones d’affichage des affiches."
         actions={
           onglet === 'lieux' ? (
             <button type="button" className="btn btn-primaire" onClick={nouveauLieu}>
-              <Icone nom="plus" taille={16} /> Ajouter un lieu
+              <Icone nom="plus" taille={16} /> Créer un monument
             </button>
           ) : onglet === 'zones' ? (
             <button
@@ -56,7 +57,7 @@ export default function PageLieux() {
             valeur={onglet}
             onChange={(o) => setParams({ onglet: o })}
             options={[
-              { id: 'lieux', libelle: 'Lieux', compte: etat.lieux.length },
+              { id: 'lieux', libelle: 'Monuments', compte: etat.lieux.length },
               { id: 'zones', libelle: 'Zones d’affichage', compte: etat.zones.length },
               { id: 'attributions', libelle: 'Attributions', compte: attente.length },
             ]}
@@ -87,9 +88,6 @@ export default function PageLieux() {
                       <Icone nom="zone" taille={14} /> Rayon {l.rayonM} m
                     </li>
                     <li>
-                      <Icone nom="appareil" taille={14} /> {l.photosFacade} photos de façade
-                    </li>
-                    <li>
                       <Icone nom="couches" taille={14} /> {etat.animations.filter((a) => a.lieuId === l.id).length} animation(s)
                     </li>
                     <li>
@@ -103,7 +101,7 @@ export default function PageLieux() {
                         <Icone nom="poubelle" taille={14} />
                       </button>
                       <button type="button" onClick={() => setLieu(l)}>
-                        <Icone nom="crayon" taille={13} /> Modifier
+                        <Icone nom="crayon" taille={13} /> Ouvrir
                       </button>
                     </span>
                   </div>
@@ -242,12 +240,10 @@ export default function PageLieux() {
           lieu={lieu}
           onFermer={() => setLieu(null)}
           onSupprimer={lieu.id ? () => setASupprimer(lieu) : undefined}
-          onEnregistrer={async (l, photos) => {
-            // Le lieu est enregistré d'abord : les photos de façade sont rattachées à son identifiant.
+          onEnregistrer={async (l) => {
             const enregistre = await enregistrerLieu(l)
-            for (const photo of photos) await ajouterPhotoFacade(enregistre.id, photo.fichier, photo.moment)
-            setLieu(null)
-            toast.afficher(`Lieu « ${l.nomCourt || l.nom} » enregistré`)
+            toast.afficher(`« ${l.nomCourt || l.nom} » enregistré`)
+            return enregistre
           }}
         />
       )}
@@ -278,13 +274,20 @@ export default function PageLieux() {
   )
 }
 
-/** Photo de façade choisie, envoyée à l'API à l'enregistrement du lieu. */
-interface PhotoFacade {
-  fichier: File
-  apercu: string
-  moment: 'JOUR' | 'NUIT'
-}
+type EtapeMonument = 'lieu' | 'position' | 'animation'
 
+const ETAPES_MONUMENT: { id: EtapeMonument; titre: string; aide: string }[] = [
+  { id: 'lieu', titre: 'Le monument', aide: 'Nom, adresse, fiche' },
+  { id: 'position', titre: 'Position GPS', aide: 'Sur la carte, rayon' },
+  { id: 'animation', titre: 'Animation 3D', aide: 'Modèle et placement' },
+]
+
+/**
+ * Parcours de création d'un monument, en 3 étapes : 1. le monument (nom, adresse, fiche FR/EN/DE,
+ * visuel), 2. sa position GPS précise sur la carte et le rayon de proximité, 3. son animation 3D,
+ * placée à son point GPS autour du bâtiment. Le monument est enregistré à tout moment
+ * (« Enregistrer ») ; l'étape 3 demande qu'il soit enregistré une première fois.
+ */
 function EditeurLieu({
   lieu,
   onFermer,
@@ -293,16 +296,20 @@ function EditeurLieu({
 }: {
   lieu: Lieu
   onFermer: () => void
-  onEnregistrer: (l: Lieu, photos: PhotoFacade[]) => Promise<void>
+  /** Enregistre le monument ; renvoie le monument enregistré. */
+  onEnregistrer: (l: Lieu) => Promise<Lieu>
   onSupprimer?: () => void
 }) {
+  const etat = useEtat()
+  const session = useSession()
   const [l, setL] = useState(lieu)
+  const [etape, setEtape] = useState<EtapeMonument>('lieu')
   const [langue, setLangue] = useState<keyof Texte3>('fr')
-  const [photos, setPhotos] = useState<PhotoFacade[]>([])
-  const [momentPhotos, setMomentPhotos] = useState<'JOUR' | 'NUIT'>('JOUR')
   const [tente, setTente] = useState(false)
   const [envoi, setEnvoi] = useState<string | null>(null)
   const [erreur, setErreur] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const [animation, setAnimation] = useState<Animation | null>(null)
 
   /** Visuel de la fiche : image importée puis contrôlée par l'API (sharp). */
   async function importerVisuel(fichier: File) {
@@ -319,15 +326,63 @@ function EditeurLieu({
       setEnvoi(null)
     }
   }
-  const maj = (p: Partial<Lieu>) => setL({ ...l, ...p })
-  const valide = l.nom.trim() && l.nomCourt.trim() && l.adresse.trim() && l.description.fr.trim() && l.categorie.fr.trim()
+  const maj = (p: Partial<Lieu>) => setL((x) => ({ ...x, ...p }))
+  const ficheComplete = !!(l.nom.trim() && l.nomCourt.trim() && l.adresse.trim() && l.description.fr.trim() && l.categorie.fr.trim())
+  const animations = l.id ? etat.animations.filter((a) => a.lieuId === l.id) : []
+  const fait: Record<EtapeMonument, boolean> = {
+    lieu: ficheComplete,
+    position: !!l.id || l.latitude !== lieu.latitude || l.longitude !== lieu.longitude,
+    animation: animations.length > 0,
+  }
+  const indice = ETAPES_MONUMENT.findIndex((e) => e.id === etape)
+
+  /** Enregistre le monument sans fermer le parcours ; renvoie false si la fiche est incomplète. */
+  async function enregistrer() {
+    setTente(true)
+    setErreur(null)
+    setMessage(null)
+    if (!ficheComplete) {
+      setEtape('lieu')
+      setErreur('Complétez d’abord l’étape 1 : nom, nom court, adresse, catégorie et présentation en français.')
+      return false
+    }
+    setEnvoi('enregistrement')
+    try {
+      const enregistre = await onEnregistrer(l)
+      setL((x) => ({ ...x, id: enregistre.id }))
+      setMessage(`« ${l.nomCourt || l.nom} » enregistré.`)
+      return true
+    } catch (e) {
+      setErreur(messageErreur(e))
+      return false
+    } finally {
+      setEnvoi(null)
+    }
+  }
+
+  function nouvelleAnimation() {
+    setAnimation({
+      id: '',
+      proprietaireId: proprietaireDe(session),
+      titre: '',
+      type: 'LIEU',
+      lieuId: l.id,
+      declencheur: 'MONUMENT',
+      dureeS: 300,
+      debut: maintenantLocal(),
+      statut: 'BROUILLON',
+      transcription: { fr: '', en: '', de: '' },
+      lancements: 0,
+      modifieLe: maintenantLocal(),
+    })
+  }
 
   return (
     <Tiroir
       ouvert
       large
-      titre={lieu.nom ? `Modifier « ${lieu.nomCourt} »` : 'Nouveau lieu'}
-      sousTitre="Un nouveau lieu et son animation s’ajoutent sans modifier le code (BNF-13)."
+      titre={lieu.id ? `Monument « ${lieu.nomCourt || lieu.nom} »` : 'Nouveau monument'}
+      sousTitre="Créez le monument, placez-le sur la carte, puis placez son animation 3D à son point GPS."
       onFermer={onFermer}
       pied={
         <>
@@ -337,151 +392,214 @@ function EditeurLieu({
             </button>
           )}
           <button type="button" className="btn btn-fantome" onClick={onFermer}>
-            Annuler
+            Fermer
           </button>
-          <button
-            type="button"
-            className="btn btn-primaire"
-            disabled={!!envoi}
-            onClick={async () => {
-              setTente(true)
-              setErreur(null)
-              if (!valide) return
-              setEnvoi('enregistrement')
-              try {
-                await onEnregistrer(l, photos)
-              } catch (e) {
-                setErreur(messageErreur(e))
-              } finally {
-                setEnvoi(null)
-              }
-            }}
-          >
-            {envoi === 'enregistrement' ? 'Enregistrement…' : 'Enregistrer le lieu'}
+          {indice > 0 && (
+            <button type="button" className="btn btn-secondaire" onClick={() => setEtape(ETAPES_MONUMENT[indice - 1].id)}>
+              <Icone nom="gauche" taille={15} /> Précédent
+            </button>
+          )}
+          <button type="button" className="btn btn-secondaire" disabled={!!envoi} onClick={() => void enregistrer()}>
+            {envoi === 'enregistrement' ? 'Enregistrement…' : 'Enregistrer'}
           </button>
+          {indice < ETAPES_MONUMENT.length - 1 && (
+            <button
+              type="button"
+              className="btn btn-primaire"
+              disabled={!!envoi}
+              onClick={async () => {
+                const suivante = ETAPES_MONUMENT[indice + 1].id
+                // L'animation est rattachée au monument : il doit être enregistré avant l'étape 3.
+                if (suivante === 'animation' && !l.id && !(await enregistrer())) return
+                if (etape === 'lieu' && !ficheComplete) {
+                  setTente(true)
+                  setErreur('Complétez les champs signalés avant de continuer.')
+                  return
+                }
+                setErreur(null)
+                setEtape(suivante)
+              }}
+            >
+              Suivant <Icone nom="droite" taille={15} />
+            </button>
+          )}
         </>
       }
     >
-      <div className="formulaire-bo">
-        <div className="grille-champs">
-          <label className={`champ ${tente && !l.nom.trim() ? 'erreur' : ''}`}>
-            <span className="etiquette">Nom</span>
-            <input value={l.nom} onChange={(e) => maj({ nom: e.target.value })} maxLength={150} />
-          </label>
-          <label className={`champ ${tente && !l.nomCourt.trim() ? 'erreur' : ''}`}>
-            <span className="etiquette">
-              Nom court <small>Marqueur de la carte</small>
-            </span>
-            <input value={l.nomCourt} onChange={(e) => maj({ nomCourt: e.target.value })} maxLength={20} />
-          </label>
-          <label className={`champ pleine ${tente && !l.adresse.trim() ? 'erreur' : ''}`}>
-            <span className="etiquette">Adresse</span>
-            <input value={l.adresse} onChange={(e) => maj({ adresse: e.target.value })} />
-          </label>
-        </div>
-        <div className="bloc-position">
-          <ChoixPosition latitude={l.latitude} longitude={l.longitude} rayonM={l.rayonM} onChange={(latitude, longitude) => maj({ latitude, longitude })} />
-          <div>
-            <label className="champ">
-              <span className="etiquette">
-                Rayon de proximité <small>{l.rayonM} m</small>
+      <ol className="etapes-monument">
+        {ETAPES_MONUMENT.map((e, i) => (
+          <li key={e.id} className={`${etape === e.id ? 'courante' : ''} ${fait[e.id] ? 'faite' : ''}`}>
+            <button
+              type="button"
+              onClick={async () => {
+                if (e.id === 'animation' && !l.id && !(await enregistrer())) return
+                setEtape(e.id)
+              }}
+              aria-current={etape === e.id ? 'step' : undefined}
+            >
+              <span className="numero">{fait[e.id] && etape !== e.id ? <Icone nom="check" taille={14} /> : i + 1}</span>
+              <span>
+                <strong>{e.titre}</strong>
+                <small>{e.aide}</small>
               </span>
-              <input type="range" min={20} max={200} step={5} value={l.rayonM} onChange={(e) => maj({ rayonM: Number(e.target.value) })} />
-              <span className="aide">Message « Vous êtes arrivé » et lancement manuel dans ce rayon (50 m par défaut).</span>
-            </label>
-            <label className="case">
-              <input type="checkbox" checked={l.accesLibre} onChange={(e) => maj({ accesLibre: e.target.checked })} />
-              Accès libre
-            </label>
-            <label className="case">
-              <input type="checkbox" checked={l.actif} onChange={(e) => maj({ actif: e.target.checked })} />
-              Visible sur la carte des visiteurs
-            </label>
-          </div>
-        </div>
-        <fieldset className={`transcriptions ${tente && (!l.description.fr.trim() || !l.categorie.fr.trim()) ? 'erreur' : ''}`}>
-          <legend>Fiche du lieu</legend>
-          <Onglets
-            valeur={langue}
-            onChange={setLangue}
-            options={[
-              { id: 'fr', libelle: `Français${l.description.fr ? ' ✓' : ''}` },
-              { id: 'en', libelle: `English${l.description.en ? ' ✓' : ''}` },
-              { id: 'de', libelle: `Deutsch${l.description.de ? ' ✓' : ''}` },
-            ]}
-          />
-          <label className="champ">
-            <span className="etiquette">Catégorie</span>
-            <input value={l.categorie[langue]} onChange={(e) => maj({ categorie: { ...l.categorie, [langue]: e.target.value } })} placeholder="Patrimoine & histoire" />
-          </label>
-          <label className="champ">
-            <span className="etiquette">Présentation historique</span>
-            <textarea rows={4} value={l.description[langue]} onChange={(e) => maj({ description: { ...l.description, [langue]: e.target.value } })} />
-          </label>
-        </fieldset>
-        <div className="photos-facade">
-          <div>
-            <strong>Visuel de la fiche</strong>
-            <p>Photo affichée sur la carte et la fiche du lieu (PNG, JPEG ou WebP).</p>
-          </div>
-          <div className="vignettes">
-            {l.image && <img src={l.image} alt="" />}
-            <label className="ajout-photo" aria-label="Choisir le visuel">
-              {envoi === 'visuel' ? <span className="spinner" /> : <Icone nom={l.image ? 'crayon' : 'plus'} taille={18} />}
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                disabled={!!envoi}
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (f) void importerVisuel(f)
-                  e.target.value = ''
-                }}
-              />
-            </label>
-          </div>
-        </div>
-        <div className="photos-facade">
-          <div>
-            <strong>Photos de façade pour la reconnaissance</strong>
-            <p>
-              Détails (entrée, tour, logo), de jour et de nuit. {l.photosFacade} photo(s) enregistrée(s)
-              {photos.length ? `, ${photos.length} à envoyer` : ''}.
-            </p>
-            <label className="select-compact">
-              Moment
-              <select value={momentPhotos} onChange={(e) => setMomentPhotos(e.target.value as 'JOUR' | 'NUIT')}>
-                <option value="JOUR">Jour</option>
-                <option value="NUIT">Nuit</option>
-              </select>
-            </label>
-          </div>
-          <div className="vignettes">
-            {photos.map((p) => (
-              <img key={p.apercu} src={p.apercu} alt="" title={p.moment === 'NUIT' ? 'Nuit' : 'Jour'} />
-            ))}
-            <label className="ajout-photo" aria-label="Ajouter des photos de façade">
-              <Icone nom="plus" taille={18} />
-              <input
-                type="file"
-                accept="image/png,image/jpeg"
-                multiple
-                onChange={(e) => {
-                  const choisies = Array.from(e.target.files ?? []).map((fichier) => ({ fichier, apercu: URL.createObjectURL(fichier), moment: momentPhotos }))
-                  setPhotos([...photos, ...choisies])
-                  e.target.value = ''
-                }}
-              />
-            </label>
-          </div>
-        </div>
-        {erreur && (
-          <p className="erreur-acces" role="alert">
-            <Icone nom="alerte" taille={15} />
-            {erreur}
+            </button>
+          </li>
+        ))}
+      </ol>
+
+      <div className="formulaire-bo">
+        {(erreur || message) && (
+          <p className={erreur ? 'erreur-acces' : 'note-ok'} role={erreur ? 'alert' : 'status'}>
+            <Icone nom={erreur ? 'alerte' : 'check'} taille={15} />
+            {erreur ?? message}
           </p>
         )}
+
+        {etape === 'lieu' && (
+          <>
+            <div className="grille-champs">
+              <label className={`champ ${tente && !l.nom.trim() ? 'erreur' : ''}`}>
+                <span className="etiquette">Nom du monument</span>
+                <input value={l.nom} onChange={(e) => maj({ nom: e.target.value })} maxLength={150} placeholder="Ex. Château des Ducs de Wurtemberg" />
+              </label>
+              <label className={`champ ${tente && !l.nomCourt.trim() ? 'erreur' : ''}`}>
+                <span className="etiquette">
+                  Nom court <small>Affiché sur la carte</small>
+                </span>
+                <input value={l.nomCourt} onChange={(e) => maj({ nomCourt: e.target.value })} maxLength={20} placeholder="Ex. Château" />
+              </label>
+              <label className={`champ pleine ${tente && !l.adresse.trim() ? 'erreur' : ''}`}>
+                <span className="etiquette">Adresse</span>
+                <input value={l.adresse} onChange={(e) => maj({ adresse: e.target.value })} placeholder="Ex. Rue du Château, 25200 Montbéliard" />
+              </label>
+            </div>
+            <fieldset className={`transcriptions ${tente && (!l.description.fr.trim() || !l.categorie.fr.trim()) ? 'erreur' : ''}`}>
+              <legend>Fiche du monument (FR obligatoire)</legend>
+              <Onglets
+                valeur={langue}
+                onChange={setLangue}
+                options={[
+                  { id: 'fr', libelle: `Français${l.description.fr ? ' ✓' : ''}` },
+                  { id: 'en', libelle: `English${l.description.en ? ' ✓' : ''}` },
+                  { id: 'de', libelle: `Deutsch${l.description.de ? ' ✓' : ''}` },
+                ]}
+              />
+              <label className="champ">
+                <span className="etiquette">Catégorie</span>
+                <input value={l.categorie[langue]} onChange={(e) => maj({ categorie: { ...l.categorie, [langue]: e.target.value } })} placeholder="Patrimoine & histoire" />
+              </label>
+              <label className="champ">
+                <span className="etiquette">Présentation historique</span>
+                <textarea rows={4} value={l.description[langue]} onChange={(e) => maj({ description: { ...l.description, [langue]: e.target.value } })} />
+              </label>
+            </fieldset>
+            <div className="photos-facade">
+              <div>
+                <strong>Visuel de la fiche</strong>
+                <p>Photo affichée sur la carte et la fiche du monument (PNG, JPEG ou WebP).</p>
+              </div>
+              <div className="vignettes">
+                {l.image && <img src={l.image} alt="" />}
+                <label className="ajout-photo" aria-label="Choisir le visuel">
+                  {envoi === 'visuel' ? <span className="spinner" /> : <Icone nom={l.image ? 'crayon' : 'plus'} taille={18} />}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    disabled={!!envoi}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) void importerVisuel(f)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+          </>
+        )}
+
+        {etape === 'position' && (
+          <>
+            <p className="aide">Placez le repère au centre du monument (vue satellite), ou cherchez son adresse. Le rayon délimite la zone où le visiteur peut lancer l’animation.</p>
+            <ChoixPosition latitude={l.latitude} longitude={l.longitude} rayonM={l.rayonM} rechercheInitiale={l.adresse} onChange={(latitude, longitude) => maj({ latitude, longitude })} />
+            <div className="bloc-position">
+              <div>
+                <label className="champ">
+                  <span className="etiquette">
+                    Rayon de proximité <small>{l.rayonM} m</small>
+                  </span>
+                  <input type="range" min={20} max={200} step={5} value={l.rayonM} onChange={(e) => maj({ rayonM: Number(e.target.value) })} />
+                  <span className="aide">Message « Vous êtes arrivé » et lancement de l’animation dans ce rayon (50 m par défaut).</span>
+                </label>
+                <label className="case">
+                  <input type="checkbox" checked={l.accesLibre} onChange={(e) => maj({ accesLibre: e.target.checked })} />
+                  Accès libre
+                </label>
+                <label className="case">
+                  <input type="checkbox" checked={l.actif} onChange={(e) => maj({ actif: e.target.checked })} />
+                  Visible sur la carte des visiteurs
+                </label>
+              </div>
+            </div>
+          </>
+        )}
+
+        {etape === 'animation' && (
+          <div className="animations-monument">
+            <p className="aide">
+              L’animation 3D apparaît à son point GPS quand le visiteur arrive dans le rayon du monument. Choisissez son modèle, puis placez-la où vous voulez autour du bâtiment
+              (position, hauteur, orientation, taille).
+            </p>
+            {animations.length === 0 ? (
+              <div className="vide-animation">
+                <Icone nom="cube" taille={28} />
+                <strong>Ce monument n’a pas encore d’animation</strong>
+                <button type="button" className="btn btn-primaire" onClick={nouvelleAnimation}>
+                  <Icone nom="plus" taille={15} /> Créer l’animation de ce monument
+                </button>
+              </div>
+            ) : (
+              <>
+                <ul className="liste-animations-monument">
+                  {animations.map((a) => {
+                    const modele = etat.fichiers.find((x) => x.id === a.modeleId)
+                    return (
+                      <li key={a.id}>
+                        <div>
+                          <strong>{a.titre}</strong>
+                          <small>
+                            {modele?.nomOriginal ?? 'Sans modèle'} ·{' '}
+                            {a.placement ? `placée autour du bâtiment, ${a.placement.tailleM.toString().replace('.', ',')} m, à ${a.placement.hauteurM.toString().replace('.', ',')} m du sol` : 'position par défaut (au-dessus du point du monument)'}
+                          </small>
+                        </div>
+                        <BadgeStatut statut={a.statut} libelle={a.statut === 'PUBLIEE' ? 'Active' : a.statut === 'BROUILLON' ? 'Brouillon' : undefined} />
+                        <button type="button" className="btn btn-secondaire petit" onClick={() => setAnimation(a)}>
+                          <Icone nom="crayon" taille={13} /> Modifier et placer
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+                <button type="button" className="btn btn-texte" onClick={nouvelleAnimation}>
+                  <Icone nom="plus" taille={14} /> Ajouter une autre animation
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
+      {animation && (
+        <EditeurAnimation
+          animation={animation}
+          lieuImpose
+          onFermer={() => setAnimation(null)}
+          onEnregistrer={async (a, publier) => {
+            await enregistrerAnimation(a, publier)
+            setAnimation(null)
+            setMessage(`Animation « ${a.titre} » enregistrée${publier ? ' et activée' : ''}.`)
+          }}
+        />
+      )}
     </Tiroir>
   )
 }

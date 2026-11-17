@@ -6,8 +6,6 @@
 // Un modèle ou un son conforme reste « EN_COURS » jusqu'à la validation de l'éditeur après aperçu ;
 // une image conforme est validée directement.
 import ffprobe from '@ffprobe-installer/ffprobe'
-import { NodeIO } from '@gltf-transform/core'
-import { ALL_EXTENSIONS } from '@gltf-transform/extensions'
 import { execFile } from 'node:child_process'
 import { readFile, rename, rm } from 'node:fs/promises'
 import { promisify } from 'node:util'
@@ -17,6 +15,7 @@ import { prisma } from '../db.js'
 import { ajouterTraitement } from '../services/file.js'
 import { cheminAbsolu } from '../services/stockage.js'
 import { ajouterAnimationCombinee } from './animationCombinee.js'
+import { ioGltf, mesurerDocument } from './gltf.js'
 
 // gltf-validator est un module CommonJS sans types.
 import validateur from 'gltf-validator'
@@ -43,21 +42,10 @@ async function controlerModele3D(id: number, chemin: string, usage: 'AFFICHE' | 
     return refuser(id, `Modèle glTF invalide : ${premiere?.message ?? 'erreurs de structure'}`)
   }
   // 2. Mesures avec glTF-Transform.
-  const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
+  // Lecteur compatible Meshopt : un GLB déjà compressé est accepté.
+  const io = await ioGltf()
   const doc = await io.readBinary(octets)
-  let triangles = 0
-  for (const mesh of doc.getRoot().listMeshes()) {
-    for (const prim of mesh.listPrimitives()) {
-      if (prim.getMode() !== 4) continue // seuls les triangles comptent (mode TRIANGLES)
-      const indices = prim.getIndices()
-      triangles += (indices ? indices.getCount() : (prim.getAttribute('POSITION')?.getCount() ?? 0)) / 3
-    }
-  }
-  let textureMax = 0
-  for (const tex of doc.getRoot().listTextures()) {
-    const taille = tex.getSize()
-    if (taille) textureMax = Math.max(textureMax, taille[0], taille[1])
-  }
+  const { triangles, textureMax } = mesurerDocument(doc)
   // 3. Animations intégrées : durée = plus grand instant des échantillonneurs.
   const clips = doc
     .getRoot()

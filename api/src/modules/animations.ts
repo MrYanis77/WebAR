@@ -46,6 +46,9 @@ async function preparer(u: Utilisateur, d: DonneesAnimation) {
     transcription_fr: d.transcription.fr,
     transcription_en: d.transcription.en || null,
     transcription_de: d.transcription.de || null,
+    // Animation d'affiche : position et taille par rapport à l'affiche reconnue.
+    affiche_position: d.reglageAffiche?.position === 'dessus' ? ('DESSUS' as const) : ('DEVANT' as const),
+    affiche_taille: d.reglageAffiche?.taille ?? 1.5,
     // Placement GPS en 3D : animation de lieu uniquement (une animation d'affiche suit l'affiche).
     ...(d.type === 'LIEU' && d.placement
       ? {

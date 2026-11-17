@@ -1,4 +1,4 @@
-// Cible de reconnaissance 8th Wall (image target) générée à partir d'un visuel importé (section 5.3).
+// Cible de reconnaissance 8th Wall (image target) générée à partir du visuel d'une affiche (section 5.3).
 // Même résultat que l'outil officiel @8thwall/image-target-cli (licence MIT), mais sans question à
 // poser : recadrage centré au format 3:4 (une image en paysage est tournée d'un quart de tour),
 // image de luminance 480 × 640 en niveaux de gris, et description JSON passée telle quelle à

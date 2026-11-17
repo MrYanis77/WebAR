@@ -15,8 +15,10 @@ import type {
   Fichier,
   Lieu,
   MotifSignalement,
+  ParametresOptimisation,
   Partenaire,
   PointStat,
+  Reglages3D,
   Session,
   Signalement,
   StatutCompte,
@@ -218,6 +220,38 @@ export async function supprimerFichier(id: string) {
   await rafraichir('fichiers')
 }
 
+/** Atelier 3D : enregistre les réglages d'un modèle (taille, rotation, ancrage, vitesse, luminosité). */
+export async function enregistrerReglages3D(id: string, reglages: Reglages3D) {
+  const f = await appelApi<Fichier>(`/fichiers/${id}/reglages`, { methode: 'PATCH', corps: reglages })
+  await rafraichir('fichiers', 'animations')
+  return f
+}
+
+/** Atelier 3D : lance l'optimisation par le serveur puis attend son résultat. */
+export async function optimiserModele(id: string, parametres: ParametresOptimisation, delaiMs = 5 * 60_000): Promise<Fichier> {
+  await appelApi(`/fichiers/${id}/optimiser`, { methode: 'POST', corps: parametres })
+  const debut = Date.now()
+  for (;;) {
+    const liste = await appelApi<Fichier[]>('/fichiers')
+    const f = liste.find((x) => x.id === id)
+    if (!f || f.optimisation?.etat !== 'EN_COURS') {
+      clientRequetes.setQueryData(['fichiers'], liste)
+      await rafraichir('animations')
+      if (f?.optimisation?.etat === 'ECHEC') throw new Error(`Optimisation impossible : ${f.optimisation.erreur ?? 'erreur inconnue'}`)
+      return f!
+    }
+    if (Date.now() - debut > delaiMs) throw new Error('L’optimisation prend trop de temps.')
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+}
+
+/** Atelier 3D : retour au modèle importé. */
+export async function restaurerModele(id: string) {
+  const f = await appelApi<Fichier>(`/fichiers/${id}/restaurer`, { methode: 'POST' })
+  await rafraichir('fichiers', 'animations')
+  return f
+}
+
 /** Attend la fin du contrôle automatique d'un fichier (image d'affiche, visuel de lieu). */
 export async function attendreControle(id: string, delaiMs = 60_000): Promise<Fichier> {
   const debut = Date.now()
@@ -250,6 +284,7 @@ export async function enregistrerAnimation(a: Animation, publier: boolean) {
     debut: a.debut,
     fin: a.fin ?? null,
     transcription: a.transcription,
+    reglageAffiche: a.type === 'AFFICHE' ? (a.reglageAffiche ?? null) : null,
     placement: a.type === 'LIEU' && a.placement ? { ...a.placement, orientationDeg: a.placement.orientationDeg ?? null } : null,
     publier,
   }
@@ -355,13 +390,6 @@ export async function enregistrerLieu(l: Lieu) {
   return r
 }
 
-export async function ajouterPhotoFacade(lieuId: string, fichier: File, moment: 'JOUR' | 'NUIT' = 'JOUR') {
-  const f = new FormData()
-  f.append('moment', moment)
-  f.append('fichier', fichier)
-  await envoyerFichier(`/lieux/${lieuId}/photos`, f)
-  await rafraichir('lieux')
-}
 
 export async function majScore(
   lieuId: string,

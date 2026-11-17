@@ -91,6 +91,8 @@ model animation {
   position_hauteur_m                              Decimal               @default(0.0) @db.Decimal(5, 1)
   position_orientation_deg                        Int?                  @db.UnsignedSmallInt
   position_taille_m                               Decimal               @default(10.0) @db.Decimal(5, 1)
+  affiche_position                                animation_affiche_position @default(DEVANT)
+  affiche_taille                                  Decimal               @default(1.5) @db.Decimal(3, 1)
   cree_le                                         DateTime              @default(now()) @db.DateTime(0)
   modifie_le                                      DateTime              @default(now()) @db.DateTime(0)
   affiche_affiche_animation_affiche_idToanimation affiche[]             @relation("affiche_animation_affiche_idToanimation")
@@ -209,6 +211,8 @@ model fichier {
   statut_controle                        fichier_statut_controle @default(EN_COURS)
   raison_refus                           String?                 @db.VarChar(500)
   controle_termine_le                    DateTime?               @db.DateTime(0)
+  reglages_3d                            String?                 @db.LongText
+  optimisation                           String?                 @db.LongText
   cree_le                                DateTime                @default(now()) @db.DateTime(0)
   affiche                                affiche[]
   animation_animation_modele_idTofichier animation[]             @relation("animation_modele_idTofichier")
@@ -489,4 +493,9 @@ enum affiche_statut {
   PUBLIEE
   SUSPENDUE
   RETIREE
+}
+
+enum animation_affiche_position {
+  DEVANT
+  DESSUS
 }

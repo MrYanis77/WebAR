@@ -1,6 +1,6 @@
 import { lazy, Suspense, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
-import { AfficheAvecQr, FORMATS_MM, largeurImpressionMm, QR_DEFAUT, urlQr } from '../../commun/AfficheQr'
+import { AfficheAvecQr, FORMATS_MM, largeurImpressionMm, QR_DEFAUT, urlQr, useOrigineApplication } from '../../commun/AfficheQr'
 import { Icone } from '../../commun/Icone'
 import { messageErreur } from '../../commun/api'
 import {
@@ -22,11 +22,14 @@ import { EchelleFormat } from '../composants/EchelleFormat'
 import { exporterPng } from '../composants/exportAffiche'
 import { peutCreer, proprietaireDe, useSession } from '../session'
 import { BadgeStatut, DialogueSuppression, formaterPoids, maintenantLocal, useToast } from '../ui'
+import { estPdf, pdfVersImage } from '../composants/pdfVersImage'
 
 const ApercuAnimationAffiche = lazy(() => import('../composants/ApercuAnimationAffiche'))
 
 const ETAPES = ['Affiche', 'Informations', 'Expérience', 'QR code', 'Validation']
 const TAILLE_MAX_OCTETS = 30_000_000
+/** PDF importé : converti en image dans le navigateur, jamais envoyé tel quel. */
+const PDF_MAX_OCTETS = 100_000_000
 const QR_MIN_CM = 3
 
 const POSITIONS: { libelle: string; x: number; y: number }[] = [
@@ -52,6 +55,7 @@ export default function PageEditeurAffiche() {
 /** Import de l'affiche du partenaire ou de la Ville, puis QR code généré par le serveur et placé dessus (BF-37, BF-38, BF-40, BF-42). */
 function Editeur({ id }: { id?: string }) {
   const etat = useEtat()
+  useOrigineApplication() // adresse des QR codes à jour (adresse réseau actuelle du PC)
   const session = useSession()
   const navigate = useNavigate()
   const location = useLocation()
@@ -62,6 +66,8 @@ function Editeur({ id }: { id?: string }) {
   const etapeDemandee = (location.state as { etape?: number } | null)?.etape
   const [etape, setEtape] = useState(etapeDemandee ?? (existante ? 5 : 1))
   const [envoi, setEnvoi] = useState<string | null>(null)
+  /** Résultat de la conversion d'un PDF (pages, format détecté). */
+  const [infoImport, setInfoImport] = useState<string | null>(null)
   const [tente, setTente] = useState(false)
   const [erreurImport, setErreurImport] = useState<string | null>(null)
   const [survol, setSurvol] = useState(false)
@@ -151,13 +157,36 @@ function Editeur({ id }: { id?: string }) {
   const lectureSeule = a.statut === 'SUSPENDUE' || a.statut === 'RETIREE' || !peutCreer(etat, session)
 
   /**
-   * Import du fichier de l'affiche : pré-contrôle (format, poids, dimensions) puis envoi à l'API,
+   * Import du fichier de l'affiche (PDF converti en image, PNG, JPEG ou WebP) : pré-contrôle (format,
+   * poids, dimensions) puis envoi à l'API,
    * qui vérifie le type réel et réencode l'image (sharp) avant de la marquer conforme.
    */
-  async function importer(fichier: File) {
+  async function importer(source: File) {
     setErreurImport(null)
-    if (!/^image\/(png|jpeg|webp)$/.test(fichier.type)) {
-      setErreurImport(`« ${fichier.name} » refusé : importez votre affiche en PNG, JPEG ou WebP (exportez-la depuis votre logiciel de mise en page).`)
+    setInfoImport(null)
+    // PDF : la première page est rendue en image (300 dpi) dans le navigateur, puis importée comme une image.
+    let fichier = source
+    if (estPdf(source)) {
+      if (source.size > PDF_MAX_OCTETS) {
+        setErreurImport(`PDF trop lourd (${formaterPoids(source.size)}) : ${PDF_MAX_OCTETS / 1_000_000} Mo maximum.`)
+        return
+      }
+      setEnvoi('conversion')
+      try {
+        const c = await pdfVersImage(source)
+        fichier = c.fichier
+        if (c.format) maj({ format: c.format })
+        setInfoImport(
+          `PDF converti en image : ${c.pages > 1 ? `page 1 sur ${c.pages} (seule la première est utilisée)` : 'page unique'}, ${c.largeurPx} × ${c.hauteurPx} px` +
+            (c.format ? `, format ${c.format} détecté (${c.dpi} dpi).` : '.'),
+        )
+      } catch (e) {
+        setErreurImport(messageErreur(e))
+        setEnvoi(null)
+        return
+      }
+    } else if (!/^image\/(png|jpeg|webp)$/.test(fichier.type)) {
+      setErreurImport(`« ${fichier.name} » refusé : importez votre affiche en PDF, PNG, JPEG ou WebP (exportée depuis votre logiciel de mise en page).`)
       return
     }
     if (fichier.size > TAILLE_MAX_OCTETS) {
@@ -180,7 +209,7 @@ function Editeur({ id }: { id?: string }) {
       maj({
         imageId: f.id,
         image: { nom: f.nomOriginal, largeur: f.largeurPx ?? d.largeur, hauteur: f.hauteurPx ?? d.hauteur, octets: f.tailleOctets, url: f.url },
-        nom: brouillon.nom || fichier.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').slice(0, 60),
+        nom: brouillon.nom || source.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').slice(0, 60),
       })
       if (enregistree?.statut === 'PUBLIEE') toast.afficher('Nouveau fichier : enregistrez pour le remplacer sur l’affiche publiée')
     } catch (e) {
@@ -345,17 +374,17 @@ function Editeur({ id }: { id?: string }) {
                   <span className="icone-depot">
                     <Icone nom="import" taille={26} />
                   </span>
-                  <strong>{envoi === 'import' ? 'Envoi et contrôle du fichier…' : a.image ? 'Remplacer le fichier de l’affiche' : 'Glissez votre affiche ici'}</strong>
-                  <p>PNG, JPEG ou WebP · 30 Mo maximum · exportée depuis votre logiciel de mise en page, en haute définition.</p>
+                  <strong>{envoi === 'conversion' ? 'Conversion du PDF en image…' : envoi === 'import' ? 'Envoi et contrôle du fichier…' : a.image ? 'Remplacer le fichier de l’affiche' : 'Glissez votre affiche ici'}</strong>
+                  <p>PDF (première page), PNG, JPEG ou WebP · exportée depuis votre logiciel de mise en page, en haute définition.</p>
                   <button type="button" className="btn btn-primaire" onClick={() => entree.current?.click()} disabled={lectureSeule || !!envoi}>
-                    {envoi === 'import' ? <span className="spinner" /> : null}
+                    {envoi === 'import' || envoi === 'conversion' ? <span className="spinner" /> : null}
                     Choisir un fichier
                   </button>
                   <input
                     ref={entree}
                     type="file"
                     hidden
-                    accept="image/png,image/jpeg,image/webp"
+                    accept="application/pdf,.pdf,image/png,image/jpeg,image/webp"
                     onChange={(e) => {
                       const f = e.target.files?.[0]
                       if (f) void importer(f)
@@ -363,6 +392,12 @@ function Editeur({ id }: { id?: string }) {
                     }}
                   />
                 </div>
+                {infoImport && !erreurImport && (
+                  <p className="note-ok" role="status">
+                    <Icone nom="check" taille={15} />
+                    {infoImport}
+                  </p>
+                )}
                 {erreurImport && (
                   <p className="erreur-acces" role="alert">
                     <Icone nom="alerte" taille={15} />

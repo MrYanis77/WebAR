@@ -6,7 +6,6 @@ export const VERSION_CHARTE = '1.0'
 export const RAYON_PAR_DEFAUT_M = 50
 /** Sans reconnaissance dans ce délai, un conseil s'affiche (section 4.2). */
 export const DELAI_AFFICHE_NON_RECONNUE_S = 15
-export const DELAI_MONUMENT_NON_RECONNU_S = 20
 /** Placement GPS par défaut d'une animation de lieu (position du lieu) : hauteur du socle et taille, en mètres. */
 export const PLACEMENT_LIEU_DEFAUT = { hauteurM: 10, tailleM: 12 } as const
 export const LIMITE_SIGNALEMENTS_PAR_HEURE = 5
@@ -41,3 +40,18 @@ export const SECTEURS = [
  * dans la liste des clips.
  */
 export const NOM_ANIMATION_COMBINEE = 'Toutes les animations (WebAR)'
+
+/** Réglages par défaut d'un modèle 3D (atelier 3D) : le modèle tel qu'importé. */
+export const REGLAGES_3D_DEFAUT = {
+  rotation: { x: 0, y: 0, z: 0 },
+  ancrage: 'sol',
+  hauteur: 0,
+  vitesse: 1,
+  luminosite: 1,
+} as const satisfies import('./types').Reglages3D
+
+/** Optimisation proposée par défaut : textures 1024 px en WebP, géométrie compressée, sans simplification. */
+export const OPTIMISATION_DEFAUT = { textureMaxPx: 1024, webp: true, simplification: 0, compression: true } as const satisfies import('./types').ParametresOptimisation
+
+/** Animation d'affiche par défaut : devant l'affiche, 1,5 fois sa hauteur. */
+export const REGLAGE_AFFICHE_RA_DEFAUT = { position: 'devant', taille: 1.5 } as const satisfies import('./types').ReglageAfficheRA

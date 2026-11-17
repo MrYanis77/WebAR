@@ -10,7 +10,7 @@ import { journaliser } from '../services/journal.js'
 import { notifierAgents, notifierCompte } from '../services/notifications.js'
 import { conditionsAffiche, publiable } from '../services/regles.js'
 import { chargerProprietaires, compterStatistiques, serialiserAffiche, serialiserZone } from '../services/serialiser.js'
-import { genererPdfAffiche } from '../traitements/genererPDF.js'
+import { genererPdfAffiche, origineQr } from '../traitements/genererPDF.js'
 import { filtreProprietaire, genererCodeQr, idParam, verifierPeutCreer } from './outils.js'
 
 export const routesAffiches = Router()
@@ -170,6 +170,7 @@ routesAffiches.get('/:id/pdf', async (req, res) => {
   const c = (await conditionsAffiche(a.id))!
   if (!publiable(c)) throw conflit('Export impossible : les 4 conditions de publication ne sont pas réunies.', c)
   const pdf = await genererPdfAffiche({
+    origine: origineQr(req.headers['x-url-reseau']),
     nom: a.nom,
     codeQr: a.code_qr,
     format: a.format,

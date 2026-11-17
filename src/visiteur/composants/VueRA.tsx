@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { DELAI_AFFICHE_NON_RECONNUE_S, DELAI_MONUMENT_NON_RECONNU_S, PLACEMENT_LIEU_DEFAUT } from '../../commun/constantes'
+import { DELAI_AFFICHE_NON_RECONNUE_S, PLACEMENT_LIEU_DEFAUT } from '../../commun/constantes'
 import { distanceM } from '../../commun/geo'
 import { useLangue } from '../../commun/i18n'
 import { Icone } from '../../commun/Icone'
@@ -26,12 +26,14 @@ const ModeleSimule = lazy(() => import('./ModeleSimule'))
 const DELAI_SIMULATION_MS = 800
 /** Affiche sans cible de reconnaissance : l'animation est posée devant le visiteur. */
 const DELAI_SANS_CIBLE_MS = 1500
-/** Lieu sans photo de façade : délai avant le placement GPS (quelques mesures de la boussole). */
+/** Zoom maximal de l'affichage (agrandissement de l'image de la caméra). */
+const ZOOM_MAX = 4
+/** Monument : délai avant le placement GPS automatique (quelques mesures de la boussole). */
 const DELAI_PLACEMENT_GPS_MS = 2500
 
 /**
  * Expérience de réalité augmentée (affiche ou monument). Sur smartphone, le moteur 8th Wall reconnaît
- * l'affiche ou un détail de la façade, y pose l'animation 3D, puis le SLAM la garde en place dans
+ * l'affiche et y pose l'animation 3D, ou la pose au point GPS du monument ; le SLAM la garde en place dans
  * l'environnement du visiteur. Sans reconnaissance : conseils, puis pose devant le visiteur (affiche)
  * ou à sa position GPS en 3D (lieu : position, hauteur, orientation et taille réglées dans le
  * back-office, sinon position du lieu). Sur ordinateur : aperçu simulé.
@@ -52,7 +54,7 @@ export function VueRA({
   lieu: Lieu
   animation: Animation
   affiche?: Affiche
-  /** Cibles de reconnaissance 8th Wall : visuel de l'affiche, ou détails de la façade du lieu. */
+  /** Cible de reconnaissance 8th Wall du visuel de l'affiche (aucune pour un monument : placement GPS). */
   cibles?: CibleImage[]
   /** Structure propriétaire de l'affiche (partenaire ou Ville), renvoyée par l'API publique. */
   proprietaire?: string
@@ -76,6 +78,12 @@ export function VueRA({
   const [modeleIndisponible, setModeleIndisponible] = useState(false)
   /** Animation hors du champ de la caméra : côté vers lequel tourner le téléphone. */
   const [direction, setDirection] = useState<'gauche' | 'droite' | null>(null)
+  // Zoom : 1 = tout le champ de la caméra ; « couverture » = zoom qui remplit l'écran.
+  const [zoom, setZoom] = useState(1)
+  const [couverture, setCouverture] = useState(1)
+  const pincement = useRef<{ distance: number; zoom: number } | null>(null)
+  const zoomMax = Math.max(ZOOM_MAX, couverture * 2)
+  const borner = (z: number) => Math.min(zoomMax, Math.max(1, z))
   const [sansBoussole, setSansBoussole] = useState(false)
 
   // Sans moteur : caméra de la page (webcam) et modèle superposé.
@@ -108,6 +116,43 @@ export function VueRA({
     }
   }, [video, flux])
 
+  // Webcam (sans moteur) : même principe, tout le champ visible, zoom qui remplit l'écran calculé ici.
+  useEffect(() => {
+    if (!video) return
+    const mesurer = () => {
+      if (!video.videoWidth || !video.clientWidth) return
+      const p = video.videoWidth / video.videoHeight
+      const [bl, bh] = [video.clientWidth, video.clientHeight]
+      const [l, h] = bl / bh > p ? [bh * p, bh] : [bl, bl / p]
+      setCouverture(Math.max(bl / l, bh / h))
+    }
+    video.addEventListener('loadedmetadata', mesurer)
+    const observateur = new ResizeObserver(mesurer)
+    observateur.observe(video)
+    return () => {
+      video.removeEventListener('loadedmetadata', mesurer)
+      observateur.disconnect()
+    }
+  }, [video])
+
+  /** Pincer à deux doigts pour zoomer (l'animation reste calée : caméra et 3D sont agrandies ensemble). */
+  const gestesZoom = {
+    onTouchStart: (e: React.TouchEvent) => {
+      if (e.touches.length !== 2) return
+      const [a, b] = [e.touches[0], e.touches[1]]
+      pincement.current = { distance: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), zoom }
+    },
+    onTouchMove: (e: React.TouchEvent) => {
+      const p = pincement.current
+      if (!p || e.touches.length !== 2) return
+      const [a, b] = [e.touches[0], e.touches[1]]
+      setZoom(borner(p.zoom * (Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / Math.max(1, p.distance))))
+    },
+    onTouchEnd: () => {
+      pincement.current = null
+    },
+  }
+
   const surEvenement = useCallback(
     (e: EvenementScene) => {
       switch (e.type) {
@@ -126,7 +171,7 @@ export function VueRA({
           setModeleIndisponible(true)
           break
         case 'cible-trouvee':
-          // Affiche ou façade reconnue : l'animation est posée (ou recalée si elle l'était déjà).
+          // Affiche reconnue : l'animation est posée (ou recalée si elle l'était déjà).
           setPhase((p) => (p === 'recherche' || p === 'echec' ? 'detecte' : p))
           setManuel(false)
           break
@@ -138,6 +183,9 @@ export function VueRA({
           break
         case 'direction':
           setDirection(e.cote)
+          break
+        case 'cadrage':
+          setCouverture(e.couverture)
           break
       }
     },
@@ -176,16 +224,25 @@ export function VueRA({
       const id = window.setTimeout(() => commandes.current?.poserDevant() && setPhase('detecte'), DELAI_SANS_CIBLE_MS)
       return () => window.clearTimeout(id)
     }
-    // Lieu sans photo de façade : dans le rayon, l'animation est posée à sa position GPS en 3D.
-    if (mode === 'monument' && !cibles.length && dansZone) {
-      const id = window.setTimeout(() => placerParGps() || setPhase('echec'), DELAI_PLACEMENT_GPS_MS)
+    // Monument : uniquement le point GPS. Dans le rayon, l'animation est posée automatiquement à sa
+    // position (ou au geste du visiteur si elle se lance à la main) ; hors du rayon, la carte d'invite
+    // indique la distance à parcourir.
+    if (mode === 'monument') {
+      const auto = dansZone && animation.declencheur !== 'MANUEL'
+      const id = window.setTimeout(() => (auto ? placerParGps() || setPhase('echec') : setPhase('echec')), auto ? DELAI_PLACEMENT_GPS_MS : 600)
       return () => window.clearTimeout(id)
     }
-    // Sans reconnaissance dans le délai : conseils et solutions de repli (la recherche continue).
-    const delai = !cibles.length ? 3 : mode === 'affiche' ? DELAI_AFFICHE_NON_RECONNUE_S : DELAI_MONUMENT_NON_RECONNU_S
-    const id = window.setTimeout(() => setPhase('echec'), delai * 1000)
+    // Affiche non reconnue dans le délai : conseils et solutions de repli (la recherche continue).
+    const id = window.setTimeout(() => setPhase('echec'), DELAI_AFFICHE_NON_RECONNUE_S * 1000)
     return () => window.clearTimeout(id)
-  }, [phase, cycle, moteur, cameraPrete, mode, cibles.length, dansZone, placerParGps])
+  }, [phase, cycle, moteur, cameraPrete, mode, cibles.length, dansZone, placerParGps, animation.declencheur])
+
+  // Monument en lancement automatique : le visiteur entre dans le rayon pendant qu'il attend, l'animation part.
+  useEffect(() => {
+    if (mode !== 'monument' || phase !== 'echec' || !moteur || !cameraPrete || !dansZone || animation.declencheur === 'MANUEL') return
+    const id = window.setTimeout(() => placerParGps(), DELAI_PLACEMENT_GPS_MS)
+    return () => window.clearTimeout(id)
+  }, [mode, phase, moteur, cameraPrete, dansZone, animation.declencheur, placerParGps])
 
   // Animation : son, statistique anonyme de lancement, puis fin.
   useEffect(() => {
@@ -279,9 +336,13 @@ export function VueRA({
         ? t('ra.demarrage')
         : mode === 'affiche'
           ? t('affiche.recherche')
-          : t('ra.recherche')
+          : t('ra.recherchePosition')
       : phase === 'echec'
-        ? t('ra.nonReconnu')
+        ? mode === 'monument'
+          ? dansZone
+            ? t('ra.dansZone')
+            : t('ra.loinDuMonument')
+          : t('ra.nonReconnu')
         : phase === 'fin'
           ? t('ra.fin')
           : mode === 'affiche'
@@ -300,7 +361,7 @@ export function VueRA({
   // ---------------------------------------------------------------- rendu
 
   const flux_ = (
-    <div className="flux-camera">
+    <div className="flux-camera" {...gestesZoom}>
       {moteur ? (
         <Suspense fallback={<div className="video-camera fond-simule" />}>
           <SceneRA
@@ -309,13 +370,14 @@ export function VueRA({
             mode={mode}
             recherche={phase === 'recherche' || phase === 'echec'}
             cycle={cycle}
+            zoom={zoom}
             gps={gps}
             commandes={commandes}
             onEvenement={surEvenement}
           />
         </Suspense>
       ) : !simulee ? (
-        <video ref={setVideo} playsInline muted autoPlay className="video-camera" />
+        <video ref={setVideo} playsInline muted autoPlay className="video-camera champ-complet" style={{ transform: `scale(${zoom})` }} />
       ) : mode === 'affiche' ? (
         <>
           {lieu.image ? <img ref={image} src={lieu.image} alt="" className="video-camera floue" /> : <div className="video-camera fond-simule" />}
@@ -396,7 +458,25 @@ export function VueRA({
           <Icone nom="soleil" taille={12} /> {t('ra.lumiere')}
         </span>
       )}
-      {phase === 'recherche' && mode === 'monument' && cibles.length > 0 && <span>{t('ra.conseilFacade')}</span>}
+    </div>
+  )
+
+  const zoomPossible = moteur || !simulee
+  const formaterZoom = (z: number) => `${z.toFixed(z < 10 ? 1 : 0).replace('.', ',')}×`
+  const commandesZoom = zoomPossible && (
+    <div className="zoom-ra" role="group" aria-label={t('ra.zoom')}>
+      <button type="button" onClick={() => setZoom(borner(zoom * 1.25))} disabled={zoom >= zoomMax} aria-label={t('ra.zoomPlus')}>
+        <Icone nom="plus" taille={18} />
+      </button>
+      <span aria-live="polite">{formaterZoom(zoom)}</span>
+      <button type="button" onClick={() => setZoom(borner(zoom / 1.25))} disabled={zoom <= 1} aria-label={t('ra.zoomMoins')}>
+        <Icone nom="moins" taille={18} />
+      </button>
+      {couverture > 1.02 && (
+        <button type="button" className="zoom-preset" onClick={() => setZoom(zoom > 1.01 ? 1 : borner(couverture))}>
+          {zoom > 1.01 ? t('ra.champComplet') : t('ra.pleinEcran')}
+        </button>
+      )}
     </div>
   )
 
@@ -443,6 +523,7 @@ export function VueRA({
           )}
           {puces}
           {sousTitresBloc}
+          {commandesZoom}
           <div className="outils-affiche">
             <button type="button" onClick={() => void prendrePhoto()} aria-label={t('ra.photo')} disabled={!enAnimation}>
               <Icone nom="appareil" taille={19} />
@@ -567,27 +648,30 @@ export function VueRA({
 
       {puces}
       {sousTitresBloc}
+      {commandesZoom}
 
       {phase === 'echec' && (
         <div className="carte-echec" role="alert">
           <span className="icone-echec">
-            <Icone nom="boussole" taille={28} />
+            <Icone nom={dansZone ? 'boussole' : 'pin'} taille={28} />
           </span>
-          <h2>{t('ra.monumentNonReconnu')}</h2>
+          <h2>{dansZone ? t('ra.monumentNonReconnu') : t('ra.loinDuMonument')}</h2>
           <p>{dansZone ? t('ra.monumentNonReconnuTexte') : t('ra.horsZone', { r: lieu.rayonM })}</p>
           <button type="button" className="btn btn-primaire btn-bloc" disabled={!dansZone} onClick={lancerParPosition}>
             <Icone nom="boussole" taille={17} />
             {t('ra.lancerManuel')}
           </button>
+          {/* Hors du lieu (essai, préparation) : aperçu de l'animation posée devant le visiteur. */}
+          {!dansZone && moteur && (
+            <button type="button" className="btn btn-secondaire btn-bloc" onClick={poserIci}>
+              <Icone nom="cube" taille={16} />
+              {t('ra.apercuIci')}
+            </button>
+          )}
           {!dansZone && position.etat !== 'accorde' && (
             <button type="button" className="btn btn-secondaire btn-bloc" onClick={position.demander}>
               <Icone nom="pin" taille={16} />
               {t('carte.maPosition')}
-            </button>
-          )}
-          {cibles.length > 0 && (
-            <button type="button" className="btn-texte btn-bloc clair" onClick={reessayer}>
-              {t('ra.reessayer')}
             </button>
           )}
         </div>

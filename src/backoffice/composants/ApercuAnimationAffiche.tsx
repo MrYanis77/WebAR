@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { NOM_ANIMATION_COMBINEE } from '../../commun/constantes'
+import { REGLAGE_AFFICHE_RA_DEFAUT } from '../../commun/constantes'
+import { chargerGlb, ModeleAnime } from '../../visiteur/ra/contenu3d'
 import { Icone } from '../../commun/Icone'
 import type { Animation, PlacementQr } from '../../commun/types'
 import { arreterSon, couperSon, deverrouillerSon, jouerFichier } from '../../visiteur/services/son'
@@ -110,7 +110,7 @@ export default function ApercuAnimationAffiche({
     const pivot = new THREE.Group()
     racine.add(pivot)
     let objet: THREE.Object3D = objetAttente()
-    let mixer: THREE.AnimationMixer | null = null
+    let modele: ModeleAnime | null = null
     pivot.add(objet)
 
     // Particules émises par l'affiche.
@@ -135,36 +135,23 @@ export default function ApercuAnimationAffiche({
         materielAffiche.needsUpdate = true
       })
     const modeleUrl = animation?.modeleUrl
-    void (modeleUrl ? new GLTFLoader().loadAsync(modeleUrl) : Promise.resolve(undefined))
+    void (modeleUrl ? chargerGlb(modeleUrl, renderer) : Promise.resolve(undefined))
       .then((gltf) => {
         if (!gltf || annule) {
           if (!annule) setSource('indisponible')
           return
         }
-        const boite = new THREE.Box3().setFromObject(gltf.scene)
-        const taille = boite.getSize(new THREE.Vector3())
-        const ech = (l * 0.6) / Math.max(taille.x, taille.y, taille.z, 0.001)
-        gltf.scene.scale.setScalar(ech)
-        const centre = boite.getCenter(new THREE.Vector3()).multiplyScalar(ech)
-        gltf.scene.position.set(-centre.x, -centre.y, -centre.z)
-        const enveloppe = new THREE.Group()
-        enveloppe.add(gltf.scene)
+        // Même rendu que l'application visiteur : réglages de l'atelier 3D, clip et lecture choisis.
+        modele = new ModeleAnime(gltf, animation ?? {})
+        // Position et taille réglées dans l'animation (devant / au-dessus, en hauteurs d'affiche), bornées pour rester dans le cadre.
+        const reglage = animation?.reglageAffiche ?? REGLAGE_AFFICHE_RA_DEFAUT
+        const taille = Math.min(h * reglage.taille, reglage.position === 'dessus' ? 0.9 : 1.9)
+        modele.racine.scale.setScalar(taille)
+        modele.racine.position.y = reglage.position === 'dessus' ? h / 2 - 0.05 : -taille / 2
+        modele.lancer()
         pivot.remove(objet)
-        objet = enveloppe
+        objet = modele.racine
         pivot.add(objet)
-        if (gltf.animations.length) {
-          mixer = new THREE.AnimationMixer(gltf.scene)
-          const choisi = animation?.clipIndice !== undefined ? gltf.animations[animation.clipIndice] : undefined
-          // Sans clip choisi : toutes les animations d'origine (l'animation combinée ferait doublon).
-          for (const clip of choisi ? [choisi] : gltf.animations.filter((c) => c.name !== NOM_ANIMATION_COMBINEE)) {
-            const action = mixer.clipAction(clip)
-            if (animation?.lecture === 'UNE_FOIS') {
-              action.setLoop(THREE.LoopOnce, 1)
-              action.clampWhenFinished = true
-            }
-            action.play()
-          }
-        }
         setSource('glb')
       })
       .catch(() => setSource('indisponible'))
@@ -199,7 +186,7 @@ export default function ApercuAnimationAffiche({
       precedent = maintenant
       if (!pauseRef.current) t = (t + dt) % total
       const delta = horloge.getDelta()
-      if (mixer && !pauseRef.current) mixer.update(delta)
+      if (modele && !pauseRef.current) modele.mettreAJour(delta)
 
       let p: Phase
       let sortie = 0
@@ -286,7 +273,7 @@ export default function ApercuAnimationAffiche({
       el.removeChild(renderer.domElement)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [image, code, qr, ratio, animation?.id, animation?.modeleUrl, animation?.clipIndice, animation?.lecture, animation?.dureeS, cycle])
+  }, [image, code, qr, ratio, animation?.id, animation?.modeleUrl, animation?.clipIndice, animation?.lecture, animation?.reglages3d, animation?.reglageAffiche, animation?.dureeS, cycle])
 
   return (
     <div className="apercu-animation-affiche">
