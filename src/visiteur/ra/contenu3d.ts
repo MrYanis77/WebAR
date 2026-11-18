@@ -7,7 +7,8 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
-import { NOM_ANIMATION_COMBINEE, REGLAGE_AFFICHE_RA_DEFAUT, REGLAGES_3D_DEFAUT } from '../../commun/constantes'
+import { NOM_ANIMATION_COMBINEE, RAYON_AFFICHE_M, REGLAGE_AFFICHE_RA_DEFAUT, REGLAGES_3D_DEFAUT } from '../../commun/constantes'
+import { geometrieAffiche } from '../../commun/impression'
 import type { Animation, Reglages3D } from '../../commun/types'
 import type { DetailCible } from './moteur'
 
@@ -165,6 +166,20 @@ export class ModeleAnime {
     return boite.applyMatrix4(inverse).getSize(new THREE.Vector3())
   }
 
+  /**
+   * Boîte englobante dans le repère du monde, pose de `racine` comprise mais sans l'effet d'apparition
+   * (le modèle mesuré à sa taille finale) : cadrage de la caméra de l'atelier 3D.
+   */
+  boiteMonde(): THREE.Box3 {
+    const e = this.apparition.scale.x
+    this.apparition.scale.setScalar(1)
+    this.racine.updateMatrixWorld(true)
+    const boite = new THREE.Box3().setFromObject(this.orientation)
+    this.apparition.scale.setScalar(e)
+    this.racine.updateMatrixWorld(true)
+    return boite
+  }
+
   /** Noms des animations intégrées au fichier. */
   get clips(): string[] {
     return this.gltf.animations.map((c) => c.name)
@@ -245,7 +260,12 @@ export interface ReglageAffiche {
   position: 'devant' | 'dessus'
   /** Taille du modèle par rapport à la hauteur de l'affiche. */
   taille: number
+  /** Déplacement en mètres depuis la position de départ (x droite, y haut, z vers le visiteur), 3 m au plus. */
+  decalage?: { x: number; y: number; z: number }
 }
+
+/** Hauteur réelle de la cible d'une affiche A3 : échelle des déplacements quand l'affiche est inconnue. */
+const HAUTEUR_CIBLE_A3_M = geometrieAffiche('A3').hauteurCible
 
 export const REGLAGE_AFFICHE_DEFAUT: ReglageAffiche = { ...REGLAGE_AFFICHE_RA_DEFAUT }
 
@@ -259,9 +279,10 @@ function debout(avant: THREE.Vector3): THREE.Quaternion {
 /**
  * Pose de l'animation à partir d'une cible reconnue. Dans le repère de la cible, l'image est dans le
  * plan XY (+Y vers le haut de l'image, +Z vers le visiteur) et mesure 1 unité de haut, soit `scale`
- * unités de la scène. Le modèle reste debout même si l'affiche est penchée.
+ * unités de la scène. Le modèle reste debout même si l'affiche est penchée. `hauteurCibleM` : hauteur
+ * réelle de la cible imprimée (geometrieAffiche), qui convertit le déplacement en mètres en unités de la scène.
  */
-export function poseSurCible(d: DetailCible, reglage: ReglageAffiche): Pose {
+export function poseSurCible(d: DetailCible, reglage: ReglageAffiche, hauteurCibleM = HAUTEUR_CIBLE_A3_M): Pose {
   const centre = new THREE.Vector3(d.position.x, d.position.y, d.position.z)
   const q = new THREE.Quaternion(d.rotation.x, d.rotation.y, d.rotation.z, d.rotation.w)
   const normale = new THREE.Vector3(0, 0, 1).applyQuaternion(q)
@@ -277,6 +298,15 @@ export function poseSurCible(d: DetailCible, reglage: ReglageAffiche): Pose {
         centre.addScaledVector(hautImage, 0.5 * d.scale).addScaledVector(normale, 0.1 * d.scale)
       : // Devant l'affiche, centré sur elle.
         centre.addScaledVector(normale, 0.35 * d.scale).addScaledVector(HAUT, -taille / 2)
+  // Déplacement choisi par l'éditeur (mètres), dans le rayon de 3 m autour de l'affiche (BNF-05) :
+  // à droite et vers le visiteur dans le plan horizontal, vers le haut à la verticale.
+  const dec = reglage.decalage
+  if (dec) {
+    const longueur = Math.hypot(dec.x, dec.y, dec.z)
+    const k = (d.scale / hauteurCibleM) * (longueur > RAYON_AFFICHE_M ? RAYON_AFFICHE_M / longueur : 1)
+    const droite = HAUT.clone().cross(avant)
+    position.addScaledVector(droite, dec.x * k).addScaledVector(HAUT, dec.y * k).addScaledVector(avant, dec.z * k)
+  }
   return { position, rotation: debout(avant), taille }
 }
 

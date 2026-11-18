@@ -142,7 +142,7 @@ export default function PageLieu() {
           <Icone nom="droite" taille={18} />
         </button>
 
-        {active && (
+        {active && tr(active.transcription).trim() && (
           <section className={`transcription ${transcription ? 'ouverte' : ''}`}>
             <button type="button" onClick={() => setTranscription(!transcription)} aria-expanded={transcription}>
               <Icone nom="sousTitres" taille={18} />

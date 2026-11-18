@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Icone } from '../../commun/Icone'
 import { animationActive, publiable, reglePublication, useEtat, useStatistiques } from '../../commun/store'
-import { proprietaireDe, signalementsDuPartenaire, useSession, VILLE_ID } from '../session'
+import { peutCreer, proprietaireDe, signalementsDuPartenaire, useSession, VILLE_ID } from '../session'
 import { BadgeStatut, CarteStat, EnTetePage, formaterDate, GraphiqueLignes, Legende, Panneau } from '../ui'
 
 export default function PageTableauDeBord() {
@@ -21,6 +21,10 @@ export default function PageTableauDeBord() {
   const evol = (a: number, b: number) => (b ? `${a >= b ? '+' : ''}${(((a - b) / b) * 100).toFixed(1).replace('.', ',')} %` : undefined)
   const scansPrec = donneesStats?.precedent.scans ?? 0
   const lancPrec = donneesStats?.precedent.lancements ?? 0
+  // Engagement : part des scans d'affiche suivis du lancement de l'animation de l'affiche (les
+  // lancements au monument ne viennent pas d'un scan : les compter dépasserait 100 %).
+  const lancAffiche = donneesStats?.parDeclencheur.find((d) => d.libelle === 'AFFICHE')?.valeur ?? 0
+  const engagement = totalScans ? `${Math.min(100, (lancAffiche / totalScans) * 100).toFixed(1).replace('.', ',')} %` : '—'
 
   const animations = etat.animations.filter((a) => agent || a.proprietaireId === proprio)
   const affiches = etat.affiches.filter((a) => agent || a.proprietaireId === proprio)
@@ -42,7 +46,13 @@ export default function PageTableauDeBord() {
         titre={`Bonjour ${session.nom.split(' ')[0]},`}
         description={agent ? 'Voici ce qui se passe à Montbéliard aujourd’hui.' : 'Suivez vos affiches, vos animations et leurs signalements.'}
         actions={
-          <button type="button" className="btn btn-primaire" onClick={() => navigate('/backoffice/affiches/nouvelle')}>
+          <button
+            type="button"
+            className="btn btn-primaire"
+            onClick={() => navigate('/backoffice/affiches/nouvelle')}
+            disabled={!peutCreer(etat, session)}
+            title={peutCreer(etat, session) ? undefined : 'Possible après la vérification du compte et l’acceptation de la charte'}
+          >
             <Icone nom="plus" taille={16} />
             Nouvelle affiche
           </button>
@@ -63,7 +73,7 @@ export default function PageTableauDeBord() {
         <div className="grille-stats">
           <CarteStat libelle={agent ? 'Scans d’affiches' : 'Scans de mes affiches'} valeur={totalScans.toLocaleString('fr-FR')} evolution={evol(totalScans, scansPrec)} icone="scan" note={`ces ${jours} derniers jours`} />
           <CarteStat libelle="Expériences lancées" valeur={totalLanc.toLocaleString('fr-FR')} evolution={evol(totalLanc, lancPrec)} icone="appareil" note={`ces ${jours} derniers jours`} />
-          <CarteStat libelle="Taux d’engagement" valeur={`${((totalLanc / Math.max(1, totalScans)) * 100).toFixed(1).replace('.', ',')} %`} icone="graphique" note="lancements / scans" />
+          <CarteStat libelle="Taux d’engagement" valeur={engagement} icone="graphique" note="animations lancées depuis une affiche / scans" />
           <CarteStat libelle="Animations actives" valeur={String(actives)} icone="couches" note={`sur ${animations.length} animation${animations.length > 1 ? 's' : ''}`} />
         </div>
 

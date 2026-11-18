@@ -7,6 +7,7 @@ import { compterLancement } from '../../commun/store'
 import type { Affiche, Animation, CibleImage, Lieu, PlacementGps } from '../../commun/types'
 import { usePosition } from '../contexte/position'
 import { AfficheAvecQr, QR_DEFAUT } from '../../commun/AfficheQr'
+import { geometrieAffiche } from '../../commun/impression'
 import { useCamera, useLuminosite } from '../hooks/capteurs'
 import { appareilMobile } from '../ra/moteur'
 import { capturerPhoto, partagerPhoto } from '../services/photo'
@@ -94,6 +95,8 @@ export function VueRA({
   const [manuel, setManuel] = useState(false)
   const [muet, setMuet] = useState(estMuet())
   const [sousTitres, setSousTitres] = useState(false)
+  /** Une animation sans son n'a pas de transcription : pas de bouton « Sous-titres » vide. */
+  const aTranscription = !!(animation.transcription.fr || animation.transcription.en || animation.transcription.de).trim()
   const [photo, setPhoto] = useState<string | null>(null)
   const [cible, setCible] = useState<CibleSignalement | null>(null)
   const [cycle, setCycle] = useState(0)
@@ -368,6 +371,7 @@ export function VueRA({
             animation={animation}
             cibles={cibles}
             mode={mode}
+            hauteurCibleM={affiche?.image ? geometrieAffiche(affiche.format, affiche.image.largeur, affiche.image.hauteur).hauteurCible : undefined}
             recherche={phase === 'recherche' || phase === 'echec'}
             cycle={cycle}
             zoom={zoom}
@@ -408,9 +412,11 @@ export function VueRA({
         {libellePhase}
       </span>
       <div className="barre-ra-droite">
-        <button type="button" onClick={() => setSousTitres(!sousTitres)} aria-pressed={sousTitres} aria-label={t('ra.sousTitres')} className={sousTitres ? 'actif' : ''}>
-          <Icone nom="sousTitres" taille={18} />
-        </button>
+        {aTranscription && (
+          <button type="button" onClick={() => setSousTitres(!sousTitres)} aria-pressed={sousTitres} aria-label={t('ra.sousTitres')} className={sousTitres ? 'actif' : ''}>
+            <Icone nom="sousTitres" taille={18} />
+          </button>
+        )}
         <button type="button" onClick={basculerSon} aria-pressed={muet} aria-label={muet ? t('ra.muet') : t('ra.son')}>
           <Icone nom={muet ? 'muet' : 'son'} taille={18} />
         </button>
@@ -480,7 +486,7 @@ export function VueRA({
     </div>
   )
 
-  const sousTitresBloc = sousTitres && enAnimation && (
+  const sousTitresBloc = sousTitres && enAnimation && aTranscription && (
     <p className="sous-titres" aria-live="polite">
       {tr(animation.transcription)}
     </p>
@@ -712,10 +718,12 @@ export function VueRA({
           <Icone nom="drapeau" taille={22} />
           <small>{t('ra.signaler')}</small>
         </button>
-        <button type="button" onClick={() => setSousTitres(!sousTitres)} aria-pressed={sousTitres}>
-          <Icone nom="sousTitres" taille={22} />
-          <small>{t('ra.sousTitres')}</small>
-        </button>
+        {aTranscription && (
+          <button type="button" onClick={() => setSousTitres(!sousTitres)} aria-pressed={sousTitres}>
+            <Icone nom="sousTitres" taille={22} />
+            <small>{t('ra.sousTitres')}</small>
+          </button>
+        )}
       </div>
       {feuilles}
     </div>

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Icone } from '../../commun/Icone'
-import { nomProprietaire, publiable, reglePublication, supprimerAffiche, useEtat } from '../../commun/store'
+import { alerteAnimationAffiche, animationActive, nomProprietaire, publiable, reglePublication, supprimerAffiche, useEtat } from '../../commun/store'
 import { AfficheAvecQr, QR_DEFAUT } from '../../commun/AfficheQr'
 import type { Affiche } from '../../commun/types'
 import { peutCreer, useSession } from '../session'
@@ -25,8 +25,14 @@ export default function PageAffiches() {
   const toast = useToast()
 
   const visibles = etat.affiches.filter((a) => agent || a.proprietaireId === session.partenaireId)
-  const categorie = (a: (typeof visibles)[number]) =>
-    a.statut === 'SUSPENDUE' || a.statut === 'RETIREE' || new Date(a.fin) < new Date() ? 'archivees' : a.statut === 'PUBLIEE' && publiable(reglePublication(etat, a)) ? 'publiees' : 'bloquees'
+  const animationDe = (a: Affiche) => etat.animations.find((x) => x.id === a.animationAfficheId)
+  // « Diffusée » : publiée, 4 conditions réunies et son animation montrée en ce moment (comme l'API publique).
+  const categorie = (a: (typeof visibles)[number]) => {
+    if (a.statut === 'SUSPENDUE' || a.statut === 'RETIREE' || new Date(a.fin) < new Date()) return 'archivees'
+    const anim = animationDe(a)
+    const enCours = new Date(a.debut) <= new Date()
+    return a.statut === 'PUBLIEE' && enCours && publiable(reglePublication(etat, a)) && !!anim && animationActive(anim) ? 'publiees' : 'bloquees'
+  }
   const liste = visibles.filter((a) => filtre === 'toutes' || categorie(a) === filtre).filter((a) => a.nom.toLowerCase().includes(texte.toLowerCase()))
 
   return (
@@ -49,7 +55,7 @@ export default function PageAffiches() {
             options={[
               { id: 'toutes', libelle: 'Toutes', compte: visibles.length },
               { id: 'publiees', libelle: 'Diffusées', compte: visibles.filter((a) => categorie(a) === 'publiees').length },
-              { id: 'bloquees', libelle: 'À compléter', compte: visibles.filter((a) => categorie(a) === 'bloquees').length },
+              { id: 'bloquees', libelle: 'À compléter ou à venir', compte: visibles.filter((a) => categorie(a) === 'bloquees').length },
               { id: 'archivees', libelle: 'Archivées', compte: visibles.filter((a) => categorie(a) === 'archivees').length },
             ]}
           />
@@ -62,6 +68,7 @@ export default function PageAffiches() {
             {liste.map((a) => {
               const c = reglePublication(etat, a)
               const n = Object.values(c).filter(Boolean).length
+              const alerte = alerteAnimationAffiche(animationDe(a), a)
               return (
                 <article key={a.id} className="carte-affiche">
                   <button type="button" className="miniature-affiche" onClick={() => navigate(`/backoffice/affiches/${a.id}`)} aria-label={`Ouvrir ${a.nom}`}>
@@ -73,6 +80,11 @@ export default function PageAffiches() {
                       <span className={`pill ${publiable(c) ? 'pill-green' : 'pill-amber'}`} title="Conditions de publication">
                         {n}/4 conditions
                       </span>
+                      {alerte && (
+                        <span className="pill pill-amber" title={alerte}>
+                          Animation à vérifier
+                        </span>
+                      )}
                     </div>
                     <h3>{a.nom}</h3>
                     <p>{agent ? nomProprietaire(etat, a.proprietaireId) : a.accroche}</p>

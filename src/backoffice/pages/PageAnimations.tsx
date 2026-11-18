@@ -2,10 +2,11 @@ import { lazy, Suspense, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { BUDGETS_3D, MODELE_3D_MAX_MO, PLACEMENT_LIEU_DEFAUT, REGLAGE_AFFICHE_RA_DEFAUT } from '../../commun/constantes'
 import { EditeurPlacement3D } from '../composants/EditeurPlacement3D'
+import { EditeurPlacementAffiche } from '../composants/EditeurPlacementAffiche'
 import { Icone } from '../../commun/Icone'
 import { messageErreur } from '../../commun/api'
 import { animationActive, attendreControle, basculerAnimation, enregistrerAnimation, importerFichier, nomProprietaire, supprimerAnimation, useEtat, validerFichier } from '../../commun/store'
-import type { Animation, Declencheur, PlacementGps, ReglageAfficheRA, TypeAnimation } from '../../commun/types'
+import type { Animation, Declencheur, PlacementGps, TypeAnimation } from '../../commun/types'
 const Atelier3D = lazy(() => import('../composants/Atelier3D'))
 import { peutCreer, proprietaireDe, useSession } from '../session'
 import { BadgeStatut, DialogueSuppression, EnTetePage, formaterDate, formaterPoids, Interrupteur, maintenantLocal, Onglets, Recherche, Tiroir, useToast, Vide } from '../ui'
@@ -318,10 +319,15 @@ export function EditeurAnimation({
     titre: !a.titre.trim(),
     lieu: a.type === 'LIEU' && !a.lieuId,
     modele: !a.modeleId,
-    dates: !!a.fin && a.fin <= a.debut,
+    // Animation d'affiche : la fin est obligatoire (une affiche a toujours une fin) ; elle suit la sortie.
+    dates: (a.type === 'AFFICHE' && !a.fin) || (!!a.fin && a.fin <= a.debut),
     budget: poids > budget.poidsMo * 1_000_000 || tri > budget.triangles,
-    transcription: !a.transcription.fr.trim(),
+    // Transcription du son (BNF-11) : seulement s'il y a un son à transcrire.
+    transcription: !!a.sonId && !a.transcription.fr.trim(),
   }
+  /** Affiches qui font surgir cette animation (une animation de lieu peut aussi sortir d'une affiche). */
+  const affichesLiees = a.id ? etat.affiches.filter((x) => x.animationAfficheId === a.id) : []
+  const [placementAffiche, setPlacementAffiche] = useState(affichesLiees.length > 0)
   const valide = !Object.values(erreurs).some(Boolean)
 
   async function enregistrer(publier: boolean) {
@@ -482,7 +488,9 @@ export function EditeurAnimation({
             <div className="ouvrir-atelier">
               <div>
                 <strong>Orientation, ancrage, vitesse, luminosité, optimisation</strong>
-                <small>Redressez le modèle s’il est couché ou tourné, allégez-le si besoin. La taille se règle à l’étape 3.</small>
+                <small>
+                  Redressez le modèle s’il est couché ou tourné, allégez-le si besoin, en le voyant {a.type === 'AFFICHE' ? 'sur l’affiche' : 'au monument'}. La taille se règle à l’étape 3.
+                </small>
               </div>
               <button type="button" className="btn btn-secondaire" onClick={() => setAtelier(true)}>
                 <Icone nom="reglages" taille={15} /> Régler dans l’atelier 3D
@@ -508,7 +516,24 @@ export function EditeurAnimation({
           </h3>
           {a.type === 'LIEU' && lieuChoisi && <PositionEspace placement={a.placement} lieu={lieuChoisi} modele={modeleCarte} onChange={(placement) => maj({ placement })} />}
           {a.type === 'LIEU' && !lieuChoisi && <p className="aide">Choisissez d’abord le monument.</p>}
-          {a.type === 'AFFICHE' && <PlacementAffiche reglage={a.reglageAffiche ?? REGLAGE_AFFICHE_RA_DEFAUT} onChange={(reglageAffiche) => maj({ reglageAffiche })} />}
+          {a.type === 'LIEU' && (
+            <details className="placement-sur-affiche" open={placementAffiche} onToggle={(e) => setPlacementAffiche(e.currentTarget.open)}>
+              <summary>
+                Quand elle sort d’une affiche
+                <small>
+                  {affichesLiees.length
+                    ? `utilisée par ${affichesLiees.length} affiche${affichesLiees.length > 1 ? 's' : ''} : ${affichesLiees.map((x) => `« ${x.nom} »`).join(', ')}`
+                    : 'si une affiche la choisit comme animation'}
+                </small>
+              </summary>
+              {placementAffiche && (
+                <EditeurPlacementAffiche reglage={a.reglageAffiche ?? REGLAGE_AFFICHE_RA_DEFAUT} modele={modeleCarte} animationId={a.id || undefined} onChange={(reglageAffiche) => maj({ reglageAffiche })} />
+              )}
+            </details>
+          )}
+          {a.type === 'AFFICHE' && (
+            <EditeurPlacementAffiche reglage={a.reglageAffiche ?? REGLAGE_AFFICHE_RA_DEFAUT} modele={modeleCarte} animationId={a.id || undefined} onChange={(reglageAffiche) => maj({ reglageAffiche })} />
+          )}
         </section>
 
         <section className="etape-formulaire">
@@ -530,14 +555,14 @@ export function EditeurAnimation({
                 Fin <small>{a.type === 'LIEU' ? 'Vide = permanente' : 'Obligatoire'}</small>
               </span>
               <input type="datetime-local" value={versLocal(a.fin)} onChange={(e) => maj({ fin: e.target.value ? `${e.target.value}:00` : undefined })} />
-              {tente && erreurs.dates && <span className="message-erreur">La fin doit être postérieure à la sortie.</span>}
+              {tente && erreurs.dates && <span className="message-erreur">{!a.fin ? 'Indiquez la date de fin de l’animation d’affiche.' : 'La fin doit être postérieure à la sortie.'}</span>}
             </label>
           </div>
         </section>
 
         <section className={`etape-formulaire transcriptions ${tente && erreurs.transcription ? 'erreur' : ''}`}>
           <h3>
-            <span>5</span> Transcription du son <small>accessibilité, FR obligatoire</small>
+            <span>5</span> Transcription du son <small>{a.sonId ? 'accessibilité, FR obligatoire' : 'facultative : aucun son choisi'}</small>
           </h3>
           <Onglets
             valeur={langue}
@@ -560,7 +585,7 @@ export function EditeurAnimation({
             <Icone nom="alerte" taille={15} />
             {erreurs.budget
               ? 'Les fichiers dépassent le budget 3D de ce type d’animation : allégez le modèle dans l’atelier 3D.'
-              : `À compléter : ${[erreurs.titre && 'titre (1)', erreurs.lieu && 'monument (1)', erreurs.modele && 'modèle 3D (2)', erreurs.dates && 'dates (4)', erreurs.transcription && 'transcription française (5)'].filter(Boolean).join(', ')}.`}
+              : `À compléter : ${[erreurs.titre && 'titre (1)', erreurs.lieu && 'monument (1)', erreurs.modele && 'modèle 3D (2)', erreurs.dates && 'dates (4)', erreurs.transcription && 'transcription française du son (5)'].filter(Boolean).join(', ')}.`}
           </p>
         )}
         {erreurServeur && (
@@ -572,7 +597,7 @@ export function EditeurAnimation({
       </div>
       {atelier && fichierModele && (
         <Suspense fallback={null}>
-          <Atelier3D key={fichierModele.id} fichier={fichierModele} onFermer={() => setAtelier(false)} />
+          <Atelier3D key={fichierModele.id} fichier={fichierModele} animation={a} onReglageAffiche={(reglageAffiche) => maj({ reglageAffiche })} onFermer={() => setAtelier(false)} />
         </Suspense>
       )}
     </Tiroir>
@@ -611,29 +636,5 @@ function PositionEspace({
       {placement && <EditeurPlacement3D placement={placement} lieu={lieu} modele={modele} onChange={onChange} />}
       <small className="aide-champ">Sur le téléphone, la précision dépend du GPS et de la boussole (quelques mètres).</small>
     </fieldset>
-  )
-}
-
-/** Animation d'affiche : où le modèle surgit (devant / au-dessus de l'affiche) et sa taille. */
-function PlacementAffiche({ reglage, onChange }: { reglage: ReglageAfficheRA; onChange: (r: ReglageAfficheRA) => void }) {
-  return (
-    <div className="placement-affiche">
-      <div className="choix-type compact">
-        {(['devant', 'dessus'] as const).map((p) => (
-          <button key={p} type="button" className={reglage.position === p ? 'actif' : ''} onClick={() => onChange({ ...reglage, position: p })}>
-            <Icone nom={p === 'devant' ? 'affiche' : 'haut'} taille={18} />
-            <strong>{p === 'devant' ? 'Devant l’affiche' : 'Au-dessus de l’affiche'}</strong>
-            <small>{p === 'devant' ? 'Le modèle sort de l’affiche, face au visiteur' : 'Le modèle se pose sur le bord haut de l’affiche'}</small>
-          </button>
-        ))}
-      </div>
-      <label className="reglage-curseur">
-        <span>
-          Taille du modèle <b>{reglage.taille.toString().replace('.', ',')} × la hauteur de l’affiche</b>
-        </span>
-        <input type="range" min={0.3} max={5} step={0.1} value={reglage.taille} onChange={(e) => onChange({ ...reglage, taille: Number(e.target.value) })} />
-      </label>
-      <small className="aide-champ">Pour une affiche A3 (42 cm), 1,5 correspond à un modèle d’environ 60 cm ; 3 à environ 1,25 m.</small>
-    </div>
   )
 }

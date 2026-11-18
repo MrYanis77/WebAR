@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { REGLAGE_AFFICHE_RA_DEFAUT } from '../../commun/constantes'
+import { geometrieAffiche } from '../../commun/impression'
 import { chargerGlb, ModeleAnime } from '../../visiteur/ra/contenu3d'
 import { Icone } from '../../commun/Icone'
 import type { Animation, PlacementQr } from '../../commun/types'
@@ -42,6 +43,7 @@ export default function ApercuAnimationAffiche({
   code,
   qr,
   ratio,
+  format,
   animation,
 }: {
   /** URL du fichier de l'affiche (/uploads/images/...). */
@@ -49,6 +51,8 @@ export default function ApercuAnimationAffiche({
   code: string
   qr: PlacementQr
   ratio: number
+  /** Format d'impression : échelle du déplacement du modèle (mètres) ; A3 par défaut. */
+  format?: string
   animation?: Animation
 }) {
   const conteneur = useRef<HTMLDivElement>(null)
@@ -148,6 +152,13 @@ export default function ApercuAnimationAffiche({
         const taille = Math.min(h * reglage.taille, reglage.position === 'dessus' ? 0.9 : 1.9)
         modele.racine.scale.setScalar(taille)
         modele.racine.position.y = reglage.position === 'dessus' ? h / 2 - 0.05 : -taille / 2
+        // Déplacement autour de l'affiche (mètres), à l'échelle de l'image imprimée au format choisi.
+        if (reglage.decalage) {
+          const k = h / geometrieAffiche(format, ratio * 1000, 1000).imageH
+          modele.racine.position.x += reglage.decalage.x * k
+          modele.racine.position.y += reglage.decalage.y * k
+          modele.racine.position.z += reglage.decalage.z * k
+        }
         modele.lancer()
         pivot.remove(objet)
         objet = modele.racine
@@ -273,7 +284,7 @@ export default function ApercuAnimationAffiche({
       el.removeChild(renderer.domElement)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [image, code, qr, ratio, animation?.id, animation?.modeleUrl, animation?.clipIndice, animation?.lecture, animation?.reglages3d, animation?.reglageAffiche, animation?.dureeS, cycle])
+  }, [image, code, qr, ratio, format, animation?.id, animation?.modeleUrl, animation?.clipIndice, animation?.lecture, animation?.reglages3d, animation?.reglageAffiche, animation?.dureeS, cycle])
 
   return (
     <div className="apercu-animation-affiche">

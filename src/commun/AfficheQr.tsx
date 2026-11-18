@@ -2,6 +2,7 @@ import QRCode from 'qrcode'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { DOMAINE_APPLICATION } from './constantes'
 import { Icone } from './Icone'
+import { FORMATS_MM } from './impression'
 import type { Affiche, PlacementQr } from './types'
 
 /**
@@ -59,14 +60,7 @@ export function urlQr(code: string) {
 export const QR_DEFAUT: PlacementQr = { x: 0.74, y: 0.76, taille: 0.2, fond: true, mention: true }
 export const MENTION_QR = 'Scannez · expérience RA'
 
-/** Dimensions des formats d'impression, en millimètres (portrait). */
-export const FORMATS_MM: Record<string, [number, number]> = {
-  A4: [210, 297],
-  A3: [297, 420],
-  A2: [420, 594],
-  A1: [594, 841],
-  A0: [841, 1189],
-}
+export { FORMATS_MM }
 
 /** Largeur imprimée de l'affiche, en mm, selon son format et son orientation. */
 export function largeurImpressionMm(a: Pick<Affiche, 'format' | 'image'>) {

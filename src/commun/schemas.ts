@@ -1,7 +1,7 @@
 // Schémas Zod partagés par l'API (validation des requêtes) et l'application (formulaires) :
 // une règle modifiée ici s'applique partout (package « commun » du cahier des charges).
 import { z } from 'zod'
-import { COMMENTAIRE_MAX, MOTIFS_SIGNALEMENT, SECTEURS } from './constantes'
+import { COMMENTAIRE_MAX, MOTIFS_SIGNALEMENT, RAYON_AFFICHE_M, SECTEURS } from './constantes'
 
 /** Identifiant envoyé par l'application (chaîne) ou les tests (nombre). */
 export const zId = z.coerce.number().int().positive()
@@ -85,9 +85,16 @@ export const schemaReglages3D = z.object({
   luminosite: z.number().min(0.1).max(4),
 })
 
+const metresAffiche = z.number().min(-RAYON_AFFICHE_M).max(RAYON_AFFICHE_M)
+
 export const schemaReglageAffiche = z.object({
   position: z.enum(['devant', 'dessus']),
   taille: z.number().min(0.3).max(5),
+  // Déplacement autour de l'affiche, dans le rayon de 3 m (BNF-05) ; 1 cm de tolérance pour les arrondis.
+  decalage: z
+    .object({ x: metresAffiche, y: metresAffiche, z: metresAffiche })
+    .refine((d) => Math.hypot(d.x, d.y, d.z) <= RAYON_AFFICHE_M + 0.01, { message: `Le modèle doit rester à ${RAYON_AFFICHE_M} m au plus de l’affiche.` })
+    .optional(),
 })
 
 export const schemaOptimisation = z.object({
@@ -118,7 +125,8 @@ export const schemaAnimation = z
     dureeS: z.number().int().min(5).max(1800),
     debut: zDate,
     fin: zDate.nullable().optional(),
-    transcription: zTexte3,
+    // Transcription du son (BNF-11) : obligatoire en français seulement si l'animation a un son.
+    transcription: z.object({ fr: z.string().trim().max(5000).default(''), en: z.string().max(5000).default(''), de: z.string().max(5000).default('') }),
     placement: schemaPlacementGps.nullable().optional(),
     reglageAffiche: schemaReglageAffiche.nullable().optional(),
     publier: z.boolean().default(false),
@@ -126,6 +134,7 @@ export const schemaAnimation = z
   .refine((a) => a.type === 'AFFICHE' || a.lieuId, { message: 'Une animation de lieu doit avoir un lieu', path: ['lieuId'] })
   .refine((a) => (a.type === 'AFFICHE') === (a.declencheur === 'AFFICHE'), { message: 'Déclencheur incompatible avec le type', path: ['declencheur'] })
   .refine((a) => !a.fin || a.fin > a.debut, { message: 'La fin doit suivre la sortie', path: ['fin'] })
+  .refine((a) => !a.sonId || a.transcription.fr.length > 0, { message: 'Transcription française du son obligatoire', path: ['transcription', 'fr'] })
 
 export const schemaPlacementQr = z
   .object({

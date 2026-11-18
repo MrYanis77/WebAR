@@ -93,9 +93,15 @@ export interface Reglages3D {
 
 /** Placement d'une animation d'affiche par rapport à l'affiche reconnue (section 5.3). */
 export interface ReglageAfficheRA {
+  /** Point de départ : devant l'affiche, ou posé sur son bord haut. */
   position: 'devant' | 'dessus'
   /** Plus grande dimension du modèle, en hauteurs d'affiche (1 = hauteur de l'affiche). */
   taille: number
+  /**
+   * Déplacement depuis le point de départ, en mètres, dans le repère de l'affiche face au visiteur :
+   * x vers la droite, y vers le haut, z vers le visiteur. Longueur limitée à RAYON_AFFICHE_M (3 m).
+   */
+  decalage?: { x: number; y: number; z: number }
 }
 
 /** Paramètres de l'optimisation d'un modèle par le serveur (glTF-Transform). */

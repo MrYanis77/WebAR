@@ -4,6 +4,7 @@ import { AfficheAvecQr, FORMATS_MM, largeurImpressionMm, QR_DEFAUT, urlQr, useOr
 import { Icone } from '../../commun/Icone'
 import { messageErreur } from '../../commun/api'
 import {
+  alerteAnimationAffiche,
   attendreControle,
   attribuerZone,
   enregistrerAffiche,
@@ -138,6 +139,8 @@ function Editeur({ id }: { id?: string }) {
     x.statut === 'BROUILLON' ? ' (brouillon)' : x.statut === 'SUSPENDUE' ? ' (suspendue)' : x.fin && new Date(x.fin) < new Date() ? ' (expirée)' : new Date(x.debut) > new Date() ? ' (programmée)' : ''
   const nomLieu = (id?: string) => etat.lieux.find((l) => l.id === id)?.nomCourt ?? 'lieu inconnu'
   const animA = etat.animations.find((x) => x.id === a.animationAfficheId)
+  /** L'animation choisie ne sera pas montrée pendant toute la période de l'affiche (désactivée, dates). */
+  const alerteAnim = alerteAnimationAffiche(animA, a)
   const lieuPromu = etat.lieux.find((l) => l.id === a.lieuId)
   // Spectacles proposés : uniquement les animations du lieu promu.
   const animsDuLieu = animsLieu.filter((x) => x.lieuId === a.lieuId)
@@ -557,6 +560,12 @@ function Editeur({ id }: { id?: string }) {
                     </div>
                   </div>
                 )}
+                {alerteAnim && (
+                  <p className="erreur-acces" role="status">
+                    <Icone nom="alerte" taille={15} />
+                    {alerteAnim}
+                  </p>
+                )}
                 {lieuPromu && (
                   <div className="experience-choisie">
                     {lieuPromu.image ? <img src={lieuPromu.image} alt="" /> : <span className="vignette-exp"><Icone nom="pin" taille={22} /></span>}
@@ -689,7 +698,18 @@ function Editeur({ id }: { id?: string }) {
                   <li>
                     <Icone nom={animA ? 'check' : 'fermer'} taille={14} /> Une animation est associée
                   </li>
+                  <li>
+                    <Icone nom={animA && !alerteAnim ? 'check' : 'alerte'} taille={14} /> L’animation est diffusée pendant toute la période de l’affiche
+                  </li>
                 </ul>
+                {alerteAnim && (
+                  <p className="erreur-acces" role="status">
+                    <Icone nom="alerte" taille={15} />
+                    <span>
+                      {alerteAnim} <Link to="/backoffice/animations">Gérer les animations</Link>
+                    </span>
+                  </p>
+                )}
                 <div className={`boite-pret ${pret ? '' : 'bloque'}`}>
                   <strong>{pret ? 'Votre affiche est prête' : 'Export et activation bloqués'}</strong>
                   <p>
@@ -708,7 +728,7 @@ function Editeur({ id }: { id?: string }) {
             </button>
             {etape < 5 ? (
               <button type="button" className="btn btn-primaire" onClick={() => void suivant()} disabled={!!envoi}>
-                {etape === 3 ? 'Générer le QR code' : 'Continuer'} <Icone nom="droite" taille={15} />
+                {etape === 3 && !a.id ? 'Générer le QR code' : 'Continuer'} <Icone nom="droite" taille={15} />
               </button>
             ) : (
               <div className="actions-finales">
@@ -759,7 +779,7 @@ function Editeur({ id }: { id?: string }) {
           </div>
           {vue === 'ra' && imagePrete ? (
             <Suspense fallback={<div className="apercu-animation-affiche chargement"><span className="spinner" /></div>}>
-              <ApercuAnimationAffiche image={image!} code={a.codeQr || 'apercu'} qr={qr} ratio={ratio} animation={animA} />
+              <ApercuAnimationAffiche image={image!} code={a.codeQr || 'apercu'} qr={qr} ratio={ratio} format={a.format} animation={animA} />
             </Suspense>
           ) : (
             <>

@@ -1,52 +1,77 @@
 // Atelier 3D : gestion complète d'un modèle GLB dans le back-office.
-//  - Visionneuse Three.js orbitable : le modèle est montré à une taille de référence (12 m pour un
-//    monument, 1,5 × une affiche A3 pour une affiche), à côté d'une silhouette de 1,75 m ; grille d'1 m,
-//    vues face / côté / dessus. La taille réelle ne se règle pas ici mais au placement de l'animation
-//    (par rapport à l'affiche, ou en mètres autour du monument) : un seul réglage de taille.
+//  - Visionneuse orbitable, trois décors (vues face / côté / dessus dans chacun) :
+//    · Studio (Three.js) : le modèle à une taille de référence (12 m pour un monument, 1,5 × une affiche
+//      A3 pour une affiche), à côté d'une silhouette de 1,75 m ; grille d'1 m.
+//    · Sur l'affiche (Three.js) : l'affiche imprimée (image et QR code, à son format) au mur, le modèle
+//      posé comme dans l'application visiteur (devant ou au-dessus, taille en hauteurs d'affiche).
+//    · Au monument (MapLibre) : carte satellite avec les bâtiments en relief, le modèle à son placement.
+//    La taille réelle ne se règle pas ici mais au placement de l'animation (par rapport à l'affiche, ou
+//    en mètres autour du monument) : un seul réglage de taille. Ouvert depuis le formulaire d'une
+//    animation d'affiche, l'atelier modifie directement ce réglage (position et taille sur l'affiche).
 //  - Réglages non destructifs (enregistrés en base, appliqués partout par Three.js) : rotation,
 //    ancrage au sol ou au centre, décalage vertical, vitesse des animations, luminosité.
 //  - Animations intégrées : choix du clip à prévisualiser, lecture / pause.
 //  - Optimisation par le serveur (glTF-Transform) : textures, simplification, compression Meshopt ;
 //    mesures avant / après, original conservé et restaurable.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { BUDGETS_3D, NOM_ANIMATION_COMBINEE, OPTIMISATION_DEFAUT, PLACEMENT_LIEU_DEFAUT, REGLAGE_AFFICHE_RA_DEFAUT, REGLAGES_3D_DEFAUT } from '../../commun/constantes'
 import { Icone } from '../../commun/Icone'
 import { messageErreur } from '../../commun/api'
-import { enregistrerReglages3D, optimiserModele, restaurerModele } from '../../commun/store'
-import type { Fichier, MesureModele, ParametresOptimisation, Reglages3D } from '../../commun/types'
+import { enregistrerReglages3D, optimiserModele, restaurerModele, useEtat } from '../../commun/store'
+import type { Animation, Fichier, Lieu, MesureModele, ParametresOptimisation, PlacementGps, ReglageAfficheRA, Reglages3D } from '../../commun/types'
 import { chargerGlb, eclairer, ModeleAnime, reglagesComplets, type Eclairage } from '../../visiteur/ra/contenu3d'
 import { formaterPoids } from '../ui'
+import { ChoixAffiche, useAffichesProposees } from './ChoixAffiche'
+import type { ReglagesDirects } from './EditeurPlacement3D'
+import { cadrerCamera, creerDecorAffiche, dimensionsAffiche, LIBELLES_VUES, libererScene, metres, silhouette, type DecorAffiche, type VueCamera } from './sceneApercu'
 
-type Vue = 'perspective' | 'face' | 'cote' | 'dessus'
+const ApercuMonument = lazy(() => import('./ApercuMonument'))
 
-/** Taille (plus grande dimension, en mètres) du modèle dans l'aperçu, selon son usage. */
+type Vue = VueCamera
+type Decor = 'studio' | 'affiche' | 'monument'
+
+/** Taille (plus grande dimension, en mètres) du modèle dans le studio, selon son usage. */
 const TAILLE_REFERENCE = { LIEU: PLACEMENT_LIEU_DEFAUT.tailleM, AFFICHE: 0.42 * REGLAGE_AFFICHE_RA_DEFAUT.taille } as const
 
-/** Dimensions affichées : modèle ramené à 1 unité, multiplié par sa taille de référence. */
-const mesurer = (m: ModeleAnime) => m.dimensions().multiplyScalar(m.racine.scale.x)
-
-const metres = (v: number) => (v >= 10 ? `${v.toFixed(1)} m` : v >= 1 ? `${v.toFixed(2)} m` : `${Math.round(v * 100)} cm`).replace('.', ',')
+const virgule = (v: number) => String(v).replace('.', ',')
 const egaux = (a: Reglages3D, b: Reglages3D) => JSON.stringify(a) === JSON.stringify(b)
 
-/** Silhouette humaine simplifiée de 1,75 m (repère d'échelle). */
-function silhouette(): THREE.Group {
-  const g = new THREE.Group()
-  const mat = new THREE.MeshStandardMaterial({ color: 0x8a8f98, transparent: true, opacity: 0.55, roughness: 0.8 })
-  const corps = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.95, 4, 12), mat)
-  corps.position.y = 0.2 + 0.95 / 2 + 0.05
-  const tete = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 12), mat)
-  tete.position.y = 1.63
-  g.add(corps, tete)
-  return g
+/** Position d'une animation de lieu sans placement personnalisé (comme l'application visiteur). */
+const placementDefaut = (l: Lieu): PlacementGps => ({ latitude: l.latitude, longitude: l.longitude, ...PLACEMENT_LIEU_DEFAUT })
+
+/** Monument proposé pour l'aperçu : le placement d'une animation, ou la position par défaut du lieu. */
+interface SituationMonument {
+  cle: string
+  lieu: Lieu
+  placement: PlacementGps
+  animation?: Animation
+  /** Animation en cours d'édition (placement non encore enregistré). */
+  edition?: boolean
 }
 
-export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onFermer: () => void }) {
+export default function Atelier3D({
+  fichier,
+  animation,
+  onReglageAffiche,
+  onFermer,
+}: {
+  fichier: Fichier
+  /** Animation en cours d'édition (atelier ouvert depuis son formulaire) : l'aperçu reprend son placement, même non enregistré. */
+  animation?: Animation
+  /** Modifie la position et la taille sur l'affiche de l'animation en cours d'édition. */
+  onReglageAffiche?: (r: ReglageAfficheRA) => void
+  onFermer: () => void
+}) {
+  const etat = useEtat()
   const initial = useMemo(() => reglagesComplets(fichier.reglages3d), [fichier.reglages3d])
   const [r, setR] = useState<Reglages3D>(initial)
-  const [dims, setDims] = useState<THREE.Vector3 | null>(null)
+  /** Dimensions du modèle ramené à 1 unité (plus grande dimension), réglages appliqués. */
+  const [dimsUnite, setDimsUnite] = useState<THREE.Vector3 | null>(null)
+  /** Compteur de chargements du modèle (la scène est recréée après optimisation ou restauration). */
+  const [charge, setCharge] = useState(0)
   const [clips, setClips] = useState<string[]>([])
   const [clip, setClip] = useState<number | null>(null)
   const [pause, setPause] = useState(false)
@@ -58,6 +83,49 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
   const [envoi, setEnvoi] = useState<'reglages' | 'optimisation' | 'restauration' | null>(null)
   const [opt, setOpt] = useState<ParametresOptimisation>(fichier.optimisation?.parametres ?? { ...OPTIMISATION_DEFAUT })
 
+  /** Situation de l'animation : affiche ou monument. Le formulaire d'animation ouvre directement sur elle. */
+  const situationType: 'affiche' | 'monument' = (animation?.type ?? fichier.usage) === 'AFFICHE' ? 'affiche' : 'monument'
+  const [decor, setDecor] = useState<Decor>(animation ? situationType : 'studio')
+  /** Demande de cadrage transmise à la carte du monument. */
+  const [cadrage, setCadrage] = useState(0)
+
+  // ------------------------------------------------------------ affiches et monuments proposés
+  const animationsModele = useMemo(() => etat.animations.filter((x) => x.modeleId === fichier.id && x.id !== animation?.id), [etat.animations, fichier.id, animation?.id])
+
+  /** Affiches avec image : d'abord celles dont l'animation utilise ce modèle. */
+  const { liees: affichesLiees, autres: autresAffiches } = useAffichesProposees([...animationsModele.map((x) => x.id), animation?.id])
+  const [afficheId, setAfficheId] = useState(() => affichesLiees[0]?.id ?? '')
+  const [formatGabarit, setFormatGabarit] = useState('A3')
+  const affiche = affichesLiees.find((x) => x.id === afficheId) ?? autresAffiches.find((x) => x.id === afficheId)
+  const geoAffiche = dimensionsAffiche(affiche, formatGabarit)
+  const { format, pageL: largeurAffiche, pageH: hauteurAffiche, hauteurCible } = geoAffiche
+
+  // Réglage sur l'affiche : celui de l'animation en cours d'édition, sinon de l'animation de l'affiche
+  // choisie (si elle utilise ce modèle), sinon d'une animation d'affiche qui utilise ce modèle.
+  const animationAffiche =
+    animation?.type === 'AFFICHE' ? animation : (animationsModele.find((x) => x.id === affiche?.animationAfficheId) ?? animationsModele.find((x) => x.type === 'AFFICHE'))
+  const reglageAffiche = animationAffiche?.reglageAffiche ?? REGLAGE_AFFICHE_RA_DEFAUT
+  const reglageModifiable = !!onReglageAffiche && animation?.type === 'AFFICHE'
+
+  const situations = useMemo(() => {
+    const liste: SituationMonument[] = []
+    const depuis = (x: Animation, edition: boolean) => {
+      const lieu = etat.lieux.find((l) => l.id === x.lieuId)
+      if (lieu) liste.push({ cle: edition ? 'edition' : x.id, lieu, placement: x.placement ?? placementDefaut(lieu), animation: x, edition })
+    }
+    if (animation?.type === 'LIEU') depuis(animation, true)
+    for (const x of animationsModele) if (x.type === 'LIEU') depuis(x, false)
+    for (const l of etat.lieux) liste.push({ cle: `lieu:${l.id}`, lieu: l, placement: placementDefaut(l) })
+    return liste
+  }, [etat.lieux, animationsModele, animation])
+  const [situationCle, setSituationCle] = useState(() => situations[0]?.cle ?? '')
+  const situation = situations.find((s) => s.cle === situationCle) ?? situations[0]
+
+  /** Échelle du modèle (plus grande dimension, en mètres) dans le décor affiché. */
+  const echelle = decor === 'monument' ? (situation?.placement.tailleM ?? TAILLE_REFERENCE.LIEU) : decor === 'affiche' ? hauteurCible * reglageAffiche.taille : TAILLE_REFERENCE[fichier.usage]
+  const dims = dimsUnite ? dimsUnite.clone().multiplyScalar(echelle) : null
+
+  // ------------------------------------------------------------ scène Three.js (studio et affiche)
   const conteneur = useRef<HTMLDivElement>(null)
   const scene3d = useRef<{
     modele: ModeleAnime | null
@@ -66,30 +134,33 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
     controles: OrbitControls
     humain: THREE.Object3D
     grille: THREE.Object3D
+    decor: DecorAffiche
   } | null>(null)
   const reglagesRef = useRef(r)
   reglagesRef.current = r
+  const clipRef = useRef(clip)
+  clipRef.current = clip
+  const pauseRef = useRef(pause)
+  pauseRef.current = pause
+  const decorRef = useRef(decor)
+  decorRef.current = decor
+  /** Réglages lus à chaque image par la carte du monument. */
+  const lireDirect = useCallback((): ReglagesDirects => ({ reglages: reglagesRef.current, clip: clipRef.current, pause: pauseRef.current }), [])
 
   const modifie = !egaux(r, initial)
   const budget = BUDGETS_3D[fichier.usage]
   const maj = (p: Partial<Reglages3D>) => setR((x) => ({ ...x, ...p }))
   const majRotation = (axe: 'x' | 'y' | 'z', v: number) => setR((x) => ({ ...x, rotation: { ...x.rotation, [axe]: ((((v + 180) % 360) + 360) % 360) - 180 } }))
 
-  /** Cadre la caméra sur le modèle (et la silhouette) selon la vue demandée. */
+  /** Cadre la caméra sur le modèle (et l'affiche, ou la silhouette) selon la vue demandée. */
   function cadrer(v: Vue) {
+    if (decor === 'monument') return setCadrage((n) => n + 1)
     const s = scene3d.current
     if (!s?.modele) return
-    const d = mesurer(s.modele)
-    const rayon = Math.max(d.x, d.y, d.z, 1.8) * 0.75
-    const cible = new THREE.Vector3(0, Math.max(d.y, 1.75) / 2, 0)
-    const distance = rayon / Math.sin((s.camera.fov * Math.PI) / 360)
-    const dir = v === 'face' ? new THREE.Vector3(0, 0, 1) : v === 'cote' ? new THREE.Vector3(1, 0, 0) : v === 'dessus' ? new THREE.Vector3(0, 1, 0.001) : new THREE.Vector3(0.8, 0.45, 1)
-    s.camera.position.copy(cible).addScaledVector(dir.normalize(), distance)
-    s.camera.near = distance / 100
-    s.camera.far = distance * 100
-    s.camera.updateProjectionMatrix()
-    s.controles.target.copy(cible)
-    s.controles.update()
+    const boite = s.modele.boiteMonde()
+    if (decor === 'affiche') boite.expandByObject(s.decor.affiche)
+    else boite.expandByPoint(new THREE.Vector3(0, 0, 0)).expandByPoint(new THREE.Vector3(0, 1.75, 0))
+    cadrerCamera(s.camera, s.controles, boite, v, decor === 'affiche' ? 0.5 : 1.8)
   }
 
   // Scène Three.js : créée une fois par fichier.
@@ -109,8 +180,12 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
     const grilleObj = new THREE.GridHelper(40, 40, 0x7b1e2e, 0xbdb6a8)
     const humainObj = silhouette()
     humainObj.position.x = -1.2
-    scene.add(grilleObj, humainObj)
-    scene3d.current = { modele: null, eclairage, camera, controles, humain: humainObj, grille: grilleObj }
+
+    // Décor « sur l'affiche » (masqué dans le studio).
+    const decorAffiche = creerDecorAffiche()
+    decorAffiche.groupe.visible = false
+    scene.add(grilleObj, humainObj, decorAffiche.groupe)
+    scene3d.current = { modele: null, eclairage, camera, controles, humain: humainObj, grille: grilleObj, decor: decorAffiche }
     let annule = false
 
     chargerGlb(fichier.url, renderer)
@@ -120,12 +195,13 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
         modele.racine.scale.setScalar(TAILLE_REFERENCE[fichier.usage])
         scene.add(modele.racine)
         modele.lancer()
-        modele.choisirClip(null)
+        modele.choisirClip(clipRef.current)
+        modele.pause(pauseRef.current)
         scene3d.current!.modele = modele
         eclairage.regler(reglagesRef.current.luminosite)
         setClips(modele.clips)
-        setDims(mesurer(modele))
-        cadrer('perspective')
+        setDimsUnite(modele.dimensions())
+        setCharge((n) => n + 1)
       })
       .catch((e: Error) => !annule && setErreur(`Modèle illisible : ${e.message}`))
 
@@ -133,6 +209,8 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
     renderer.setAnimationLoop((t) => {
       const dt = Math.min(0.1, (t - precedent) / 1000)
       precedent = t
+      // Au monument, la carte prend le relais : la scène du studio n'est plus dessinée.
+      if (decorRef.current === 'monument') return
       scene3d.current?.modele?.mettreAJour(dt)
       controles.update()
       renderer.render(scene, camera)
@@ -150,6 +228,7 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
       controles.dispose()
       scene3d.current?.modele?.liberer()
       eclairage.liberer()
+      libererScene(scene)
       renderer.dispose()
       renderer.domElement.remove()
       scene3d.current = null
@@ -164,15 +243,46 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
     if (!s?.modele) return
     s.modele.appliquerReglages(r)
     s.eclairage.regler(r.luminosite)
-    setDims(mesurer(s.modele))
+    setDimsUnite(s.modele.dimensions())
   }, [r])
 
+  // Décor : affiche à son format au mur, modèle posé comme dans l'application visiteur.
   useEffect(() => {
-    if (scene3d.current) {
-      scene3d.current.humain.visible = humain
-      scene3d.current.grille.visible = grille
+    const s = scene3d.current
+    if (!s) return
+    const surAffiche = decor === 'affiche'
+    s.decor.groupe.visible = surAffiche
+    s.decor.dimensionner(geoAffiche)
+    s.humain.position.set(surAffiche ? -(largeurAffiche / 2 + 0.6) : -1.2, 0, surAffiche ? 0.3 : 0)
+    const racine = s.modele?.racine
+    if (!racine) return
+    if (surAffiche) s.decor.poser(racine, reglageAffiche)
+    else {
+      racine.position.set(0, 0, 0)
+      racine.quaternion.identity()
+      racine.scale.setScalar(TAILLE_REFERENCE[fichier.usage])
     }
-  }, [humain, grille])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decor, largeurAffiche, hauteurAffiche, hauteurCible, reglageAffiche, charge, fichier.usage])
+
+  // Cadrage au chargement du modèle et au changement de décor (la carte du monument se cadre seule).
+  useEffect(() => {
+    if (charge && decor !== 'monument') cadrer(vue)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decor, charge])
+
+  // Image de l'affiche choisie (avec son QR code), recadrée à son format d'impression ; gabarit sinon.
+  useEffect(() => {
+    if (decor === 'affiche') return scene3d.current?.decor.habiller(affiche, format)
+  }, [decor, fichier.url, affiche, format, largeurAffiche, hauteurAffiche])
+
+  useEffect(() => {
+    const s = scene3d.current
+    if (!s) return
+    s.humain.visible = humain
+    s.grille.visible = grille && decor !== 'affiche'
+    s.decor.grille.visible = grille
+  }, [humain, grille, decor, fichier.url])
   useEffect(() => scene3d.current?.modele?.choisirClip(clip), [clip])
   useEffect(() => scene3d.current?.modele?.pause(pause), [pause])
 
@@ -205,6 +315,8 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
       <input type="range" min={min} max={max} step={pas} value={valeur} onChange={(e) => onChange(Number(e.target.value))} />
     </label>
   )
+  const libelleDecor = { studio: 'Studio', affiche: 'Sur l’affiche', monument: 'Au monument' } as const
+  const libelleSituation = (s: SituationMonument) => (s.edition ? `${s.lieu.nom} — cette animation` : s.animation ? `${s.lieu.nom} — « ${s.animation.titre} »` : s.lieu.nom)
 
   return createPortal(
     <div className="atelier-3d" role="dialog" aria-modal="true" aria-label={`Atelier 3D — ${fichier.nomOriginal}`}>
@@ -236,7 +348,29 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
       <div className="atelier-corps">
         <section className="atelier-vue">
           <div className="atelier-canevas" ref={conteneur} />
+          {decor === 'monument' &&
+            (situation ? (
+              <Suspense
+                fallback={
+                  <div className="atelier-chargement">
+                    <span className="spinner" /> Chargement de la carte…
+                  </div>
+                }
+              >
+                <ApercuMonument key={situation.lieu.id} modeleUrl={fichier.url} lieu={situation.lieu} placement={situation.placement} lireDirect={lireDirect} vue={vue} cadrage={cadrage} />
+              </Suspense>
+            ) : (
+              <div className="atelier-chargement">Aucun monument enregistré : créez d’abord un lieu.</div>
+            ))}
           <div className="atelier-outils-vue">
+            <div className="choix-decor" role="group" aria-label="Décor de l’aperçu">
+              {(['studio', situationType] as const).map((d) => (
+                <button key={d} type="button" className={decor === d ? 'actif' : ''} aria-pressed={decor === d} onClick={() => setDecor(d)}>
+                  <Icone nom={d === 'studio' ? 'cube' : d === 'affiche' ? 'affiche' : 'pin'} taille={14} /> {libelleDecor[d]}
+                </button>
+              ))}
+            </div>
+            <span className="separateur" />
             {(['perspective', 'face', 'cote', 'dessus'] as const).map((v) => (
               <button
                 key={v}
@@ -247,27 +381,37 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
                   cadrer(v)
                 }}
               >
-                {{ perspective: '3D', face: 'Face', cote: 'Côté', dessus: 'Dessus' }[v]}
+                {LIBELLES_VUES[v]}
               </button>
             ))}
-            <span className="separateur" />
-            <button type="button" className={humain ? 'actif' : ''} onClick={() => setHumain(!humain)} title="Silhouette de 1,75 m">
-              Repère 1,75 m
-            </button>
-            <button type="button" className={grille ? 'actif' : ''} onClick={() => setGrille(!grille)}>
-              Grille 1 m
-            </button>
+            {decor !== 'monument' && (
+              <>
+                <span className="separateur" />
+                <button type="button" className={humain ? 'actif' : ''} onClick={() => setHumain(!humain)} title="Silhouette de 1,75 m">
+                  Repère 1,75 m
+                </button>
+                <button type="button" className={grille ? 'actif' : ''} onClick={() => setGrille(!grille)}>
+                  Grille 1 m
+                </button>
+              </>
+            )}
           </div>
           {dims && (
             <div className="atelier-dimensions" aria-live="polite">
-              <strong>Taille de référence pour l’aperçu</strong>
+              <strong>{decor === 'studio' ? 'Taille de référence pour l’aperçu' : decor === 'affiche' ? `Taille sur une affiche ${format}` : 'Taille au monument'}</strong>
               <span>
                 L {metres(dims.x)} · H {metres(dims.y)} · P {metres(dims.z)}
               </span>
               <small>
-                {fichier.usage === 'LIEU'
-                  ? 'La taille réelle se règle en mètres au placement de l’animation autour du monument.'
-                  : 'La taille réelle se règle dans l’animation, par rapport à la hauteur de l’affiche.'}
+                {decor === 'monument'
+                  ? 'La position, la hauteur et la taille se règlent au placement de l’animation, sur la carte.'
+                  : decor === 'affiche'
+                    ? reglageModifiable
+                      ? 'Position et taille sur l’affiche : panneau « Aperçu sur l’affiche ».'
+                      : 'La position et la taille se règlent dans l’animation, par rapport à la hauteur de l’affiche.'
+                    : fichier.usage === 'LIEU'
+                      ? 'La taille réelle se règle en mètres au placement de l’animation autour du monument.'
+                      : 'La taille réelle se règle dans l’animation, par rapport à la hauteur de l’affiche.'}
               </small>
             </div>
           )}
@@ -289,7 +433,7 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
               </select>
             </div>
           )}
-          {!dims && !erreur && (
+          {!dims && !erreur && decor !== 'monument' && (
             <div className="atelier-chargement">
               <span className="spinner" /> Chargement du modèle…
             </div>
@@ -302,6 +446,85 @@ export default function Atelier3D({ fichier, onFermer }: { fichier: Fichier; onF
               <Icone nom={erreur ? 'alerte' : 'check'} taille={15} />
               {erreur ?? message}
             </p>
+          )}
+
+          {decor === 'affiche' && (
+            <fieldset>
+              <legend>Aperçu sur l’affiche</legend>
+              <ChoixAffiche liees={affichesLiees} autres={autresAffiches} affiche={affiche} onAffiche={setAfficheId} formatGabarit={formatGabarit} onFormatGabarit={setFormatGabarit} />
+              {reglageModifiable ? (
+                <>
+                  <div className="choix-segment" role="group" aria-label="Position du modèle sur l’affiche">
+                    <span>Position</span>
+                    {(['devant', 'dessus'] as const).map((p) => (
+                      <button key={p} type="button" className={reglageAffiche.position === p ? 'actif' : ''} aria-pressed={reglageAffiche.position === p} onClick={() => onReglageAffiche!({ ...reglageAffiche, position: p })}>
+                        {p === 'devant' ? 'Devant l’affiche' : 'Au-dessus'}
+                      </button>
+                    ))}
+                  </div>
+                  {curseur('Taille du modèle', reglageAffiche.taille, 0.3, 5, 0.1, (v) => onReglageAffiche!({ ...reglageAffiche, taille: v }), `${virgule(reglageAffiche.taille)} × la hauteur`)}
+                  <small className="aide-champ">Réglage de l’animation (étape 3) : il est conservé quand vous enregistrez l’animation.</small>
+                </>
+              ) : (
+                <p className="resume-situation">
+                  <span>
+                    {reglageAffiche.position === 'devant' ? 'Devant l’affiche' : 'Au-dessus de l’affiche'}, {virgule(reglageAffiche.taille)} × sa hauteur
+                    {reglageAffiche.decalage && Math.hypot(reglageAffiche.decalage.x, reglageAffiche.decalage.y, reglageAffiche.decalage.z) >= 0.005
+                      ? `, déplacé de ${metres(Math.hypot(reglageAffiche.decalage.x, reglageAffiche.decalage.y, reglageAffiche.decalage.z))}`
+                      : ''}
+                  </span>
+                  <small>
+                    {animationAffiche
+                      ? `Réglage de l’animation « ${animationAffiche.titre} », modifiable dans son formulaire (étape 3).`
+                      : 'Réglage par défaut : la position et la taille se choisissent dans le formulaire de l’animation.'}
+                  </small>
+                </p>
+              )}
+            </fieldset>
+          )}
+
+          {decor === 'monument' && situation && (
+            <fieldset>
+              <legend>Aperçu au monument</legend>
+              <label className="champ">
+                <span className="etiquette">Monument</span>
+                <select value={situation.cle} onChange={(e) => setSituationCle(e.target.value)}>
+                  {situations.some((s) => s.animation) && (
+                    <optgroup label="Placement d’une animation">
+                      {situations
+                        .filter((s) => s.animation)
+                        .map((s) => (
+                          <option key={s.cle} value={s.cle}>
+                            {libelleSituation(s)}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                  <optgroup label="Position par défaut du lieu">
+                    {situations
+                      .filter((s) => !s.animation)
+                      .map((s) => (
+                        <option key={s.cle} value={s.cle}>
+                          {libelleSituation(s)}
+                        </option>
+                      ))}
+                  </optgroup>
+                </select>
+              </label>
+              <p className="resume-situation">
+                <span>
+                  {virgule(situation.placement.tailleM)} m de taille · socle à {virgule(situation.placement.hauteurM)} m du sol ·{' '}
+                  {situation.placement.orientationDeg === undefined ? 'face au visiteur' : `orienté à ${situation.placement.orientationDeg}°`}
+                </span>
+                <small>
+                  {situation.edition
+                    ? 'Placement de l’animation en cours (étape 3 du formulaire), même non enregistré.'
+                    : situation.animation
+                      ? `Placement de l’animation « ${situation.animation.titre} », modifiable dans son formulaire (étape 3).`
+                      : 'Position par défaut : au-dessus du point du lieu, face au visiteur.'}
+                </small>
+              </p>
+            </fieldset>
           )}
 
           <fieldset>

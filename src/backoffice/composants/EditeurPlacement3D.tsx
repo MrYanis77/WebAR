@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { capVers, distanceM, type Coordonnees } from '../../commun/geo'
 import { Icone } from '../../commun/Icone'
-import type { Animation, PlacementGps } from '../../commun/types'
+import type { Animation, PlacementGps, Reglages3D } from '../../commun/types'
 import { chargerGlb, eclairer, ModeleAnime } from '../../visiteur/ra/contenu3d'
 import { cercle, decaler, element, ligne, SATELLITE } from './ChoixPosition'
 
@@ -19,7 +19,7 @@ type Fond = 'satellite' | 'plan'
 const SOURCE_BATIMENTS = 'https://tiles.openfreemap.org/planet'
 
 /** Fond satellite + bâtiments en relief (hauteurs OpenStreetMap), semi-transparents pour voir le modèle. */
-function styleSatellite3D(): StyleSpecification {
+export function styleSatellite3D(): StyleSpecification {
   return {
     ...SATELLITE,
     sources: { ...SATELLITE.sources, osm: { type: 'vector', url: SOURCE_BATIMENTS } },
@@ -48,11 +48,24 @@ const RAD = Math.PI / 180
 /** Distance de la poignée d'orientation au modèle (mètres). */
 const distancePoignee = (p: PlacementGps) => Math.max(8, p.tailleM * 0.8)
 
+/** Réglages appliqués en direct au modèle de la carte (aperçu « au monument » de l'atelier 3D). */
+export interface ReglagesDirects {
+  reglages: Reglages3D
+  /** Clip joué (indice) ; null = tous les clips. */
+  clip: number | null
+  pause: boolean
+}
+
 /**
  * Calque Three.js dans la carte : le modèle est posé à sa latitude / longitude, à `hauteurM` du sol,
- * à sa taille réelle en mètres et tourné vers `orientationDeg`.
+ * à sa taille réelle en mètres et tourné vers `orientationDeg`. `lireDirect` (facultatif) remplace
+ * à chaque image les réglages enregistrés du modèle : l'atelier 3D les modifie en direct.
  */
-function calqueModele(modele: Pick<Animation, 'modeleUrl' | 'reglages3d' | 'clipIndice' | 'lecture'>, lirePlacement: () => PlacementGps): CustomLayerInterface & { liberer(): void } {
+export function calqueModele(
+  modele: Pick<Animation, 'modeleUrl' | 'reglages3d' | 'clipIndice' | 'lecture'>,
+  lirePlacement: () => PlacementGps,
+  lireDirect?: () => ReglagesDirects,
+): CustomLayerInterface & { liberer(): void } {
   let renderer: THREE.WebGLRenderer | null = null
   let carte: CarteMapLibre | null = null
   const scene = new THREE.Scene()
@@ -60,6 +73,8 @@ function calqueModele(modele: Pick<Animation, 'modeleUrl' | 'reglages3d' | 'clip
   let instance: ModeleAnime | null = null
   let eclairage: ReturnType<typeof eclairer> | null = null
   let precedent = performance.now()
+  /** Derniers réglages directs appliqués (comparés par référence à chaque image). */
+  let applique: Partial<ReglagesDirects> = {}
   return {
     id: 'modele-3d',
     type: 'custom',
@@ -83,6 +98,16 @@ function calqueModele(modele: Pick<Animation, 'modeleUrl' | 'reglages3d' | 'clip
     render(_gl, options) {
       if (!renderer || !carte) return
       const maintenant = performance.now()
+      const direct = lireDirect?.()
+      if (instance && direct) {
+        if (direct.reglages !== applique.reglages) {
+          instance.appliquerReglages(direct.reglages)
+          eclairage?.regler(direct.reglages.luminosite)
+        }
+        if (direct.clip !== applique.clip) instance.choisirClip(direct.clip)
+        if (direct.pause !== applique.pause) instance.pause(direct.pause)
+        applique = { ...direct }
+      }
       instance?.mettreAJour(Math.min(0.1, (maintenant - precedent) / 1000))
       precedent = maintenant
       const p = lirePlacement()

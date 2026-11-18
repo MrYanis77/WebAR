@@ -49,6 +49,8 @@ interface Props {
   /** Façade : l'animation est posée au-dessus du détail reconnu, en plus grand. */
   mode: 'affiche' | 'monument'
   reglage?: ReglageAffiche
+  /** Hauteur réelle (m) de la cible imprimée : échelle du déplacement de l'animation autour de l'affiche. */
+  hauteurCibleM?: number
   /** Recherche (re)lancée : l'animation est retirée jusqu'à la prochaine reconnaissance. */
   recherche: boolean
   /** Relance : l'animation repart du début, à la même place. */
@@ -72,7 +74,9 @@ const INTERVALLE_ECHANTILLON_MS = 500
 /** Une mesure de la boussole plus ancienne est ignorée. */
 const AGE_CAP_MAX_MS = 1000
 
-export default function SceneRA({ animation, cibles, mode, reglage = animation.reglageAffiche ?? REGLAGE_AFFICHE_DEFAUT, recherche, cycle, zoom, gps, commandes, onEvenement }: Props) {
+export default function SceneRA({ animation, cibles, mode, reglage = animation.reglageAffiche ?? REGLAGE_AFFICHE_DEFAUT, hauteurCibleM, recherche, cycle, zoom, gps, commandes, onEvenement }: Props) {
+  const hauteurCibleRef = useRef(hauteurCibleM)
+  hauteurCibleRef.current = hauteurCibleM
   const cadre = useRef<HTMLDivElement>(null)
   const gpsRef = useRef(gps)
   gpsRef.current = gps
@@ -242,7 +246,7 @@ export default function SceneRA({ animation, cibles, mode, reglage = animation.r
       const premiere = e.recherche
       e.recherche = false
       e.placementGps = null
-      poser(poseSurCible(detail, reglageRef.current), !premiere)
+      poser(poseSurCible(detail, reglageRef.current, hauteurCibleRef.current), !premiere)
       if (nouvelle || premiere) signaler.current({ type: 'cible-trouvee', nom: detail.name })
     }
 

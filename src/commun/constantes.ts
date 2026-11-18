@@ -53,5 +53,11 @@ export const REGLAGES_3D_DEFAUT = {
 /** Optimisation proposée par défaut : textures 1024 px en WebP, géométrie compressée, sans simplification. */
 export const OPTIMISATION_DEFAUT = { textureMaxPx: 1024, webp: true, simplification: 0, compression: true } as const satisfies import('./types').ParametresOptimisation
 
-/** Animation d'affiche par défaut : devant l'affiche, 1,5 fois sa hauteur. */
-export const REGLAGE_AFFICHE_RA_DEFAUT = { position: 'devant', taille: 1.5 } as const satisfies import('./types').ReglageAfficheRA
+/** Animation d'affiche par défaut : devant l'affiche, 1,5 fois sa hauteur, sans déplacement. */
+export const REGLAGE_AFFICHE_RA_DEFAUT: Readonly<import('./types').ReglageAfficheRA> = { position: 'devant', taille: 1.5 }
+
+/**
+ * Déplacement maximal du modèle d'une animation d'affiche autour de l'affiche, en mètres : le visiteur
+ * la scanne entre 0,5 et 3 m (BNF-05), l'animation reste dans cette zone.
+ */
+export const RAYON_AFFICHE_M = 3

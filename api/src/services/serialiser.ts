@@ -120,7 +120,12 @@ export function serialiserAnimation(a: AnimationComplete, proprio: Proprietaires
     fin: versLocal(a.fin),
     statut: a.statut,
     transcription: { fr: a.transcription_fr, en: a.transcription_en ?? '', de: a.transcription_de ?? '' },
-    reglageAffiche: a.type === 'AFFICHE' ? { position: a.affiche_position === 'DESSUS' ? 'dessus' : 'devant', taille: Number(a.affiche_taille) } : undefined,
+    // Placement sur l'affiche : aussi pour une animation de lieu, qu'une affiche peut faire surgir.
+    reglageAffiche: {
+      position: a.affiche_position === 'DESSUS' ? 'dessus' : 'devant',
+      taille: Number(a.affiche_taille),
+      decalage: { x: Number(a.affiche_decalage_x), y: Number(a.affiche_decalage_y), z: Number(a.affiche_decalage_z) },
+    },
     placement:
       a.position_latitude !== null && a.position_longitude !== null
         ? {

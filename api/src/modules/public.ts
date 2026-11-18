@@ -52,10 +52,12 @@ routesPublic.get('/affiches', async (_req, res) => {
   const maintenant = new Date()
   const candidates = await prisma.affiche.findMany({
     where: { statut: 'PUBLIEE', debut: { lte: maintenant }, fin: { gte: maintenant }, compte: { statut: 'VERIFIE' } },
-    select: { id: true, nom: true, code_qr: true },
+    select: { id: true, nom: true, code_qr: true, animation_affiche_animation_affiche_idToanimation: { select: { statut: true, debut: true, fin: true } } },
   })
   const diffusees = []
   for (const a of candidates) {
+    // Même règle que l'ouverture par QR code : l'animation de l'affiche doit être diffusée elle aussi.
+    if (!animationActive(a.animation_affiche_animation_affiche_idToanimation, maintenant)) continue
     const c = await conditionsAffiche(a.id)
     if (c && publiable(c)) diffusees.push({ codeQr: a.code_qr, nom: a.nom })
   }
@@ -84,6 +86,10 @@ routesPublic.get('/affiches/:code', async (req, res) => {
     chargerProprietaires(),
   ])
   if (!animAffiche || !lieu) throw new ErreurApi(410, 'Animation indisponible.', { raison: 'EXPIREE' })
+  // L'animation de l'affiche suit sa propre diffusion : suspendue ou retirée par la mairie, elle n'est
+  // plus montrée, même par une affiche publiée (CR-11) ; désactivée ou hors de ses dates non plus.
+  if (animAffiche.statut === 'SUSPENDUE' || animAffiche.statut === 'RETIREE') throw new ErreurApi(410, 'Contenu retiré.', { raison: 'RETIREE' })
+  if (!animationActive(animAffiche, maintenant)) throw new ErreurApi(410, 'Animation expirée ou indisponible.', { raison: 'EXPIREE' })
   const [partenaire, cible] = await Promise.all([
     a.compte.role === 'PARTENAIRE' ? prisma.partenaire.findUnique({ where: { compte_id: a.proprietaire_id } }) : null,
     // Cible 8th Wall du visuel : le téléphone reconnaît l'affiche imprimée et y accroche l'animation.

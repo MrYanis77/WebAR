@@ -49,6 +49,9 @@ async function preparer(u: Utilisateur, d: DonneesAnimation) {
     // Animation d'affiche : position et taille par rapport à l'affiche reconnue.
     affiche_position: d.reglageAffiche?.position === 'dessus' ? ('DESSUS' as const) : ('DEVANT' as const),
     affiche_taille: d.reglageAffiche?.taille ?? 1.5,
+    affiche_decalage_x: d.reglageAffiche?.decalage?.x ?? 0,
+    affiche_decalage_y: d.reglageAffiche?.decalage?.y ?? 0,
+    affiche_decalage_z: d.reglageAffiche?.decalage?.z ?? 0,
     // Placement GPS en 3D : animation de lieu uniquement (une animation d'affiche suit l'affiche).
     ...(d.type === 'LIEU' && d.placement
       ? {

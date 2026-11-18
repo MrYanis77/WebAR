@@ -312,14 +312,19 @@ describe('Parcours affiche : création, conditions, publication, visiteur, modé
     // Réglage par défaut de l'animation d'affiche : devant l'affiche, 1,5 fois sa hauteur.
     const anim = await partenaire.c.post(`${API}/animations`).set('X-CSRF-Token', partenaire.jeton).send({ ...base, clipIndice: 0, publier: true }).expect(201)
     animAfficheId = anim.body.id
-    expect(anim.body.reglageAffiche).toEqual({ position: 'devant', taille: 1.5 })
+    expect(anim.body.reglageAffiche).toEqual({ position: 'devant', taille: 1.5, decalage: { x: 0, y: 0, z: 0 } })
+    // Déplacement autour de l'affiche, en mètres, dans le rayon de 3 m (BNF-05).
+    const decalage = { x: -1.2, y: 0.45, z: 0.8 }
     const regle = await partenaire.c
       .patch(`${API}/animations/${animAfficheId}`)
       .set('X-CSRF-Token', partenaire.jeton)
-      .send({ ...base, clipIndice: 0, publier: true, reglageAffiche: { position: 'dessus', taille: 2.5 } })
+      .send({ ...base, clipIndice: 0, publier: true, reglageAffiche: { position: 'dessus', taille: 2.5, decalage } })
       .expect(200)
-    expect(regle.body.reglageAffiche).toEqual({ position: 'dessus', taille: 2.5 })
-    expect((await partenaire.c.patch(`${API}/animations/${animAfficheId}`).set('X-CSRF-Token', partenaire.jeton).send({ ...base, reglageAffiche: { position: 'dessus', taille: 9 } })).status).toBe(400)
+    expect(regle.body.reglageAffiche).toEqual({ position: 'dessus', taille: 2.5, decalage })
+    const refuse = (reglageAffiche: object) => partenaire.c.patch(`${API}/animations/${animAfficheId}`).set('X-CSRF-Token', partenaire.jeton).send({ ...base, reglageAffiche })
+    expect((await refuse({ position: 'dessus', taille: 9 })).status).toBe(400)
+    // Chaque axe tient dans 3 m, mais le modèle serait à 3,46 m de l'affiche.
+    expect((await refuse({ position: 'devant', taille: 1.5, decalage: { x: 2, y: 2, z: 2 } })).status).toBe(400)
   })
 
   it('crée l’affiche avec un QR code unique généré par le serveur', async () => {

@@ -21,6 +21,17 @@
       "url": "https://localhost:5173"
     },
     {
+      "name": "webar-web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--port",
+        "5180",
+        "--strictPort"
+      ],
+      "port": 5180
+    },
+    {
       "name": "webar-build",
       "runtimeExecutable": "npx",
       "runtimeArgs": [

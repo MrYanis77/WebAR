@@ -221,7 +221,7 @@ export default function PageFichiers() {
                   <div>
                     <strong>Atelier 3D</strong>
                     <small>
-                      Taille, rotation, ancrage, vitesse, luminosité et optimisation
+                      Orientation, ancrage, vitesse, luminosité, optimisation, aperçu sur l’affiche ou au monument
                       {courant.optimisation?.etat === 'TERMINEE' ? ' · optimisé' : ''}
                       {courant.reglages3d ? ' · réglé' : ''}
                     </small>

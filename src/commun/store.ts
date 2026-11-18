@@ -128,6 +128,21 @@ export function animationActive(a: Animation, date = new Date()): boolean {
   return true
 }
 
+const jour = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
+
+/**
+ * Pourquoi l'animation d'une affiche ne sera pas (ou plus) montrée pendant la période de l'affiche :
+ * l'API ne la sert que si elle est publiée et dans ses propres dates. null : rien à signaler.
+ */
+export function alerteAnimationAffiche(anim: Animation | undefined, affiche: Pick<Affiche, 'debut' | 'fin'>): string | null {
+  if (!anim) return null
+  if (anim.statut === 'SUSPENDUE' || anim.statut === 'RETIREE') return `L’animation « ${anim.titre} » est ${anim.statut === 'SUSPENDUE' ? 'suspendue' : 'retirée'} par la mairie : le QR code affichera « contenu retiré ».`
+  if (anim.statut !== 'PUBLIEE') return `L’animation « ${anim.titre} » est désactivée (brouillon) : activez-la dans Animations, sinon le QR code affichera « animation expirée ».`
+  if (anim.fin && anim.fin < affiche.fin) return `L’animation « ${anim.titre} » se termine le ${jour(anim.fin)}, avant l’affiche (${jour(affiche.fin)}) : ensuite, le QR code affichera « animation expirée ».`
+  if (anim.debut > affiche.debut) return `L’animation « ${anim.titre} » ne commence que le ${jour(anim.debut)}, après la sortie de l’affiche (${jour(affiche.debut)}).`
+  return null
+}
+
 export type { ConditionsPublication }
 
 /** Conditions calculées par l'API (service reglePublication) ; brouillon non enregistré : rien n'est acquis. */
@@ -284,7 +299,8 @@ export async function enregistrerAnimation(a: Animation, publier: boolean) {
     debut: a.debut,
     fin: a.fin ?? null,
     transcription: a.transcription,
-    reglageAffiche: a.type === 'AFFICHE' ? (a.reglageAffiche ?? null) : null,
+    // Aussi pour une animation de lieu : une affiche peut la faire surgir.
+    reglageAffiche: a.reglageAffiche ?? null,
     placement: a.type === 'LIEU' && a.placement ? { ...a.placement, orientationDeg: a.placement.orientationDeg ?? null } : null,
     publier,
   }
