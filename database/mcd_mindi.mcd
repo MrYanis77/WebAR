@@ -1,0 +1,71 @@
+PROPOSER, 0N [zone proposée] ZONE D'AFFICHAGE, 01 AFFICHE
+:
+:
+:
+:
+CIBLE: id cible, chemin mind, orientation cible, cible créée le
+REPÉRER, 0N LIEU, 01 CIBLE
+LIEU: id lieu, nom lieu, nom court, catégorie fr, catégorie en, catégorie de, adresse lieu, description fr, description en, description de, latitude lieu, longitude lieu, rayon, accès libre, équipe domicile, équipe extérieur, score domicile, score extérieur, compétition, état match, score mis à jour le, actif, lieu créé le, lieu modifié le
+
+ZONE D'AFFICHAGE: id zone, nom zone, adresse zone, latitude zone, longitude zone, format max, règles, zone active
+ATTRIBUER, 0N ZONE D'AFFICHAGE, 01 AFFICHE
+:
+RECONNAÎTRE, 01 CIBLE, 01 AFFICHE
+PROMOUVOIR, 0N LIEU, 11 AFFICHE
+PHOTO FAÇADE: id photo, moment, détail photo
+PHOTOGRAPHIER, 0N LIEU, 11 PHOTO FAÇADE
+:
+
+CLIP: id clip, indice clip, nom clip, durée clip, nb pistes
+CONTENIR, 0N FICHIER, 11 CLIP
+STATISTIQUE: id statistique, type statistique, déclencheur statistique, heure
+COMPTER AFFICHE, 0N AFFICHE, 01 STATISTIQUE
+AFFICHE: id affiche, nom affiche, accroche, texte, code QR, format, QR x, QR y, QR taille, QR fond, QR mention, début affiche, fin affiche, statut affiche, chemin PDF, affiche créée le, affiche modifiée le
+SERVIR DE PHOTO, 0N FICHIER, 11 PHOTO FAÇADE
+ILLUSTRER, 0N [visuel] FICHIER, 01 LIEU
+:
+
+JOUER, 0N CLIP, 01 ANIMATION
+COMPTER ANIMATION, 0N ANIMATION, 01 STATISTIQUE
+:
+IMAGER, 0N [image] FICHIER, 11 AFFICHE
+FICHIER: id fichier, type fichier, usage fichier, nom original, dossier, chemin, chemin original, type MIME, taille octets, largeur px, hauteur px, nb triangles, texture max px, nb clips, durée son, statut contrôle, raison refus, contrôle terminé le, réglages 3D, optimisation, fichier créé le
+ANIMER, 0N [animation d'affiche] ANIMATION, 11 AFFICHE
+METTRE EN AVANT, 0N [spectacle du lieu] ANIMATION, 01 AFFICHE
+PLACER, 0N LIEU, 01 ANIMATION
+
+VISER AFFICHE, 0N AFFICHE, 01 DÉCISION
+SIGNALER AFFICHE, 0N AFFICHE, 01 SIGNALEMENT
+VISER FICHIER, 0N FICHIER, 01 DÉCISION
+SONORISER, 0N [son] FICHIER, 01 ANIMATION
+ANIMATION: id animation, titre, type animation, lecture, déclencheur, durée, début animation, fin animation, statut animation, transcription fr, transcription en, transcription de, position latitude, position longitude, position hauteur, position orientation, position taille, position sur affiche, taille sur affiche, décalage x, décalage y, décalage z, animation créée le, animation modifiée le
+MODÉLISER, 0N [modèle 3D] FICHIER, 11 ANIMATION
+POSSÉDER, 0N COMPTE, 11 FICHIER
+CRÉER AFFICHE, 0N [propriétaire] COMPTE, 11 AFFICHE
+
+:
+:
+VISER ANIMATION, 0N ANIMATION, 01 DÉCISION
+SIGNALEMENT: id signalement, motif signalement, commentaire, statut signalement, signalé le
+SIGNALER ANIMATION, 0N ANIMATION, 01 SIGNALEMENT
+CRÉER ANIMATION, 0N [propriétaire] COMPTE, 11 ANIMATION
+:
+PARTENAIRE: id partenaire, nom structure, secteur, adresse partenaire, téléphone contact
+
+DÉCISION: id décision, type contenu, action décision, motif décision, décidée le, réponse partenaire, réexamen demandé, réexamen clos le
+TRAITER, 0N DÉCISION, 0N SIGNALEMENT
+:
+:
+ENTRÉE JOURNAL: id entrée, libellé auteur, action journal, type objet, id objet, libellé objet, détails, entrée créée le
+AGIR, 0N COMPTE, 01 ENTRÉE JOURNAL
+COMPTE: id compte, email, mot de passe haché, rôle, statut compte, motif statut, nom affiché, échecs connexion, bloqué jusqu'à, dernière connexion, compte créé le
+REPRÉSENTER, 01 COMPTE, 11 PARTENAIRE
+
+:
+SESSION: id session, expiration, données session
+:
+DÉCIDER, 0N [agent] COMPTE, 11 DÉCISION
+VISER COMPTE, 0N [compte visé] COMPTE, 01 DÉCISION
+:
+ACCEPTER, 0N COMPTE, 11 ACCEPTATION CHARTE
+ACCEPTATION CHARTE: id acceptation, version charte, acceptée le

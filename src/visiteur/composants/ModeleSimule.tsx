@@ -7,7 +7,8 @@ import { useLangue } from '../../commun/i18n'
 import type { Animation } from '../../commun/types'
 import { chargerGlb, eclairer, ModeleAnime } from '../ra/contenu3d'
 
-export default function ModeleSimule({ animation, cycle }: { animation: Animation; cycle: number }) {
+/** centre : modèle cadré au milieu de la vue (prévisualisation de la fiche du lieu, sans caméra). */
+export default function ModeleSimule({ animation, cycle, centre = false }: { animation: Animation; cycle: number; centre?: boolean }) {
   const { t } = useLangue()
   const conteneur = useRef<HTMLDivElement>(null)
   const [erreur, setErreur] = useState(false)
@@ -37,6 +38,15 @@ export default function ModeleSimule({ animation, cycle }: { animation: Animatio
         modele.racine.scale.setScalar(1.3)
         modele.racine.position.y = -0.15
         scene.add(modele.racine)
+        if (centre) {
+          const boite = modele.boiteMonde()
+          const c = boite.getCenter(new THREE.Vector3())
+          modele.racine.position.x -= c.x
+          modele.racine.position.y -= c.y
+          modele.racine.position.z -= c.z
+          camera.position.set(0, 0.25, 3)
+          camera.lookAt(0, 0, 0)
+        }
         modele.lancer()
       })
       .catch(() => !annule && setErreur(true))
@@ -68,7 +78,7 @@ export default function ModeleSimule({ animation, cycle }: { animation: Animatio
       renderer.domElement.remove()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [animation.modeleUrl, animation.clipIndice, animation.lecture, animation.reglages3d, cycle])
+  }, [animation.modeleUrl, animation.clipIndice, animation.lecture, animation.reglages3d, cycle, centre])
 
   return (
     <div className="modele-ra" ref={conteneur} aria-hidden="true">

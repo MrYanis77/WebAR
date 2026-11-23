@@ -104,6 +104,23 @@ export const schemaOptimisation = z.object({
   compression: z.boolean(),
 })
 
+/** Studio d'assemblage : plusieurs modèles 3D, chacun à sa place, réunis en un seul GLB. */
+export const schemaAssemblage = z
+  .object({
+    nom: texte(120),
+    usage: z.enum(['AFFICHE', 'LIEU']),
+    elements: z
+      .array(z.object({ fichierId: zId, matrice: z.array(z.number().finite()).length(16) }))
+      .min(1, 'Ajoutez un modèle.')
+      .max(12, 'Douze modèles au plus.'),
+    /** Modèle modifié sur place (ses animations le gardent) ; absent : une copie est créée. */
+    remplacerId: zId.optional(),
+  })
+  .refine((d) => d.remplacerId || d.elements.length >= 2, { message: 'Ajoutez au moins deux modèles.', path: ['elements'] })
+
+/** Dossier de rangement d'un fichier ; vide ou null : hors dossier. */
+export const schemaDossier = z.object({ dossier: z.string().trim().max(80).nullable().transform((d) => d || null) })
+
 export const schemaPlacementGps = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),

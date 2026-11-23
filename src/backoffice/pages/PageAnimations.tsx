@@ -1,15 +1,22 @@
-import { lazy, Suspense, useMemo, useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Link } from 'react-router'
-import { BUDGETS_3D, MODELE_3D_MAX_MO, PLACEMENT_LIEU_DEFAUT, REGLAGE_AFFICHE_RA_DEFAUT } from '../../commun/constantes'
-import { EditeurPlacement3D } from '../composants/EditeurPlacement3D'
-import { EditeurPlacementAffiche } from '../composants/EditeurPlacementAffiche'
+import { BUDGETS_3D } from '../../commun/constantes'
 import { Icone } from '../../commun/Icone'
 import { messageErreur } from '../../commun/api'
-import { animationActive, attendreControle, basculerAnimation, enregistrerAnimation, importerFichier, nomProprietaire, supprimerAnimation, useEtat, validerFichier } from '../../commun/store'
-import type { Animation, Declencheur, PlacementGps, TypeAnimation } from '../../commun/types'
-const Atelier3D = lazy(() => import('../composants/Atelier3D'))
+import { animationActive, basculerAnimation, enregistrerAnimation, nomProprietaire, supprimerAnimation, useEtat } from '../../commun/store'
+import type { Animation, Declencheur, TypeAnimation } from '../../commun/types'
+import { SonEtDuree, useReglagesModele } from '../composants/atelier/OutilsAtelier'
 import { peutCreer, proprietaireDe, useSession } from '../session'
 import { BadgeStatut, DialogueSuppression, EnTetePage, formaterDate, formaterPoids, Interrupteur, maintenantLocal, Onglets, Recherche, Tiroir, useToast, Vide } from '../ui'
+
+const AtelierAffiche = lazy(() => import('../composants/atelier/AtelierAffiche'))
+const AtelierMonument = lazy(() => import('../composants/atelier/AtelierMonument'))
+
+const chargementAtelier = (
+  <div className="atelier-chargement statique">
+    <span className="spinner" /> Ouverture de l’atelier…
+  </div>
+)
 
 type Filtre = 'toutes' | 'actives' | 'programmees' | 'brouillons' | 'archivees'
 
@@ -209,9 +216,9 @@ export default function PageAnimations() {
 }
 
 /**
- * Formulaire d'une animation, en étapes numérotées : 1. type et lieu, 2. modèle 3D et son (réglages
- * dans l'atelier 3D), 3. placement (autour du bâtiment en 3D, ou par rapport à l'affiche), 4. diffusion,
- * 5. accessibilité. `lieuImpose` : ouvert depuis un monument, l'animation lui est rattachée.
+ * Formulaire d'une animation, en étapes numérotées : 1. type et lieu, 2. modèle et placement 3D (dans
+ * l'atelier : position, rotation, taille, rendu, fichier — le même que dans la création d'affiche et de
+ * monument), 3. son et accessibilité, 4. diffusion. `lieuImpose` : l'animation reste rattachée à son monument.
  */
 export function EditeurAnimation({
   animation,
@@ -231,89 +238,16 @@ export function EditeurAnimation({
   const session = useSession()
   const agent = session.role === 'AGENT'
   const [a, setA] = useState<Animation>(animation)
-  const [langue, setLangue] = useState<'fr' | 'en' | 'de'>('fr')
   const [tente, setTente] = useState(false)
   const [envoi, setEnvoi] = useState(false)
   const [erreurServeur, setErreurServeur] = useState<string | null>(null)
-  /** Import en cours depuis le formulaire : type de fichier et progression de l'envoi (0 à 1). */
-  const [importEnCours, setImportEnCours] = useState<{ type: 'MODELE_3D' | 'SON'; progression: number; etape: string } | null>(null)
-  const [erreurImport, setErreurImport] = useState<string | null>(null)
   const maj = (p: Partial<Animation>) => setA((x) => ({ ...x, ...p }))
-  /** Modèle ouvert dans l'atelier 3D depuis ce formulaire. */
-  const [atelier, setAtelier] = useState(false)
-
-  /**
-   * Import direct d'un modèle GLB (ou d'un son) depuis le formulaire : envoi à l'API, contrôle
-   * automatique (glTF-Validator, triangles, animations / ffprobe), puis validation et sélection.
-   * L'aperçu 3D détaillé reste disponible dans « Fichiers 3D & sons ».
-   */
-  async function importerDepuisFormulaire(fichier: File, type: 'MODELE_3D' | 'SON') {
-    setErreurImport(null)
-    const ext = fichier.name.split('.').pop()?.toLowerCase() ?? ''
-    if (type === 'MODELE_3D' && ext !== 'glb') return setErreurImport('Le modèle 3D doit être un fichier GLB (glTF 2.0 binaire).')
-    if (type === 'SON' && !['mp3', 'm4a', 'aac'].includes(ext)) return setErreurImport('Le son doit être un fichier MP3 ou AAC (M4A).')
-    if (type === 'MODELE_3D' && fichier.size > MODELE_3D_MAX_MO * 1_000_000)
-      return setErreurImport(`Fichier de ${formaterPoids(fichier.size)} : ${MODELE_3D_MAX_MO} Mo maximum pour un modèle 3D.`)
-    try {
-      setImportEnCours({ type, progression: 0, etape: 'Envoi' })
-      const cree = await importerFichier(fichier, a.type, (progression) => setImportEnCours({ type, progression, etape: 'Envoi' }))
-      setImportEnCours({ type, progression: 1, etape: 'Contrôle automatique' })
-      const controle = await attendreControle(cree.id, 5 * 60_000)
-      if (controle.statutControle === 'REFUSE') throw new Error(`« ${fichier.name} » refusé : ${controle.raisonRefus ?? 'fichier non conforme'}.`)
-      if (controle.statutControle !== 'CONFORME') await validerFichier(cree.id)
-      if (type === 'MODELE_3D') maj({ modeleId: cree.id, clipIndice: undefined })
-      else maj({ sonId: cree.id })
-    } catch (e) {
-      setErreurImport(messageErreur(e))
-    } finally {
-      setImportEnCours(null)
-    }
-  }
-
-  /** Bouton « Importer » associé à une liste de fichiers (input caché). */
-  const boutonImport = (type: 'MODELE_3D' | 'SON') => (
-    <label className={`bouton-import-champ ${importEnCours ? 'inactif' : ''}`}>
-      {importEnCours?.type === type ? (
-        <>
-          <span className="spinner" /> {importEnCours.etape}
-          {importEnCours.etape === 'Envoi' ? ` ${Math.round(importEnCours.progression * 100)} %` : '…'}
-        </>
-      ) : (
-        <>
-          <Icone nom="import" taille={14} /> {type === 'MODELE_3D' ? 'Importer un GLB' : 'Importer un son'}
-        </>
-      )}
-      <input
-        type="file"
-        hidden
-        disabled={!!importEnCours}
-        accept={type === 'MODELE_3D' ? '.glb,model/gltf-binary' : '.mp3,.m4a,.aac,audio/*'}
-        onChange={(e) => {
-          const f = e.target.files?.[0]
-          if (f) void importerDepuisFormulaire(f, type)
-          e.target.value = ''
-        }}
-      />
-    </label>
-  )
-
-  const fichiers = useMemo(
-    () => etat.fichiers.filter((f) => f.statutControle === 'CONFORME' && (agent || f.proprietaireId === session.partenaireId)),
-    [etat.fichiers, agent, session.partenaireId],
-  )
-  const modeles = fichiers.filter((f) => f.type === 'MODELE_3D')
-  const clipsModele = etat.fichiers.find((f) => f.id === a.modeleId)?.clips ?? []
-  const sons = fichiers.filter((f) => f.type === 'SON')
-  const budget = BUDGETS_3D[a.type]
-  const poids = (etat.fichiers.find((f) => f.id === a.modeleId)?.tailleOctets ?? 0) + (etat.fichiers.find((f) => f.id === a.sonId)?.tailleOctets ?? 0)
-  const tri = etat.fichiers.find((f) => f.id === a.modeleId)?.nbTriangles ?? 0
-  const lieuChoisi = etat.lieux.find((l) => l.id === a.lieuId)
-  // Modèle dessiné sur la carte de placement, avec ses réglages de l'atelier 3D.
   const fichierModele = etat.fichiers.find((f) => f.id === a.modeleId)
-  const modeleCarte = useMemo(
-    () => (fichierModele ? { modeleUrl: fichierModele.url, reglages3d: fichierModele.reglages3d, clipIndice: a.clipIndice, lecture: a.lecture } : undefined),
-    [fichierModele, a.clipIndice, a.lecture],
-  )
+  const modele = useReglagesModele(fichierModele)
+  const lieuChoisi = etat.lieux.find((l) => l.id === a.lieuId)
+  const budget = BUDGETS_3D[a.type]
+  const poids = (fichierModele?.tailleOctets ?? 0) + (etat.fichiers.find((f) => f.id === a.sonId)?.tailleOctets ?? 0)
+  const tri = fichierModele?.nbTriangles ?? 0
 
   const erreurs = {
     titre: !a.titre.trim(),
@@ -336,6 +270,7 @@ export function EditeurAnimation({
     if (!valide) return
     setEnvoi(true)
     try {
+      if (fichierModele && (agent || fichierModele.proprietaireId === session.partenaireId)) await modele.enregistrer()
       await onEnregistrer(a, publier)
     } catch (e) {
       setErreurServeur(messageErreur(e))
@@ -344,12 +279,14 @@ export function EditeurAnimation({
     }
   }
 
+  const atelierCommun = { animation: a, onAnimation: maj, reglages3d: modele.reglages, onReglages3d: modele.setReglages, compact: true, erreurModele: tente && erreurs.modele }
+
   return (
     <Tiroir
       ouvert
       large
       titre={animation.titre ? `Modifier « ${animation.titre} »` : a.type === 'LIEU' ? 'Nouvelle animation de monument' : 'Nouvelle animation d’affiche'}
-      sousTitre="Suivez les étapes : modèle, placement, diffusion. Rien n’est visible des visiteurs avant « Enregistrer et activer »."
+      sousTitre="Suivez les étapes : modèle et placement 3D, son, diffusion. Rien n’est visible des visiteurs avant « Enregistrer et activer »."
       onFermer={onFermer}
       pied={
         <>
@@ -379,7 +316,7 @@ export function EditeurAnimation({
             <span className="etiquette">Titre</span>
             <input value={a.titre} onChange={(e) => maj({ titre: e.target.value })} maxLength={120} placeholder={a.type === 'LIEU' ? 'Ex. La légende des lumières' : 'Ex. Le traîneau du marché de Noël'} />
           </label>
-          {!lieuImpose && (
+          {!lieuImpose && !a.id && (
             <div className="choix-type">
               {(['LIEU', 'AFFICHE'] as const).map((t) => (
                 <button
@@ -419,121 +356,57 @@ export function EditeurAnimation({
               </label>
             </div>
           )}
-        </section>
-
-        <section className="etape-formulaire">
-          <h3>
-            <span>2</span> Modèle 3D et son
-          </h3>
-          {erreurImport && (
-            <p className="erreur-acces" role="alert">
-              <Icone nom="alerte" taille={15} />
-              {erreurImport}
+          {affichesLiees.length > 0 && (
+            <p className="note-partage">
+              <Icone nom="affiche" taille={14} /> Sort de {affichesLiees.length > 1 ? 'ces affiches' : 'l’affiche'} :{' '}
+              {affichesLiees.map((x, i) => (
+                <span key={x.id}>
+                  {i > 0 && ', '}
+                  <Link to={`/backoffice/affiches/${x.id}`} state={{ etape: 3 }}>
+                    « {x.nom} »
+                  </Link>
+                </span>
+              ))}
             </p>
           )}
-          <div className="grille-champs">
-            <label className={`champ ${tente && erreurs.modele ? 'erreur' : ''}`}>
-              <span className="etiquette">
-                Modèle 3D {boutonImport('MODELE_3D')}
-              </span>
-              <select value={a.modeleId ?? ''} onChange={(e) => maj({ modeleId: e.target.value || undefined, clipIndice: undefined })}>
-                <option value="">Choisir un modèle conforme…</option>
-                {modeles.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.nomOriginal} · {formaterPoids(f.tailleOctets)}
-                    {f.clips?.length ? ` · ${f.clips.length} animation${f.clips.length > 1 ? 's' : ''}` : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="champ">
-              <span className="etiquette">
-                Son <small>Facultatif</small> {boutonImport('SON')}
-              </span>
-              <select value={a.sonId ?? ''} onChange={(e) => maj({ sonId: e.target.value || undefined })}>
-                <option value="">Aucun son</option>
-                {sons.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.nomOriginal} · {f.dureeS} s
-                  </option>
-                ))}
-              </select>
-            </label>
-            {clipsModele.length > 0 && (
-              <>
-                <label className="champ">
-                  <span className="etiquette">
-                    Animation du modèle <small>Intégrée au fichier GLB</small>
-                  </span>
-                  <select value={a.clipIndice ?? ''} onChange={(e) => maj({ clipIndice: e.target.value === '' ? undefined : Number(e.target.value) })}>
-                    <option value="">Toutes les animations ensemble</option>
-                    {clipsModele.map((c, i) => (
-                      <option key={`${i}-${c.nom}`} value={c.indice ?? i}>
-                        {c.nom} · {c.dureeS.toString().replace('.', ',')} s
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="champ">
-                  <span className="etiquette">Lecture</span>
-                  <select value={a.lecture ?? 'BOUCLE'} onChange={(e) => maj({ lecture: e.target.value as 'BOUCLE' | 'UNE_FOIS' })}>
-                    <option value="BOUCLE">En boucle pendant la durée de l’animation</option>
-                    <option value="UNE_FOIS">Une seule fois</option>
-                  </select>
-                </label>
-              </>
-            )}
-          </div>
-          {fichierModele && (
-            <div className="ouvrir-atelier">
-              <div>
-                <strong>Orientation, ancrage, vitesse, luminosité, optimisation</strong>
-                <small>
-                  Redressez le modèle s’il est couché ou tourné, allégez-le si besoin, en le voyant {a.type === 'AFFICHE' ? 'sur l’affiche' : 'au monument'}. La taille se règle à l’étape 3.
-                </small>
-              </div>
-              <button type="button" className="btn btn-secondaire" onClick={() => setAtelier(true)}>
-                <Icone nom="reglages" taille={15} /> Régler dans l’atelier 3D
-              </button>
-            </div>
-          )}
-          <div className={`budget ${erreurs.budget ? 'depasse' : ''}`}>
-            <small>Budget {a.type === 'AFFICHE' ? 'animation d’affiche' : 'animation de monument'}</small>
-            <div>
-              <span>
-                {formaterPoids(poids)} / {budget.poidsMo} Mo
-              </span>
-              <span>
-                {tri.toLocaleString('fr-FR')} / {budget.triangles.toLocaleString('fr-FR')} triangles
-              </span>
-            </div>
-          </div>
         </section>
 
         <section className="etape-formulaire">
           <h3>
-            <span>3</span> {a.type === 'LIEU' ? 'Placement autour du bâtiment' : 'Placement sur l’affiche'}
+            <span>2</span> {a.type === 'LIEU' ? 'Modèle et placement autour du bâtiment' : 'Modèle et placement sur l’affiche'}
           </h3>
-          {a.type === 'LIEU' && lieuChoisi && <PositionEspace placement={a.placement} lieu={lieuChoisi} modele={modeleCarte} onChange={(placement) => maj({ placement })} />}
+          <p className="aide">Choisissez le modèle, puis réglez sa position, sa rotation et sa taille avec les outils de l’atelier.</p>
+          <Suspense fallback={chargementAtelier}>
+            {a.type === 'AFFICHE' && <AtelierAffiche {...atelierCommun} />}
+            {a.type === 'LIEU' && lieuChoisi && <AtelierMonument {...atelierCommun} lieu={lieuChoisi} />}
+          </Suspense>
           {a.type === 'LIEU' && !lieuChoisi && <p className="aide">Choisissez d’abord le monument.</p>}
-          {a.type === 'LIEU' && (
-            <details className="placement-sur-affiche" open={placementAffiche} onToggle={(e) => setPlacementAffiche(e.currentTarget.open)}>
+          {a.type === 'LIEU' && a.modeleId && (
+            <details className="details-etape" open={placementAffiche} onToggle={(e) => setPlacementAffiche(e.currentTarget.open)}>
               <summary>
-                Quand elle sort d’une affiche
-                <small>
-                  {affichesLiees.length
-                    ? `utilisée par ${affichesLiees.length} affiche${affichesLiees.length > 1 ? 's' : ''} : ${affichesLiees.map((x) => `« ${x.nom} »`).join(', ')}`
-                    : 'si une affiche la choisit comme animation'}
-                </small>
+                <Icone nom="affiche" taille={16} />
+                <strong>Quand elle sort d’une affiche</strong>
+                <small>{affichesLiees.length ? `utilisée par ${affichesLiees.length} affiche${affichesLiees.length > 1 ? 's' : ''}` : 'si une affiche la choisit comme animation'}</small>
               </summary>
               {placementAffiche && (
-                <EditeurPlacementAffiche reglage={a.reglageAffiche ?? REGLAGE_AFFICHE_RA_DEFAUT} modele={modeleCarte} animationId={a.id || undefined} onChange={(reglageAffiche) => maj({ reglageAffiche })} />
+                <Suspense fallback={chargementAtelier}>
+                  <AtelierAffiche {...atelierCommun} choixModele={false} />
+                </Suspense>
               )}
             </details>
           )}
-          {a.type === 'AFFICHE' && (
-            <EditeurPlacementAffiche reglage={a.reglageAffiche ?? REGLAGE_AFFICHE_RA_DEFAUT} modele={modeleCarte} animationId={a.id || undefined} onChange={(reglageAffiche) => maj({ reglageAffiche })} />
+          {tente && erreurs.budget && (
+            <p className="erreur-acces" role="alert">
+              <Icone nom="alerte" taille={15} /> {formaterPoids(poids)} et {tri.toLocaleString('fr-FR')} triangles : au-delà du budget ({budget.poidsMo} Mo, {budget.triangles.toLocaleString('fr-FR')} triangles). Allégez le modèle avec l’outil « Fichier ».
+            </p>
           )}
+        </section>
+
+        <section className={`etape-formulaire ${tente && erreurs.transcription ? 'erreur' : ''}`}>
+          <h3>
+            <span>3</span> Son et durée <small>{a.sonId ? 'transcription FR obligatoire' : 'son facultatif'}</small>
+          </h3>
+          <SonEtDuree animation={a} onChange={maj} tente={tente} />
         </section>
 
         <section className="etape-formulaire">
@@ -541,11 +414,6 @@ export function EditeurAnimation({
             <span>4</span> Diffusion
           </h3>
           <div className="grille-champs">
-            <label className="champ">
-              <span className="etiquette">Durée de l’animation (secondes)</span>
-              <input type="number" min={5} max={1800} value={a.dureeS} onChange={(e) => maj({ dureeS: Number(e.target.value) })} />
-            </label>
-            <span />
             <label className="champ">
               <span className="etiquette">Date et heure de sortie</span>
               <input type="datetime-local" value={versLocal(a.debut)} onChange={(e) => maj({ debut: `${e.target.value}:00` })} />
@@ -559,33 +427,12 @@ export function EditeurAnimation({
             </label>
           </div>
         </section>
-
-        <section className={`etape-formulaire transcriptions ${tente && erreurs.transcription ? 'erreur' : ''}`}>
-          <h3>
-            <span>5</span> Transcription du son <small>{a.sonId ? 'accessibilité, FR obligatoire' : 'facultative : aucun son choisi'}</small>
-          </h3>
-          <Onglets
-            valeur={langue}
-            onChange={setLangue}
-            options={[
-              { id: 'fr', libelle: `Français${a.transcription.fr ? ' ✓' : ''}` },
-              { id: 'en', libelle: `English${a.transcription.en ? ' ✓' : ''}` },
-              { id: 'de', libelle: `Deutsch${a.transcription.de ? ' ✓' : ''}` },
-            ]}
-          />
-          <textarea
-            value={a.transcription[langue]}
-            onChange={(e) => maj({ transcription: { ...a.transcription, [langue]: e.target.value } })}
-            rows={3}
-            placeholder="Décrivez les sons et la narration pour les personnes sourdes ou malentendantes…"
-          />
-        </section>
         {tente && !valide && (
           <p className="erreur-acces" role="alert">
             <Icone nom="alerte" taille={15} />
             {erreurs.budget
-              ? 'Les fichiers dépassent le budget 3D de ce type d’animation : allégez le modèle dans l’atelier 3D.'
-              : `À compléter : ${[erreurs.titre && 'titre (1)', erreurs.lieu && 'monument (1)', erreurs.modele && 'modèle 3D (2)', erreurs.dates && 'dates (4)', erreurs.transcription && 'transcription française du son (5)'].filter(Boolean).join(', ')}.`}
+              ? 'Les fichiers dépassent le budget 3D de ce type d’animation : allégez le modèle avec l’outil « Fichier » de l’atelier.'
+              : `À compléter : ${[erreurs.titre && 'titre (1)', erreurs.lieu && 'monument (1)', erreurs.modele && 'modèle 3D (2)', erreurs.transcription && 'transcription française du son (3)', erreurs.dates && 'dates (4)'].filter(Boolean).join(', ')}.`}
           </p>
         )}
         {erreurServeur && (
@@ -595,46 +442,6 @@ export function EditeurAnimation({
           </p>
         )}
       </div>
-      {atelier && fichierModele && (
-        <Suspense fallback={null}>
-          <Atelier3D key={fichierModele.id} fichier={fichierModele} animation={a} onReglageAffiche={(reglageAffiche) => maj({ reglageAffiche })} onFermer={() => setAtelier(false)} />
-        </Suspense>
-      )}
     </Tiroir>
-  )
-}
-
-/**
- * Placement en 3D d'une animation de lieu : le modèle est dessiné sur une carte satellite avec les
- * bâtiments en relief ; on le place où l'on veut autour du bâtiment (position, hauteur, orientation,
- * taille). Le téléphone du visiteur le pose à cet endroit (GPS + boussole, repère SLAM) dès qu'il est
- * dans le rayon du monument.
- */
-function PositionEspace({
-  placement,
-  lieu,
-  modele,
-  onChange,
-}: {
-  placement?: PlacementGps
-  lieu: { nom: string; latitude: number; longitude: number; rayonM: number }
-  modele?: Pick<Animation, 'modeleUrl' | 'reglages3d' | 'clipIndice' | 'lecture'>
-  onChange: (p: PlacementGps | undefined) => void
-}) {
-  // Nouvelle position personnalisée : posée au sol, à côté du point du lieu, face au sud.
-  const nouveau: PlacementGps = { latitude: lieu.latitude, longitude: lieu.longitude, hauteurM: 0, tailleM: PLACEMENT_LIEU_DEFAUT.tailleM, orientationDeg: 180 }
-  return (
-    <fieldset className="position-espace">
-      <legend>Placement de l’animation autour du bâtiment (3D)</legend>
-      <label className="case-a-cocher">
-        <input type="checkbox" checked={!!placement} onChange={(e) => onChange(e.target.checked ? nouveau : undefined)} />
-        Placer l’animation moi-même
-        <small>
-          Sinon : au-dessus du point du lieu « {lieu.nom} », à {PLACEMENT_LIEU_DEFAUT.hauteurM} m de haut, {PLACEMENT_LIEU_DEFAUT.tailleM} m de taille, face au visiteur.
-        </small>
-      </label>
-      {placement && <EditeurPlacement3D placement={placement} lieu={lieu} modele={modele} onChange={onChange} />}
-      <small className="aide-champ">Sur le téléphone, la précision dépend du GPS et de la boussole (quelques mètres).</small>
-    </fieldset>
   )
 }

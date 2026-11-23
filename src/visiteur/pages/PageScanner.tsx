@@ -44,17 +44,21 @@ export default function PageScanner() {
         <h2 className="sous-titre-section">{t('scanner.lieu')}</h2>
         {lieux.map((l) => {
           const { active } = animationsDuLieu(etat, l.id)
+          const distance = coords ? distanceM(coords, l) : null
+          // Le scan n'est proposé que dans le rayon du lieu ; ailleurs, la fiche propose l'aperçu et l'itinéraire.
+          const dansZone = distance !== null && distance <= l.rayonM
           return (
-            <button key={l.id} type="button" className="choix-scan" disabled={!active} onClick={() => navigate(`/lieux/${l.id}/ra`)}>
+            <button key={l.id} type="button" className="choix-scan" disabled={!active} onClick={() => navigate(dansZone ? `/lieux/${l.id}/ra` : `/lieux/${l.id}`)}>
               {l.image ? <img src={l.image} alt="" /> : <span className="icone-choix"><Icone nom="pin" taille={24} /></span>}
               <div>
                 <strong>{l.nom}</strong>
                 <small>
                   {active ? active.titre : t('carte.aucunSpectacle')} · {tr(l.categorie)}
-                  {coords && ` · ${formaterDistance(distanceM(coords, l))}`}
+                  {distance !== null && ` · ${formaterDistance(distance)}`}
                 </small>
+                {active && <small className={dansZone ? 'dans-zone' : ''}>{dansZone ? t('carte.dansZone') : t('carte.horsZone', { r: l.rayonM })}</small>}
               </div>
-              <Icone nom="scan" taille={18} />
+              <Icone nom={dansZone ? 'scan' : 'droite'} taille={18} />
             </button>
           )
         })}

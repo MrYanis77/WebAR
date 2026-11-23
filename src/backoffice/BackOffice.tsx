@@ -7,12 +7,14 @@ import './backoffice.css'
 import { signalementsDuPartenaire } from './session'
 import { PageConnexion, PageInscription } from './pages/Acces'
 import PageAffiches from './pages/PageAffiches'
-import PageAnimations from './pages/PageAnimations'
 import PageCharte from './pages/PageCharte'
 import PageEditeurAffiche from './pages/PageEditeurAffiche'
+import PageEditeurMonument from './pages/PageEditeurMonument'
 import PageFichiers from './pages/PageFichiers'
 import PageJournal from './pages/PageJournal'
 import PageLieux from './pages/PageLieux'
+import PageAnimationsMonuments from './pages/PageAnimationsMonuments'
+import { PageAttributions, PageZones } from './pages/PageZones'
 import PageMesSignalements from './pages/PageMesSignalements'
 import PageModeration from './pages/PageModeration'
 import PagePartenaires from './pages/PagePartenaires'
@@ -25,25 +27,53 @@ import PageVoirAffiche from './pages/PageVoirAffiche'
 interface ElementNav {
   to: string
   libelle: string
+  /** Libellé montré aux partenaires, s'il diffère. */
+  libellePartenaire?: string
   icone: NomIcone
   role?: Role
   badge?: (e: EtatDonnees, s: Session) => number
+  /** Sous-menu : le parent s'ouvre et se ferme, il ne mène à aucune page. */
+  sous?: ElementNav[]
+  /** Lien exact (n'est pas actif sur les sous-pages). */
+  exact?: boolean
 }
+
+const attenteZone = (e: EtatDonnees) => e.affiches.filter((a) => a.zoneProposeeId || (!a.zoneId && a.proprietaireId !== 'ville')).length
 
 const NAVIGATION: { groupe?: string; elements: ElementNav[] }[] = [
   { elements: [{ to: '/backoffice', libelle: 'Vue d’ensemble', icone: 'grille' }] },
   {
     groupe: 'Contenus',
     elements: [
-      { to: '/backoffice/animations', libelle: 'Animations', icone: 'couches' },
-      { to: '/backoffice/affiches', libelle: 'Affiches', icone: 'affiche' },
+      // Un monument sert à placer une animation 3D ; une zone d'affichage sert aux affiches.
+      {
+        to: '/backoffice/lieux',
+        libelle: 'Monuments',
+        icone: 'pin',
+        role: 'AGENT',
+        sous: [
+          { to: '/backoffice/lieux', libelle: 'Tous les monuments', icone: 'carte', exact: true },
+          { to: '/backoffice/lieux/animations', libelle: 'Animations 3D', icone: 'cube' },
+          { to: '/backoffice/lieux/nouveau', libelle: 'Créer un monument', icone: 'plus' },
+        ],
+      },
+      {
+        to: '/backoffice/affiches',
+        libelle: 'Affiches',
+        icone: 'affiche',
+        sous: [
+          { to: '/backoffice/affiches', libelle: 'Toutes les affiches', libellePartenaire: 'Mes affiches', icone: 'affiche', exact: true },
+          { to: '/backoffice/affiches/nouvelle', libelle: 'Créer une affiche', icone: 'plus' },
+          { to: '/backoffice/affiches/zones', libelle: 'Zones d’affichage', icone: 'zone', role: 'AGENT' },
+          { to: '/backoffice/affiches/attributions', libelle: 'Zones à attribuer', icone: 'drapeau', role: 'AGENT', badge: attenteZone },
+        ],
+      },
       { to: '/backoffice/fichiers', libelle: 'Fichiers 3D & sons', icone: 'cube' },
     ],
   },
   {
     groupe: 'Ville',
     elements: [
-      { to: '/backoffice/lieux', libelle: 'Monuments & zones', icone: 'carte', role: 'AGENT', badge: (e) => e.affiches.filter((a) => a.zoneProposeeId || (!a.zoneId && a.proprietaireId !== 'ville')).length },
       { to: '/backoffice/score', libelle: 'Score du match', icone: 'trophee', role: 'AGENT' },
     ],
   },
@@ -99,6 +129,47 @@ function Notifications() {
   )
 }
 
+function LienNav({ element: e, etat, session, sous = false }: { element: ElementNav; etat: EtatDonnees; session: Session; sous?: boolean }) {
+  const badge = e.badge?.(etat, session) ?? 0
+  return (
+    <NavLink to={e.to} end={e.exact || e.to === '/backoffice'} className={sous ? 'sous-lien' : undefined}>
+      <Icone nom={e.icone} taille={sous ? 15 : 18} />
+      {session.role === 'PARTENAIRE' ? (e.libellePartenaire ?? e.libelle) : e.libelle}
+      {badge > 0 && <b>{badge}</b>}
+    </NavLink>
+  )
+}
+
+/** Entrée à sous-menu : ouverte d'office quand on est dans l'une de ses pages. */
+function SousMenu({ element: e, etat, session }: { element: ElementNav; etat: EtatDonnees; session: Session }) {
+  const { pathname } = useLocation()
+  const dedans = pathname === e.to || pathname.startsWith(`${e.to}/`)
+  const [ouvert, setOuvert] = useState(dedans)
+  useEffect(() => {
+    if (dedans) setOuvert(true)
+  }, [dedans])
+  const sous = (e.sous ?? []).filter((x) => !x.role || x.role === session.role)
+  const badge = sous.reduce((n, x) => n + (x.badge?.(etat, session) ?? 0), 0)
+  const id = `sous-menu-${e.to.split('/').pop()}`
+  return (
+    <div className={`groupe-sous-menu ${dedans ? 'dedans' : ''}`}>
+      <button type="button" className="parent-sous-menu" aria-expanded={ouvert} aria-controls={id} onClick={() => setOuvert(!ouvert)}>
+        <Icone nom={e.icone} taille={18} />
+        {e.libelle}
+        {!ouvert && badge > 0 && <b>{badge}</b>}
+        <Icone nom={ouvert ? 'haut' : 'bas'} taille={15} className="chevron" />
+      </button>
+      {ouvert && (
+        <div id={id} className="liste-sous-menu">
+          {sous.map((x) => (
+            <LienNav key={x.to} element={x} etat={etat} session={session} sous />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MiseEnPage({ session, children }: { session: Session; children: ReactNode }) {
   const etat = useEtat()
   const navigate = useNavigate()
@@ -119,8 +190,8 @@ function MiseEnPage({ session, children }: { session: Session; children: ReactNo
         <Link to="/backoffice" className="bo-logo">
           <span className="marque">M</span>
           <span>
-            <strong>MONTBÉLIARD</strong>
-            <small>EXPÉRIENCES</small>
+            <strong>MINDI</strong>
+            <small>BACK-OFFICE</small>
           </span>
         </Link>
         <div className="bo-espace">
@@ -140,16 +211,13 @@ function MiseEnPage({ session, children }: { session: Session; children: ReactNo
             return (
               <div key={gi}>
                 {g.groupe && <span className="bo-groupe">{g.groupe}</span>}
-                {elements.map((e) => {
-                  const badge = e.badge?.(etat, session) ?? 0
-                  return (
-                    <NavLink key={e.to} to={e.to} end={e.to === '/backoffice'}>
-                      <Icone nom={e.icone} taille={18} />
-                      {e.libelle}
-                      {badge > 0 && <b>{badge}</b>}
-                    </NavLink>
-                  )
-                })}
+                {elements.map((e) =>
+                  e.sous ? (
+                    <SousMenu key={e.to} element={e} etat={etat} session={session} />
+                  ) : (
+                    <LienNav key={e.to} element={e} etat={etat} session={session} />
+                  ),
+                )}
               </div>
             )
           })}
@@ -182,7 +250,7 @@ function MiseEnPage({ session, children }: { session: Session; children: ReactNo
           <button type="button" className="bo-icone" onClick={() => setMenuOuvert(!menuOuvert)} aria-label="Menu">
             <Icone nom="menu" taille={20} />
           </button>
-          <strong>Montbéliard Expériences</strong>
+          <strong>Mindi</strong>
           <Notifications />
         </div>
         <div className="bo-notif-bureau">
@@ -200,6 +268,12 @@ function MiseEnPage({ session, children }: { session: Session; children: ReactNo
       <button type="button" className="bo-voile-menu" aria-label="Fermer le menu" onClick={() => setMenuOuvert(false)} />
     </div>
   )
+}
+
+/** Ancienne page « Animations » : elle est désormais rangée avec les monuments (mairie) ou les affiches. */
+function RedirectionAnimations() {
+  const { session } = useEtat()
+  return <Navigate to={session?.role === 'AGENT' ? '/backoffice/lieux' : '/backoffice/affiches'} replace />
 }
 
 function PageInterdite() {
@@ -234,9 +308,9 @@ function Protegee({ role, sansMenu, children }: { role?: Role; sansMenu?: boolea
 
 export default function BackOffice() {
   useEffect(() => {
-    document.title = 'Back-office — Montbéliard Expériences'
+    document.title = 'Back-office — Mindi'
     return () => {
-      document.title = 'Montbéliard Expériences'
+      document.title = 'Mindi'
     }
   }, [])
   return (
@@ -244,8 +318,11 @@ export default function BackOffice() {
       <Route path="connexion" element={<PageConnexion />} />
       <Route path="inscription" element={<PageInscription />} />
       <Route index element={<Protegee><PageTableauDeBord /></Protegee>} />
-      <Route path="animations" element={<Protegee><PageAnimations /></Protegee>} />
+      {/* Animations de monument : avec les monuments ; animations d'affiche : avec les affiches. */}
+      <Route path="animations" element={<Protegee><RedirectionAnimations /></Protegee>} />
       <Route path="affiches" element={<Protegee><PageAffiches /></Protegee>} />
+      <Route path="affiches/zones" element={<Protegee role="AGENT"><PageZones /></Protegee>} />
+      <Route path="affiches/attributions" element={<Protegee role="AGENT"><PageAttributions /></Protegee>} />
       <Route path="affiches/nouvelle" element={<Protegee><PageEditeurAffiche /></Protegee>} />
       <Route path="affiches/:id" element={<Protegee><PageEditeurAffiche /></Protegee>} />
       <Route path="affiches/:id/voir" element={<Protegee sansMenu><PageVoirAffiche /></Protegee>} />
@@ -254,6 +331,9 @@ export default function BackOffice() {
       <Route path="charte" element={<Protegee><PageCharte /></Protegee>} />
       <Route path="mes-signalements" element={<Protegee role="PARTENAIRE"><PageMesSignalements /></Protegee>} />
       <Route path="lieux" element={<Protegee role="AGENT"><PageLieux /></Protegee>} />
+      <Route path="lieux/animations" element={<Protegee role="AGENT"><PageAnimationsMonuments /></Protegee>} />
+      <Route path="lieux/nouveau" element={<Protegee role="AGENT"><PageEditeurMonument /></Protegee>} />
+      <Route path="lieux/:id" element={<Protegee role="AGENT"><PageEditeurMonument /></Protegee>} />
       <Route path="score" element={<Protegee role="AGENT"><PageScore /></Protegee>} />
       <Route path="partenaires" element={<Protegee role="AGENT"><PagePartenaires /></Protegee>} />
       <Route path="signalements" element={<Protegee role="AGENT"><PageSignalements /></Protegee>} />

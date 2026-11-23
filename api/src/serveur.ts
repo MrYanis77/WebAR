@@ -5,6 +5,6 @@ import { journalApi } from './journaux.js'
 import { reprendreControles } from './traitements/controleFichiers.js'
 
 creerApplication().listen(config.port, () => {
-  journalApi.info(`API Montbéliard Expériences sur http://localhost:${config.port}/api/v1`)
+  journalApi.info(`API Mindi sur http://localhost:${config.port}/api/v1`)
   void reprendreControles()
 })

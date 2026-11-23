@@ -31,7 +31,7 @@ async function envoyer(destinataire: string, sujet: string, texte: string, essai
 export function notifierCompte(compteId: number, sujet: string, texte: string) {
   ajouterTraitement(`mail:${compteId}:${sujet}`, async () => {
     const c = await prisma.compte.findUnique({ where: { id: compteId }, select: { email: true, nom_affiche: true } })
-    if (c) await envoyer(c.email, sujet, `Bonjour ${c.nom_affiche},\n\n${texte}\n\n— Montbéliard Expériences`)
+    if (c) await envoyer(c.email, sujet, `Bonjour ${c.nom_affiche},\n\n${texte}\n\n— Mindi`)
   })
 }
 
@@ -39,7 +39,7 @@ export function notifierCompte(compteId: number, sujet: string, texte: string) {
 export function notifierAgents(sujet: string, texte: string) {
   ajouterTraitement(`mail:agents:${sujet}`, async () => {
     const agents = await prisma.compte.findMany({ where: { role: 'AGENT', statut: 'VERIFIE' }, select: { email: true } })
-    for (const a of agents) await envoyer(a.email, sujet, `${texte}\n\n— Montbéliard Expériences`)
+    for (const a of agents) await envoyer(a.email, sujet, `${texte}\n\n— Mindi`)
   })
 }
 
@@ -49,7 +49,7 @@ export function notifierAgents(sujet: string, texte: string) {
  */
 export async function envoyerCodeConnexion(email: string, nom: string, code: string, validiteMin: number): Promise<boolean> {
   const sujet = `Code de connexion : ${code}`
-  const texte = `Bonjour ${nom},\n\nVotre code de connexion au back-office est : ${code}\nIl est valable ${validiteMin} minutes et ne sert qu'une fois.\n\nSi vous n'êtes pas à l'origine de cette connexion, changez votre mot de passe et prévenez le service informatique.\n\n— Montbéliard Expériences`
+  const texte = `Bonjour ${nom},\n\nVotre code de connexion au back-office est : ${code}\nIl est valable ${validiteMin} minutes et ne sert qu'une fois.\n\nSi vous n'êtes pas à l'origine de cette connexion, changez votre mot de passe et prévenez le service informatique.\n\n— Mindi`
   try {
     await transport.sendMail({ from: config.smtp.expediteur, to: email, subject: sujet, text: texte })
     if (config.test) mailsDeTest.push({ destinataire: email, sujet, texte })

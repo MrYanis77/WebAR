@@ -795,3 +795,123 @@
 .erreur-modele-ra { position: absolute; left: 50%; top: 50%; z-index: 4; padding: 6px 10px; border-radius: 8px; background: rgb(30 32 36 / 0.75); color: #fff; font-size: 12px; transform: translate(-50%, -50%); }
 /* Caméra simulée sans visuel du lieu : fond neutre. */
 .fond-simule { background: radial-gradient(circle at 50% 35%, #4a4d53, #1e2024); }
+
+/* =============================================================== Accessibilité (RGAA 4.1)
+   Réglages choisis par le visiteur dans le panneau « Accessibilité » (attributs posés sur <html>). */
+
+.groupe-entete { display: flex; align-items: center; gap: 8px; }
+.bouton-a11y { justify-content: center; width: 40px; padding: 0; }
+.bouton-a11y.actif { background: var(--ink); color: var(--chalk); }
+
+/* Taille : toute l'interface est agrandie et se réorganise dans la largeur de l'écran (critère 10.4). */
+.scene-visiteur .page:not(.ecran-ra),
+.scene-visiteur .couche-modale .feuille,
+.scene-visiteur .message-proximite,
+.scene-visiteur .bandeau-systeme { zoom: var(--a11y-zoom, 1); }
+
+.a11y-taille { margin: 14px 0 4px; padding: 0; border: 0; }
+.a11y-taille legend { margin-bottom: 8px; font-size: 13px; font-weight: 650; }
+.a11y-taille [role='radiogroup'] { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.a11y-taille button { display: grid; justify-items: center; gap: 2px; min-height: 64px; padding: 8px 4px; border: 1.5px solid var(--border); border-radius: 14px; background: #fff; color: var(--ink); font-size: 12px; font-weight: 600; }
+.a11y-taille button span { font-family: var(--font-titre); font-weight: 750; line-height: 1.1; }
+.a11y-taille button[aria-checked='true'] { border-color: var(--wine); background: var(--wine-soft); color: var(--wine-dark); }
+.a11y-options { display: grid; gap: 8px; margin-top: 14px; }
+.a11y-options button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 14px; background: #fff; color: var(--ink); text-align: left; }
+.a11y-icone { display: grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 11px; background: #ece8e1; color: var(--wine); }
+.a11y-texte { flex: 1; min-width: 0; }
+.a11y-texte strong, .a11y-texte small { display: block; }
+.a11y-texte strong { font-size: 14px; }
+.a11y-texte small { margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.a11y-interrupteur { position: relative; flex: none; width: 44px; height: 26px; border-radius: 13px; background: #c9c3b9; transition: background 0.2s; }
+.a11y-interrupteur::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 0.25); transition: transform 0.2s; }
+.a11y-options button[aria-checked='true'] { border-color: var(--wine); }
+.a11y-options button[aria-checked='true'] .a11y-interrupteur { background: var(--wine); }
+.a11y-options button[aria-checked='true'] .a11y-interrupteur::after { transform: translateX(18px); }
+.a11y-pied { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; }
+.a11y-pied .btn-texte { color: var(--wine); font-size: 13px; font-weight: 650; text-decoration: underline; }
+.a11y-conformite { margin-top: 10px; color: var(--muted); font-size: 11.5px; }
+
+/* Contraste renforcé : textes secondaires foncés, bordures marquées (contraste ≥ 7:1). */
+.a11y-contraste .scene-visiteur {
+  --chalk: #ffffff;
+  --sand: #ffffff;
+  --sand-2: #f4f4f4;
+  --ink: #000000;
+  --muted: #2b2926;
+  --muted-2: #3a3733;
+  --border: #4d4943;
+  --wine: #5c0f1d;
+  --wine-dark: #4a0b16;
+  --cyan: #00796f;
+  --cyan-dark: #003c37;
+}
+.a11y-contraste .scene-visiteur .pill,
+.a11y-contraste .scene-visiteur .btn,
+.a11y-contraste .scene-visiteur .bouton-icone,
+.a11y-contraste .scene-visiteur .bouton-langue,
+.a11y-contraste .scene-visiteur .bouton-rond,
+.a11y-contraste .scene-visiteur .bouton-position { outline: 1.5px solid currentColor; outline-offset: -1.5px; }
+.a11y-contraste .scene-visiteur .btn-cyan { background: #003c37; color: #fff; }
+.a11y-contraste .scene-visiteur .hero-ombre { background: linear-gradient(transparent 20%, rgb(0 0 0 / 0.85)); }
+
+/* Lecture facilitée : espacement du texte (critère 10.12 / WCAG 1.4.12) et police sans empattement. */
+.a11y-dyslexie .scene-visiteur,
+.a11y-dyslexie .scene-visiteur h1,
+.a11y-dyslexie .scene-visiteur h2,
+.a11y-dyslexie .scene-visiteur h3,
+.a11y-dyslexie .scene-visiteur strong,
+.a11y-dyslexie .scene-visiteur button { font-family: Verdana, 'Atkinson Hyperlegible', Tahoma, sans-serif !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }
+.a11y-dyslexie .scene-visiteur p,
+.a11y-dyslexie .scene-visiteur li,
+.a11y-dyslexie .scene-visiteur small { line-height: 1.6 !important; }
+.a11y-dyslexie .scene-visiteur p + p { margin-top: 1em; }
+
+/* Animations réduites, même si le système ne le demande pas. */
+.a11y-mouvement .scene-visiteur *,
+.a11y-mouvement .scene-visiteur *::before,
+.a11y-mouvement .scene-visiteur *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+
+/* Liens repérables sans la couleur. */
+.a11y-liens .scene-visiteur a,
+.a11y-liens .scene-visiteur .btn-texte,
+.a11y-liens .scene-visiteur .lien-signaler { text-decoration: underline !important; text-underline-offset: 3px; }
+
+/* Focus très visible pour la navigation au clavier ou par contacteur. */
+.a11y-focus .scene-visiteur :focus-visible { outline: 3px solid #000 !important; outline-offset: 2px; box-shadow: 0 0 0 6px #ffd400 !important; }
+
+/* =============================================================== Itinéraire complet */
+
+.modes-itineraire { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
+.modes-itineraire button { display: grid; justify-items: center; gap: 2px; padding: 8px 4px; border: 1.5px solid var(--border); border-radius: 12px; background: #fff; color: var(--ink); font-size: 11px; }
+.modes-itineraire button strong { font: 650 13px var(--font-titre); }
+.modes-itineraire button[aria-checked='true'] { border-color: var(--wine); background: var(--wine-soft); color: var(--wine-dark); }
+.resume-itineraire .heure-arrivee { display: flex; align-items: center; gap: 5px; color: var(--ink-3); font-weight: 600; }
+.bandeau-demo-position { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; padding: 7px 10px; border-radius: 10px; background: var(--amber-soft); color: var(--amber); font-size: 11.5px; }
+.bandeau-demo-position span { display: flex; align-items: center; gap: 4px; }
+.bandeau-demo-position .btn-texte { color: var(--amber); font-size: 11.5px; font-weight: 700; text-decoration: underline; }
+.etapes-itineraire li { align-items: center; }
+.etapes-itineraire li p { flex: 1; margin: 0; }
+.etapes-itineraire li small { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.etapes-itineraire li span.manoeuvre { width: 26px; height: 26px; border-radius: 8px; }
+.etapes-itineraire li span.arrivee { background: var(--cyan-soft); color: #237f77; }
+.fiche-itineraire .fiche-carte-actions a.btn { text-decoration: none; }
+.note-zone { grid-column: 1 / -1; display: flex; align-items: center; gap: 5px; margin: 2px 0 0; color: var(--muted); font-size: 11.5px; }
+.choix-scan small.dans-zone { color: var(--green); font-weight: 600; }
+
+/* =============================================================== Fiche du lieu : prévisualisation */
+
+.note-cta { margin: 0 0 8px; padding: 8px 10px; border-radius: 10px; background: #fff; color: var(--ink-3); font-size: 12px; line-height: 1.45; box-shadow: 0 2px 10px rgb(30 32 36 / 0.06); }
+.cta-double { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.cta-double .btn { min-width: 0; }
+.scene-previsualisation { position: relative; display: grid; place-items: center; height: min(46vh, 340px); margin: 12px 0 4px; overflow: hidden; border-radius: 18px; background: radial-gradient(circle at 50% 35%, #fff, var(--sand) 70%); }
+.scene-previsualisation .modele-ra { inset: 0; }
+
+/* =============================================================== Agenda */
+
+.section-agenda { margin-top: 18px; }
+.section-agenda ul { margin: 0; padding: 0; list-style: none; }
+.titre-agenda { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--wine); }
+.titre-agenda h2 { margin: 0; color: var(--ink); font-size: 19px; letter-spacing: -0.4px; }
+.titre-agenda small { display: block; color: var(--muted); font-size: 12px; }
+.titre-agenda .point-direct { flex: none; width: 10px; height: 10px; padding: 0; border-radius: 50%; background: #20a596; box-shadow: 0 0 0 5px rgb(79 209 197 / 0.25); }
+.titre-agenda .point-direct::before { display: none; }

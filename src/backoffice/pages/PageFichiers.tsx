@@ -3,13 +3,14 @@ import { Link } from 'react-router'
 import { BUDGETS_3D, FORMATS_ACCEPTES, MODELE_3D_MAX_MO } from '../../commun/constantes'
 import { Icone, type NomIcone } from '../../commun/Icone'
 import { messageErreur } from '../../commun/api'
-import { importerFichier, nomProprietaire, supprimerFichier, useEtat, validerFichier } from '../../commun/store'
+import { importerFichier, nomProprietaire, rangerFichier, supprimerFichier, useEtat, validerFichier } from '../../commun/store'
 import type { Fichier, TypeFichier } from '../../commun/types'
 import { peutCreer, useSession } from '../session'
 import { BadgeStatut, EnTetePage, formaterDate, formaterPoids, Onglets, Panneau, useToast, Vide } from '../ui'
 
 const ApercuModele3D = lazy(() => import('../composants/ApercuModele3D'))
 const Atelier3D = lazy(() => import('../composants/Atelier3D'))
+const StudioAssemblage = lazy(() => import('../composants/StudioAssemblage'))
 
 const ICONES: Record<TypeFichier, NomIcone> = { MODELE_3D: 'cube', SON: 'musique', IMAGE: 'image' }
 /** Étapes du contrôle automatique exécuté par l'API (file-type, glTF-Validator, glTF-Transform, ffprobe, sharp). */
@@ -57,6 +58,8 @@ export default function PageFichiers() {
   /** Modèle ouvert dans l'atelier 3D. */
   const [atelier, setAtelier] = useState<string | null>(null)
   const fichierAtelier = etat.fichiers.find((f) => f.id === atelier)
+  /** Studio d'assemblage ouvert : vide, ou en partant d'un modèle. */
+  const [assemblage, setAssemblage] = useState<{ depart?: Fichier } | null>(null)
   /** Envoi en cours : progression de 0 à 1. */
   const [envoi, setEnvoi] = useState<{ nom: string; progression: number } | null>(null)
   const [action, setAction] = useState(false)
@@ -65,7 +68,37 @@ export default function PageFichiers() {
   const entree = useRef<HTMLInputElement>(null)
   const autorise = peutCreer(etat, session)
 
-  const fichiers = etat.fichiers.filter((f) => agent || f.proprietaireId === session.partenaireId).filter((f) => onglet === 'tous' || f.type === onglet)
+  // ------------------------------------------------------------ dossiers (affiche + modèle 3D + son d'un même projet)
+  /** Dossier affiché : « tous », un nom de dossier, ou '' pour les fichiers hors dossier. */
+  const [dossier, setDossier] = useState<string>('tous')
+  /** Dossiers créés pendant la session, encore vides (ils existent dès qu'un fichier y est rangé). */
+  const [dossiersVides, setDossiersVides] = useState<string[]>([])
+  const [nouveauDossier, setNouveauDossier] = useState<string | null>(null)
+  const mesFichiers = etat.fichiers.filter((f) => agent || f.proprietaireId === session.partenaireId)
+  const dossiers = [...new Set([...mesFichiers.map((f) => f.dossier).filter((d): d is string => !!d), ...dossiersVides])].sort((a, b) => a.localeCompare(b, 'fr'))
+  const fichiers = mesFichiers
+    .filter((f) => onglet === 'tous' || f.type === onglet)
+    .filter((f) => dossier === 'tous' || (f.dossier ?? '') === dossier)
+
+  function creerDossier() {
+    const nomDossier = (nouveauDossier ?? '').trim().slice(0, 80)
+    setNouveauDossier(null)
+    if (!nomDossier) return
+    if (!dossiers.includes(nomDossier)) setDossiersVides((l) => [...l, nomDossier])
+    setDossier(nomDossier)
+  }
+
+  async function deplacer(f: Fichier, cibleDossier: string | null) {
+    setAction(true)
+    try {
+      await rangerFichier(f.id, cibleDossier)
+      toast.afficher(cibleDossier ? `« ${f.nomOriginal} » rangé dans « ${cibleDossier} »` : `« ${f.nomOriginal} » sorti de son dossier`)
+    } catch (e) {
+      toast.afficher(messageErreur(e))
+    } finally {
+      setAction(false)
+    }
+  }
   const courant = etat.fichiers.find((f) => f.id === selection) ?? fichiers[0]
 
   /**
@@ -85,7 +118,8 @@ export default function PageFichiers() {
     }
     setEnvoi({ nom: fichier.name, progression: 0 })
     try {
-      const cree = await importerFichier(fichier, usage, (progression) => setEnvoi({ nom: fichier.name, progression }))
+      // Import rangé directement dans le dossier ouvert.
+      const cree = await importerFichier(fichier, usage, (progression) => setEnvoi({ nom: fichier.name, progression }), dossier !== 'tous' && dossier ? dossier : undefined)
       setSelection(cree.id)
     } catch (e) {
       setRejet(messageErreur(e))
@@ -108,7 +142,15 @@ export default function PageFichiers() {
 
   return (
     <>
-      <EnTetePage titre="Fichiers 3D & sons" description="Importez vos modèles et sons : contrôle automatique, aperçu 3D, puis validation de l’enregistrement." />
+      <EnTetePage
+        titre="Fichiers 3D & sons"
+        description="Importez vos modèles et sons : contrôle automatique, aperçu 3D, puis validation de l’enregistrement."
+        actions={
+          <button type="button" className="btn btn-secondaire" onClick={() => setAssemblage({})} disabled={!autorise} title="Réunir plusieurs modèles 3D en un seul">
+            <Icone nom="couches" taille={16} /> Assembler des modèles
+          </button>
+        }
+      />
       <div className="bo-defilement">
         {!autorise && (
           <div className="bo-alerte en-ligne">
@@ -168,9 +210,52 @@ export default function PageFichiers() {
           </p>
         )}
 
+        <nav className="barre-dossiers" aria-label="Dossiers">
+          <span className="libelle-dossiers">
+            <Icone nom="dossier" taille={16} /> Dossiers
+          </span>
+          <button type="button" aria-pressed={dossier === 'tous'} onClick={() => setDossier('tous')}>
+            Tous les fichiers <b>{mesFichiers.length}</b>
+          </button>
+          {dossiers.map((d) => (
+            <button key={d} type="button" aria-pressed={dossier === d} onClick={() => setDossier(d)}>
+              <Icone nom="dossier" taille={14} /> {d} <b>{mesFichiers.filter((f) => f.dossier === d).length}</b>
+            </button>
+          ))}
+          <button type="button" aria-pressed={dossier === ''} onClick={() => setDossier('')}>
+            Sans dossier <b>{mesFichiers.filter((f) => !f.dossier).length}</b>
+          </button>
+          {nouveauDossier === null ? (
+            <button type="button" className="ajout-dossier" onClick={() => setNouveauDossier('')} disabled={!autorise}>
+              <Icone nom="plus" taille={14} /> Nouveau dossier
+            </button>
+          ) : (
+            <form
+              className="saisie-dossier"
+              onSubmit={(e) => {
+                e.preventDefault()
+                creerDossier()
+              }}
+            >
+              <input autoFocus value={nouveauDossier} onChange={(e) => setNouveauDossier(e.target.value)} placeholder="Ex. Marché de Noël" maxLength={80} aria-label="Nom du nouveau dossier" onKeyDown={(e) => e.key === 'Escape' && setNouveauDossier(null)} />
+              <button type="submit" className="btn btn-primaire petit" disabled={!nouveauDossier.trim()}>
+                Créer
+              </button>
+              <button type="button" className="btn btn-fantome petit" onClick={() => setNouveauDossier(null)}>
+                Annuler
+              </button>
+            </form>
+          )}
+        </nav>
+        {dossier !== 'tous' && dossier && (
+          <p className="aide-dossier">
+            <Icone nom="info" taille={14} /> Dossier « {dossier} » : rangez-y l’image de l’affiche, son modèle 3D et son son. Les fichiers importés ici y sont rangés directement ; le modèle est ensuite proposé en premier dans l’éditeur d’affiche.
+          </p>
+        )}
+
         <div className="grille-fichiers">
           <Panneau
-            titre="Bibliothèque"
+            titre={dossier === 'tous' ? 'Bibliothèque' : dossier ? `Dossier « ${dossier} »` : 'Fichiers sans dossier'}
             action={
               <Onglets
                 valeur={onglet}
@@ -197,6 +282,7 @@ export default function PageFichiers() {
                       <div>
                         <strong>{f.nomOriginal}</strong>
                         <small>
+                          {dossier === 'tous' && f.dossier && `${f.dossier} · `}
                           {formaterPoids(f.tailleOctets)} · {f.usage === 'LIEU' ? 'lieu' : 'affiche'} · {formaterDate(f.creeLe, { day: '2-digit', month: 'short' })}
                           {agent && f.proprietaireId !== 'ville' && ` · ${nomProprietaire(etat, f.proprietaireId)}`}
                         </small>
@@ -211,6 +297,21 @@ export default function PageFichiers() {
 
           {courant && (
             <Panneau titre={courant.nomOriginal} sousTitre="Rapport de contrôle automatique">
+              <label className="champ choix-dossier">
+                <span className="etiquette">
+                  <span>
+                    <Icone nom="dossier" taille={14} /> Dossier
+                  </span>
+                </span>
+                <select value={courant.dossier ?? ''} onChange={(e) => void deplacer(courant, e.target.value || null)} disabled={action || (!agent && courant.proprietaireId !== session.partenaireId)}>
+                  <option value="">Sans dossier</option>
+                  {dossiers.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </label>
               {courant.type === 'MODELE_3D' && courant.statutControle !== 'REFUSE' && (
                 <Suspense fallback={<div className="apercu-3d" />}>
                   <ApercuModele3D url={courant.url} />
@@ -221,14 +322,19 @@ export default function PageFichiers() {
                   <div>
                     <strong>Atelier 3D</strong>
                     <small>
-                      Orientation, ancrage, vitesse, luminosité, optimisation, aperçu sur l’affiche ou au monument
+                      Position, rotation, taille, rendu et optimisation, sur l’affiche ou au monument
                       {courant.optimisation?.etat === 'TERMINEE' ? ' · optimisé' : ''}
                       {courant.reglages3d ? ' · réglé' : ''}
                     </small>
                   </div>
-                  <button type="button" className="btn btn-primaire" onClick={() => setAtelier(courant.id)}>
-                    <Icone nom="reglages" taille={15} /> Ouvrir l’atelier
-                  </button>
+                  <span className="actions-atelier">
+                    <button type="button" className="btn btn-secondaire" onClick={() => setAssemblage({ depart: courant })} disabled={!autorise || courant.statutControle === 'REFUSE'} title="Réunir ce modèle avec d’autres en un seul">
+                      <Icone nom="couches" taille={15} /> Assembler
+                    </button>
+                    <button type="button" className="btn btn-primaire" onClick={() => setAtelier(courant.id)}>
+                      <Icone nom="reglages" taille={15} /> Ouvrir l’atelier
+                    </button>
+                  </span>
                 </div>
               )}
               {courant.type === 'SON' && (
@@ -322,6 +428,24 @@ export default function PageFichiers() {
       {fichierAtelier && (
         <Suspense fallback={null}>
           <Atelier3D key={fichierAtelier.id} fichier={fichierAtelier} onFermer={() => setAtelier(null)} />
+        </Suspense>
+      )}
+      {assemblage && (
+        <Suspense fallback={null}>
+          <StudioAssemblage
+            depart={assemblage.depart}
+            onFermer={() => setAssemblage(null)}
+            onCree={(f, remplace) => {
+              setAssemblage(null)
+              setSelection(f.id)
+              setOnglet('tous')
+              toast.afficher(
+                remplace
+                  ? `« ${f.nomOriginal} » modifié : ses animations utilisent le nouveau modèle (contrôle automatique en cours)`
+                  : `« ${f.nomOriginal} » créé : contrôle automatique en cours, puis validez l’enregistrement`,
+              )
+            }}
+          />
         </Suspense>
       )}
       {toast.element}

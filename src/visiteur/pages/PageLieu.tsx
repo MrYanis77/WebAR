@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { distanceM, formaterDistance, minutesAPied } from '../../commun/geo'
 import { useLangue } from '../../commun/i18n'
@@ -10,7 +10,11 @@ import { FormulaireSignalement, type CibleSignalement } from '../composants/Form
 import { MessageErreur } from '../composants/MessageErreur'
 import { NavBas } from '../composants/NavBas'
 import { usePosition } from '../contexte/position'
+import { CoucheModale, EnteteFeuille } from '../composants/Couche'
 import { animationsDuLieu } from '../utils'
+
+// Aperçu 3D sans caméra (Three.js), chargé seulement à l'ouverture de la prévisualisation.
+const ModeleSimule = lazy(() => import('../composants/ModeleSimule'))
 
 /** Fiche du lieu (BF-07), consultable en entier sans caméra (BNF-11). */
 export default function PageLieu() {
@@ -21,6 +25,7 @@ export default function PageLieu() {
   const position = usePosition()
   const [transcription, setTranscription] = useState(false)
   const [cible, setCible] = useState<CibleSignalement | null>(null)
+  const [apercu, setApercu] = useState(false)
   const lieu = etat.lieux.find((l) => l.id === id && l.actif)
 
   if (etat.chargement)
@@ -40,6 +45,9 @@ export default function PageLieu() {
 
   const { active, prochaines } = animationsDuLieu(etat, lieu.id)
   const distance = position.coords ? distanceM(position.coords, lieu) : null
+  // Réalité augmentée seulement sur place ; ailleurs : prévisualisation 3D et itinéraire.
+  const dansZone = distance !== null && distance <= lieu.rayonM
+  const itineraire = () => navigate(`/?lieu=${lieu.id}&itineraire=1`)
   const image = lieu.image
 
   const ligne = (a: Animation, enCours: boolean) => (
@@ -124,7 +132,7 @@ export default function PageLieu() {
         <button
           type="button"
           className="carte-distance"
-          onClick={() => (distance === null ? position.demander() : navigate(`/?lieu=${lieu.id}`))}
+          onClick={() => (distance === null ? position.demander() : itineraire())}
         >
           <span className="mini-icone">
             <Icone nom="itineraire" taille={18} />
@@ -167,13 +175,57 @@ export default function PageLieu() {
       </div>
 
       <div className="cta-collant">
-        <button type="button" className="btn btn-primaire btn-bloc" disabled={!active} onClick={() => navigate(`/lieux/${lieu.id}/ra`)}>
-          <Icone nom="scan" taille={18} />
-          {t('lieu.voirRA')}
-        </button>
+        {active && dansZone ? (
+          <button type="button" className="btn btn-primaire btn-bloc" onClick={() => navigate(`/lieux/${lieu.id}/ra`)}>
+            <Icone nom="scan" taille={18} />
+            {t('lieu.voirRA')}
+          </button>
+        ) : (
+          <>
+            {active && (
+              <p className="note-cta" role="status">
+                {distance !== null ? t('lieu.horsZone', { d: formaterDistance(distance), r: lieu.rayonM }) : t('lieu.positionPourRA')}
+              </p>
+            )}
+            <div className="cta-double">
+              <button type="button" className="btn btn-secondaire" disabled={!active?.modeleUrl} onClick={() => setApercu(true)}>
+                <Icone nom="cube" taille={18} />
+                {t('lieu.previsualisation')}
+              </button>
+              <button type="button" className="btn btn-primaire" onClick={itineraire}>
+                <Icone nom="itineraire" taille={18} />
+                {t('lieu.itineraire')}
+              </button>
+            </div>
+          </>
+        )}
       </div>
       <NavBas />
       <FormulaireSignalement cible={cible} onFermer={() => setCible(null)} />
+      <CoucheModale ouverte={apercu} onFermer={() => setApercu(false)} etiquette={t('lieu.previsualisationTitre')}>
+        <EnteteFeuille surtitre={<span className="eyebrow">{lieu.nomCourt}</span>} titre={active?.titre ?? t('lieu.previsualisationTitre')} onFermer={() => setApercu(false)} libelleFermer={t('commun.fermer')} />
+        <div className="scene-previsualisation">
+          {active?.modeleUrl ? (
+            <Suspense fallback={<span className="spinner" />}>
+              <ModeleSimule animation={active} cycle={0} centre />
+            </Suspense>
+          ) : (
+            <p className="note-vide">{t('lieu.pasDeModele')}</p>
+          )}
+        </div>
+        <p className="feuille-intro">{t('lieu.previsualisationTexte')}</p>
+        <button
+          type="button"
+          className="btn btn-primaire btn-bloc"
+          onClick={() => {
+            setApercu(false)
+            itineraire()
+          }}
+        >
+          <Icone nom="itineraire" taille={18} />
+          {t('lieu.itineraire')}
+        </button>
+      </CoucheModale>
     </div>
   )
 }

@@ -92,7 +92,7 @@ export function capturerPhoto(s: ScenePhoto): string {
   ctx.fillText(s.sousTitre, 540, 360, 980)
   ctx.font = '700 30px Inter, sans-serif'
   ctx.fillStyle = '#4fd1c5'
-  ctx.fillText('MONTBÉLIARD EXPÉRIENCES', 540, H - 80)
+  ctx.fillText('MINDI · MONTBÉLIARD', 540, H - 80)
   return c.toDataURL('image/jpeg', 0.9)
 }
 

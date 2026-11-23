@@ -21,6 +21,8 @@ export const conflit = (m: string, details?: unknown) => new ErreurApi(409, m, d
 
 export const gestionErreurs: ErrorRequestHandler = (err, req, res, _next) => {
   void _next
+  // Une erreur n'est jamais mise en cache : une affiche « indisponible » doit s'ouvrir dès sa publication.
+  if (!res.headersSent) res.set('Cache-Control', 'no-store')
   if (err instanceof ErreurApi) {
     res.status(err.statut).json({ erreur: err.message, details: err.details })
     return

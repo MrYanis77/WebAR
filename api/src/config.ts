@@ -28,7 +28,7 @@ export const config = {
   smtp: {
     hote: process.env.SMTP_HOTE ?? '127.0.0.1',
     port: Number(process.env.SMTP_PORT ?? 1025),
-    expediteur: process.env.MAIL_EXPEDITEUR ?? 'Montbéliard Expériences <ne-pas-repondre@montbeliard.fr>',
+    expediteur: process.env.MAIL_EXPEDITEUR ?? 'Mindi <ne-pas-repondre@montbeliard.fr>',
   },
   /**
    * Double authentification des agents (code par mail). Désactivée provisoirement : mettre

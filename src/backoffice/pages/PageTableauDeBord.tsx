@@ -113,7 +113,7 @@ export default function PageTableauDeBord() {
                     <strong>{zones.length} zone{zones.length > 1 ? 's' : ''} d’affichage à attribuer</strong>
                     <p>Affiches de partenaires bloquées à l’export</p>
                   </div>
-                  <Link to="/backoffice/lieux?onglet=attributions" aria-label="Voir les attributions"><Icone nom="droite" taille={16} /></Link>
+                  <Link to="/backoffice/affiches/attributions" aria-label="Voir les attributions"><Icone nom="droite" taille={16} /></Link>
                 </li>
                 {expirent.length > 0 && (
                   <li>
@@ -122,7 +122,7 @@ export default function PageTableauDeBord() {
                       <strong>Animation bientôt expirée</strong>
                       <p>{expirent[0].titre} — fin le {formaterDate(expirent[0].fin!, { day: 'numeric', month: 'long' })}</p>
                     </div>
-                    <Link to="/backoffice/animations" aria-label="Voir les animations"><Icone nom="droite" taille={16} /></Link>
+                    <Link to="/backoffice/lieux" aria-label="Voir les animations"><Icone nom="droite" taille={16} /></Link>
                   </li>
                 )}
                 {reexamens.length > 0 && (
@@ -164,7 +164,7 @@ export default function PageTableauDeBord() {
         <Panneau
           titre={agent ? 'Animations récentes' : 'Mes affiches'}
           action={
-            <Link to={agent ? '/backoffice/animations' : '/backoffice/affiches'} className="lien-panneau">
+            <Link to={agent ? '/backoffice/lieux' : '/backoffice/affiches'} className="lien-panneau">
               {agent ? 'Voir toutes les animations' : 'Voir toutes mes affiches'} <Icone nom="droite" taille={14} />
             </Link>
           }

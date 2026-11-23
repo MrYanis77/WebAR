@@ -6,6 +6,7 @@ import { useAffichesDiffusees, useDonneesPubliques } from '../donneesPubliques'
 import { animationsDuLieu, lieuxVisibles } from '../utils'
 import { usePosition } from '../contexte/position'
 import { marquerConsignesVues } from '../utils'
+import { BoutonAccessibilite } from './Accessibilite'
 import { CoucheModale, EnteteFeuille } from './Couche'
 import { ERREURS, MessageErreur, type CasErreur } from './MessageErreur'
 
@@ -42,13 +43,14 @@ export function BoutonLangue({ clair = false }: { clair?: boolean }) {
   const { langue, t } = useLangue()
   const [ouvert, setOuvert] = useState(false)
   return (
-    <>
+    <span className="groupe-entete">
+      <BoutonAccessibilite clair={clair} />
       <button type="button" className={`bouton-langue ${clair ? 'clair' : ''}`} onClick={() => setOuvert(true)} aria-label={t('langue.titre')}>
         {langue.toUpperCase()}
         <Icone nom="globe" taille={16} />
       </button>
       <FeuilleLangue ouverte={ouvert} onFermer={() => setOuvert(false)} />
-    </>
+    </span>
   )
 }
 

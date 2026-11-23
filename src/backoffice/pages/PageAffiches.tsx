@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { Icone } from '../../commun/Icone'
 import { alerteAnimationAffiche, animationActive, nomProprietaire, publiable, reglePublication, supprimerAffiche, useEtat } from '../../commun/store'
 import { AfficheAvecQr, QR_DEFAUT } from '../../commun/AfficheQr'
@@ -23,6 +23,9 @@ export default function PageAffiches() {
   const [texte, setTexte] = useState('')
   const [aSupprimer, setASupprimer] = useState<Affiche | null>(null)
   const toast = useToast()
+  // Anciens liens « ?vue=zones » : les zones ont désormais leurs propres pages (sous-menu Affiches).
+  const [params] = useSearchParams()
+  const ancienneVue = params.get('vue')
 
   const visibles = etat.affiches.filter((a) => agent || a.proprietaireId === session.partenaireId)
   const animationDe = (a: Affiche) => etat.animations.find((x) => x.id === a.animationAfficheId)
@@ -35,15 +38,17 @@ export default function PageAffiches() {
   }
   const liste = visibles.filter((a) => filtre === 'toutes' || categorie(a) === filtre).filter((a) => a.nom.toLowerCase().includes(texte.toLowerCase()))
 
+  if (agent && (ancienneVue === 'zones' || ancienneVue === 'attributions')) return <Navigate to={`/backoffice/affiches/${ancienneVue}`} replace />
+
   return (
     <>
       <EnTetePage
-        titre="Affiches"
-        description="Importez vos affiches : un QR code unique est généré pour chacune et placé sur le fichier à imprimer."
+        titre={agent ? 'Toutes les affiches' : 'Mes affiches'}
+        description="Chaque affiche reçoit un QR code unique : le visiteur le scanne pour voir l’animation 3D qui sort de l’affiche. Une affiche est collée dans une zone d’affichage attribuée par la mairie."
         actions={
           <button type="button" className="btn btn-primaire" onClick={() => navigate('/backoffice/affiches/nouvelle')} disabled={!peutCreer(etat, session)}>
             <Icone nom="plus" taille={16} />
-            Nouvelle affiche
+            Créer une affiche
           </button>
         }
       />

@@ -137,6 +137,8 @@ export interface Fichier {
   proprietaireId: string
   type: TypeFichier
   nomOriginal: string
+  /** Dossier de rangement de la bibliothèque (affiche, modèle 3D et son d'un même projet). */
+  dossier?: string
   tailleOctets: number
   nbTriangles?: number
   textureMaxPx?: number

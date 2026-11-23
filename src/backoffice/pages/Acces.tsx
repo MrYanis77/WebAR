@@ -13,8 +13,8 @@ function CadreAcces({ children }: { children: ReactNode }) {
         <Link to="/backoffice" className="bo-logo">
           <span className="marque">M</span>
           <span>
-            <strong>MONTBÉLIARD</strong>
-            <small>EXPÉRIENCES</small>
+            <strong>MINDI</strong>
+            <small>VILLE DE MONTBÉLIARD</small>
           </span>
         </Link>
         <div>

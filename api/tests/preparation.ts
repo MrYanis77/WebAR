@@ -21,7 +21,11 @@ export default async function preparer() {
     await connexion.query(`DROP DATABASE IF EXISTS \`${base}\``)
     await connexion.query(`CREATE DATABASE \`${base}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`)
     await connexion.query(`USE \`${base}\``)
-    await connexion.query(await readFile(resolve('database/montbeliard_webar.sql'), 'utf8'))
+    // Le script SQL recrée lui-même la base « webar » (DROP / CREATE / USE) : ces lignes sont retirées,
+    // sinon il effacerait la vraie base au lieu de remplir la base de test.
+    const script = (await readFile(resolve('database/montbeliard_webar.sql'), 'utf8')).replace(/^\s*(DROP DATABASE|CREATE DATABASE|USE)\b[^;]*;/gim, '')
+    if (/(DROP|CREATE)\s+DATABASE|^\s*USE\s/im.test(script)) throw new Error('Refus : le script SQL change encore de base ; il ne doit remplir que la base de test.')
+    await connexion.query(script)
   } finally {
     await connexion.end()
   }

@@ -138,8 +138,11 @@ export function alerteAnimationAffiche(anim: Animation | undefined, affiche: Pic
   if (!anim) return null
   if (anim.statut === 'SUSPENDUE' || anim.statut === 'RETIREE') return `L’animation « ${anim.titre} » est ${anim.statut === 'SUSPENDUE' ? 'suspendue' : 'retirée'} par la mairie : le QR code affichera « contenu retiré ».`
   if (anim.statut !== 'PUBLIEE') return `L’animation « ${anim.titre} » est désactivée (brouillon) : activez-la dans Animations, sinon le QR code affichera « animation expirée ».`
-  if (anim.fin && anim.fin < affiche.fin) return `L’animation « ${anim.titre} » se termine le ${jour(anim.fin)}, avant l’affiche (${jour(affiche.fin)}) : ensuite, le QR code affichera « animation expirée ».`
-  if (anim.debut > affiche.debut) return `L’animation « ${anim.titre} » ne commence que le ${jour(anim.debut)}, après la sortie de l’affiche (${jour(affiche.debut)}).`
+  // Dates comparées en instants (et non en texte) ; le même jour, l'heure est précisée.
+  const t = (iso: string) => new Date(iso).getTime()
+  const quand = (iso: string, autre: string) => (iso.slice(0, 10) === autre.slice(0, 10) ? `${jour(iso)} à ${iso.slice(11, 16).replace(':', 'h')}` : jour(iso))
+  if (anim.fin && t(anim.fin) < t(affiche.fin)) return `L’animation « ${anim.titre} » se termine le ${quand(anim.fin, affiche.fin)}, avant l’affiche (${quand(affiche.fin, anim.fin)}) : ensuite, le QR code affichera « animation expirée ».`
+  if (t(anim.debut) > t(affiche.debut)) return `L’animation « ${anim.titre} » ne commence que le ${quand(anim.debut, affiche.debut)}, après la sortie de l’affiche (${quand(affiche.debut, anim.debut)}) : d’ici là, le QR code affichera « animation indisponible ».`
   return null
 }
 
@@ -216,9 +219,10 @@ export async function accepterCharte() {
 
 // ---------------------------------------------------------------- fichiers
 
-export async function importerFichier(fichier: File, usage: 'AFFICHE' | 'LIEU', progression?: (p: number) => void) {
+export async function importerFichier(fichier: File, usage: 'AFFICHE' | 'LIEU', progression?: (p: number) => void, dossier?: string) {
   const f = new FormData()
   f.append('usage', usage)
+  if (dossier) f.append('dossier', dossier)
   f.append('fichier', fichier)
   const cree = await envoyerFichier<Fichier>('/fichiers', f, progression)
   await rafraichir('fichiers')
@@ -243,6 +247,20 @@ export async function enregistrerReglages3D(id: string, reglages: Reglages3D) {
 }
 
 /** Atelier 3D : lance l'optimisation par le serveur puis attend son résultat. */
+/** Studio d'assemblage : réunit plusieurs modèles 3D en un seul GLB (contrôlé ensuite comme un import). */
+/** Range un fichier dans un dossier de la bibliothèque (null : hors dossier). */
+export async function rangerFichier(id: string, dossier: string | null) {
+  await appelApi(`/fichiers/${id}/dossier`, { methode: 'PATCH', corps: { dossier } })
+  await rafraichir('fichiers')
+}
+
+/** Studio d'assemblage : nouveau modèle (copie), ou modèle remplacé sur place si remplacerId est donné. */
+export async function assemblerModeles(d: { nom: string; usage: 'AFFICHE' | 'LIEU'; elements: { fichierId: string; matrice: number[] }[]; remplacerId?: string }): Promise<Fichier> {
+  const cree = await appelApi<Fichier>('/fichiers/assembler', { methode: 'POST', corps: d })
+  await rafraichir('fichiers', 'animations', 'journal')
+  return cree
+}
+
 export async function optimiserModele(id: string, parametres: ParametresOptimisation, delaiMs = 5 * 60_000): Promise<Fichier> {
   await appelApi(`/fichiers/${id}/optimiser`, { methode: 'POST', corps: parametres })
   const debut = Date.now()

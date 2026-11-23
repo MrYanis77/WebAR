@@ -85,9 +85,12 @@ export function QrCode({ code, taille = 120, className }: { code: string; taille
   return src ? <img src={src} alt={`QR code vers ${urlQr(code)}`} className={className} draggable={false} /> : <span className={className} />
 }
 
+const borner = (v: number, max: number) => Math.min(Math.max(0, v), Math.max(0, max))
+
 /**
- * Affiche importée avec son QR code superposé. En mode édition, le QR code se déplace
- * au glisser (souris ou doigt) et reste dans les limites de l'affiche.
+ * Affiche importée avec son QR code superposé. En mode édition, un clic sur l'affiche y place le QR
+ * code (centré sous le pointeur, un repère montre où il ira) ; on peut ensuite le faire glisser
+ * (souris ou doigt) ou l'ajuster aux flèches du clavier. Il reste dans les limites de l'affiche.
  */
 export function AfficheAvecQr({
   image,
@@ -108,19 +111,57 @@ export function AfficheAvecQr({
 }) {
   const cadre = useRef<HTMLDivElement>(null)
   const bloc = useRef<HTMLDivElement>(null)
+  /** Glisser en cours : écart entre le pointeur et le coin haut gauche du QR code (pixels). */
   const glisse = useRef<{ dx: number; dy: number } | null>(null)
+  /** Repère au survol : où le QR code sera posé au clic (fractions de l'affiche). */
+  const [fantome, setFantome] = useState<{ x: number; y: number; l: number; h: number } | null>(null)
 
-  function deplacer(clientX: number, clientY: number) {
+  /** Position du QR code pour un pointeur en (clientX, clientY), à l'écart (dx, dy) de son coin. */
+  function positionPour(clientX: number, clientY: number, dx?: number, dy?: number) {
     const c = cadre.current?.getBoundingClientRect()
     const b = bloc.current?.getBoundingClientRect()
-    if (!c || !b || !glisse.current || !onQr) return
-    const x = (clientX - c.left - glisse.current.dx) / c.width
-    const y = (clientY - c.top - glisse.current.dy) / c.height
-    onQr({ ...qr, x: Math.min(Math.max(0, x), 1 - b.width / c.width), y: Math.min(Math.max(0, y), 1 - b.height / c.height) })
+    if (!c || !b || !c.width || !c.height) return null
+    const l = b.width / c.width
+    const h = b.height / c.height
+    return {
+      x: borner((clientX - c.left - (dx ?? b.width / 2)) / c.width, 1 - l),
+      y: borner((clientY - c.top - (dy ?? b.height / 2)) / c.height, 1 - h),
+      l,
+      h,
+    }
   }
 
+  const surBloc = (cible: EventTarget) => !!bloc.current?.contains(cible as Node)
+
   return (
-    <div ref={cadre} className={`affiche-qr-cadre ${onQr ? 'editable' : ''} ${className}`} style={{ aspectRatio: String(ratio) }}>
+    <div
+      ref={cadre}
+      className={`affiche-qr-cadre ${onQr ? 'editable' : ''} ${className}`}
+      style={{ aspectRatio: String(ratio) }}
+      onPointerDown={(e) => {
+        if (!onQr || e.button !== 0) return
+        const b = bloc.current?.getBoundingClientRect()
+        if (!b) return
+        e.preventDefault()
+        // Sur le QR code : on le saisit là où on l'a pris. Ailleurs : il saute sous le pointeur.
+        glisse.current = surBloc(e.target) ? { dx: e.clientX - b.left, dy: e.clientY - b.top } : { dx: b.width / 2, dy: b.height / 2 }
+        e.currentTarget.setPointerCapture(e.pointerId)
+        setFantome(null)
+        const p = positionPour(e.clientX, e.clientY, glisse.current.dx, glisse.current.dy)
+        if (p && !surBloc(e.target)) onQr({ ...qr, x: p.x, y: p.y })
+        bloc.current?.focus({ preventScroll: true })
+      }}
+      onPointerMove={(e) => {
+        if (!onQr) return
+        if (glisse.current) {
+          const p = positionPour(e.clientX, e.clientY, glisse.current.dx, glisse.current.dy)
+          if (p) onQr({ ...qr, x: p.x, y: p.y })
+        } else setFantome(e.pointerType === 'mouse' && !surBloc(e.target) ? positionPour(e.clientX, e.clientY) : null)
+      }}
+      onPointerUp={() => (glisse.current = null)}
+      onPointerCancel={() => (glisse.current = null)}
+      onPointerLeave={() => setFantome(null)}
+    >
       {image ? (
         <img src={image} alt={`Affiche ${nom}`} className="affiche-qr-image" draggable={false} />
       ) : (
@@ -136,7 +177,7 @@ export function AfficheAvecQr({
         // Le padding en % se rapporte à la largeur de l'affiche : 7 % du bloc = taille × 7 %.
         style={{ left: `${qr.x * 100}%`, top: `${qr.y * 100}%`, width: `${qr.taille * 100}%`, padding: qr.fond ? `${qr.taille * 7}%` : 0, containerType: 'inline-size' }}
         role={onQr ? 'slider' : undefined}
-        aria-label={onQr ? 'Position du QR code : glissez pour le déplacer, flèches du clavier pour ajuster' : undefined}
+        aria-label={onQr ? 'Position du QR code : cliquez sur l’affiche ou glissez pour le déplacer, flèches du clavier pour ajuster' : undefined}
         aria-valuetext={onQr ? `${Math.round(qr.x * 100)} % depuis la gauche, ${Math.round(qr.y * 100)} % depuis le haut` : undefined}
         tabIndex={onQr ? 0 : undefined}
         onKeyDown={(e) => {
@@ -145,20 +186,16 @@ export function AfficheAvecQr({
           const d = { ArrowLeft: [-pas, 0], ArrowRight: [pas, 0], ArrowUp: [0, -pas], ArrowDown: [0, pas] }[e.key]
           if (!d) return
           e.preventDefault()
-          onQr({ ...qr, x: Math.min(Math.max(0, qr.x + d[0]), 1 - qr.taille), y: Math.min(Math.max(0, qr.y + d[1]), 0.98) })
+          const c = cadre.current?.getBoundingClientRect()
+          const b = bloc.current?.getBoundingClientRect()
+          const hauteur = c && b && c.height ? b.height / c.height : qr.taille
+          onQr({ ...qr, x: borner(qr.x + d[0], 1 - qr.taille), y: borner(qr.y + d[1], 1 - hauteur) })
         }}
-        onPointerDown={(e) => {
-          if (!onQr) return
-          const b = e.currentTarget.getBoundingClientRect()
-          glisse.current = { dx: e.clientX - b.left, dy: e.clientY - b.top }
-          e.currentTarget.setPointerCapture(e.pointerId)
-        }}
-        onPointerMove={(e) => deplacer(e.clientX, e.clientY)}
-        onPointerUp={() => (glisse.current = null)}
       >
         <QrCode code={code} taille={240} className="bloc-qr-image" />
         {qr.mention && <span className="bloc-qr-mention">{MENTION_QR}</span>}
       </div>
+      {fantome && <span className="fantome-qr" style={{ left: `${fantome.x * 100}%`, top: `${fantome.y * 100}%`, width: `${fantome.l * 100}%`, height: `${fantome.h * 100}%` }} aria-hidden="true" />}
     </div>
   )
 }

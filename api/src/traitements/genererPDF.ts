@@ -39,7 +39,7 @@ interface DonneesPdf {
 export async function genererPdfAffiche(d: DonneesPdf): Promise<Uint8Array> {
   const pdf = await PDFDocument.create()
   pdf.setTitle(d.nom)
-  pdf.setCreator('Montbéliard Expériences')
+  pdf.setCreator('Mindi')
   const octets = await readFile(cheminAbsolu(d.image.chemin))
   const image = d.image.mime === 'image/png' ? await pdf.embedPng(octets) : await pdf.embedJpg(octets)
 

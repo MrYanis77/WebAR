@@ -201,6 +201,7 @@ model fichier {
   type                                   fichier_type
   usage_fichier                          fichier_usage_fichier?
   nom_original                           String                  @db.VarChar(255)
+  dossier                                String?                 @db.VarChar(80)
   chemin                                 String                  @unique(map: "uk_fichier_chemin") @db.VarChar(255)
   chemin_original                        String?                 @db.VarChar(255)
   type_mime                              String                  @db.VarChar(100)
@@ -227,6 +228,7 @@ model fichier {
   photo_facade                           photo_facade[]
 
   @@index([proprietaire_id, type], map: "ix_fichier_proprietaire")
+  @@index([proprietaire_id, dossier], map: "ix_fichier_dossier")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments

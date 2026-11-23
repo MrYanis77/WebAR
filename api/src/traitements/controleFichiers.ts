@@ -119,7 +119,7 @@ async function traiterImage(id: number, chemin: string, mime: string) {
 }
 
 /** Lance le contrôle d'un fichier dans la file de traitements. */
-export function planifierControle(id: number) {
+export function planifierControle(id: number, options: { validerSiConforme?: boolean } = {}) {
   ajouterTraitement(`controle:${id}`, async () => {
     const f = await prisma.fichier.findUnique({ where: { id } })
     if (!f || f.controle_termine_le) return
@@ -127,6 +127,9 @@ export function planifierControle(id: number) {
       if (f.type === 'MODELE_3D') await controlerModele3D(id, f.chemin, f.usage_fichier ?? 'AFFICHE')
       else if (f.type === 'SON') await controlerSon(id, f.chemin)
       else await traiterImage(id, f.chemin, f.type_mime)
+      // Modèle déjà diffusé et modifié dans le studio : il reste conforme si le contrôle réussit, pour
+      // que ses animations publiées ne s'interrompent pas.
+      if (options.validerSiConforme) await prisma.fichier.updateMany({ where: { id, statut_controle: 'EN_COURS' }, data: { statut_controle: 'CONFORME' } })
     } catch (e) {
       await refuser(id, `Fichier illisible : ${(e as Error).message}`)
     }

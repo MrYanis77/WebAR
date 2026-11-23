@@ -48,6 +48,7 @@ export function serialiserFichier(f: FichierAvecClips, proprio: Proprietaires): 
     proprietaireId: proprio.get(f.proprietaire_id) ?? '',
     type: f.type,
     nomOriginal: f.nom_original,
+    dossier: f.dossier ?? undefined,
     tailleOctets: f.taille_octets,
     nbTriangles: f.nb_triangles ?? undefined,
     textureMaxPx: f.texture_max_px ?? undefined,

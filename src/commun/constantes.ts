@@ -50,6 +50,20 @@ export const REGLAGES_3D_DEFAUT = {
   luminosite: 1,
 } as const satisfies import('./types').Reglages3D
 
+/**
+ * Réglages complets (valeurs par défaut pour les champs absents). Une ancienne « échelle » enregistrée
+ * par l'atelier est ignorée : la taille se règle au placement de l'animation.
+ */
+export function reglagesComplets(r?: Partial<import('./types').Reglages3D>): import('./types').Reglages3D {
+  return {
+    rotation: { ...REGLAGES_3D_DEFAUT.rotation, ...r?.rotation },
+    ancrage: r?.ancrage ?? REGLAGES_3D_DEFAUT.ancrage,
+    hauteur: r?.hauteur ?? REGLAGES_3D_DEFAUT.hauteur,
+    vitesse: r?.vitesse ?? REGLAGES_3D_DEFAUT.vitesse,
+    luminosite: r?.luminosite ?? REGLAGES_3D_DEFAUT.luminosite,
+  }
+}
+
 /** Optimisation proposée par défaut : textures 1024 px en WebP, géométrie compressée, sans simplification. */
 export const OPTIMISATION_DEFAUT = { textureMaxPx: 1024, webp: true, simplification: 0, compression: true } as const satisfies import('./types').ParametresOptimisation
 

@@ -1,6 +1,7 @@
 // Modules « affiches » et « zones » : affiche importée + QR code unique généré par le serveur,
 // 4 conditions de publication, zone proposée/attribuée, export PDF (BF-31, BF-37 à BF-42, BNF-16).
 import { Router } from 'express'
+import type { Prisma } from '../../generated/prisma/client.js'
 import { schemaAffiche, schemaZone, schemaZoneAffiche, zId, type DonneesAffiche } from '../../../src/commun/schemas.js'
 import { depuisLocal } from '../dates.js'
 import { prisma } from '../db.js'
@@ -62,6 +63,20 @@ async function preparer(u: Utilisateur, d: DonneesAffiche) {
   }
 }
 
+/**
+ * Animation propre à l'affiche (type AFFICHE, du même compte, utilisée par cette seule affiche) : elle
+ * suit les dates de l'affiche. Sans cela, avancer la sortie d'une affiche à aujourd'hui laissait son
+ * animation à l'ancienne date et le QR code affichait « animation indisponible ».
+ */
+async function synchroniserAnimationDediee(tx: Prisma.TransactionClient, afficheId: number, proprietaireId: number, d: { animation_affiche_id: number; debut: Date; fin: Date }) {
+  const anim = await tx.animation.findUnique({ where: { id: d.animation_affiche_id } })
+  if (!anim || anim.type !== 'AFFICHE' || anim.proprietaire_id !== proprietaireId) return
+  const autres = await tx.affiche.count({ where: { animation_affiche_id: anim.id, id: { not: afficheId } } })
+  if (autres > 0) return
+  if (anim.debut.getTime() === d.debut.getTime() && anim.fin?.getTime() === d.fin.getTime()) return
+  await tx.animation.update({ where: { id: anim.id }, data: { debut: d.debut, fin: d.fin } })
+}
+
 routesAffiches.get('/', async (req, res) => {
   const [liste, proprio, scans] = await Promise.all([
     prisma.affiche.findMany({ where: filtreProprietaire(req.utilisateur!), include: { fichier: true }, orderBy: { modifie_le: 'desc' } }),
@@ -89,6 +104,7 @@ routesAffiches.post('/', valider(schemaAffiche), async (req, res) => {
   const donnees = await preparer(u, req.body as DonneesAffiche)
   const a = await prisma.$transaction(async (tx) => {
     const cree = await tx.affiche.create({ data: { ...donnees, proprietaire_id: u.compteId, code_qr: genererCodeQr(), statut: 'BROUILLON' } })
+    await synchroniserAnimationDediee(tx, cree.id, u.compteId, donnees)
     await journaliser(auteur(req), 'CREATION', 'Affiche', cree.id, cree.nom, undefined, tx)
     return cree
   })
@@ -104,6 +120,7 @@ routesAffiches.patch('/:id', valider(schemaAffiche), async (req, res) => {
   const donnees = await preparer(u, req.body as DonneesAffiche)
   await prisma.$transaction(async (tx) => {
     await tx.affiche.update({ where: { id: a.id }, data: { ...donnees, modifie_le: new Date(), chemin_pdf: null } })
+    await synchroniserAnimationDediee(tx, a.id, a.proprietaire_id, donnees)
     await journaliser(auteur(req), 'MODIFICATION', 'Affiche', a.id, donnees.nom, a.image_id !== donnees.image_id ? { fichier: 'remplacé, contrôle relancé' } : undefined, tx)
   })
   res.json(await repondre(a.id))

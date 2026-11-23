@@ -166,6 +166,12 @@ export function DialogueMotif({
 }
 
 /** Notification éphémère (« Partenaire notifié par mail », etc.). */
+/** Message confirmé par la page suivante (ex. « Affiche publiée » affiché sur la liste après l'éditeur). */
+let toastEnAttente: string | null = null
+export function toastApresNavigation(m: string) {
+  toastEnAttente = m
+}
+
 export function useToast() {
   const [message, setMessage] = useState<string | null>(null)
   const minuteur = useRef<number | null>(null)
@@ -174,6 +180,13 @@ export function useToast() {
     if (minuteur.current) window.clearTimeout(minuteur.current)
     minuteur.current = window.setTimeout(() => setMessage(null), 3800)
   }
+  useEffect(() => {
+    if (!toastEnAttente) return
+    const m = toastEnAttente
+    toastEnAttente = null
+    afficher(m)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const element = message
     ? createPortal(
         <div className="toast" role="status">

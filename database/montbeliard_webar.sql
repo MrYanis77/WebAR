@@ -1,5 +1,5 @@
 -- =============================================================================
---  Montbéliard Expériences — base de données MySQL / MariaDB
+--  Mindi — base de données MySQL / MariaDB
 --  Compatible MySQL 8.0.16+ / 8.4 LTS et MariaDB 10.4+ (XAMPP).
 --
 --  Reprend les tables du cahier des charges technique (section 7), adaptées à
@@ -88,6 +88,7 @@ CREATE TABLE fichier (
   type              ENUM('MODELE_3D','SON','IMAGE') NOT NULL,
   usage_fichier     ENUM('AFFICHE','LIEU') NULL COMMENT 'Budget appliqué : affiche 4 Mo / 30 000 triangles, lieu 10 Mo / 100 000',
   nom_original      VARCHAR(255) NOT NULL,
+  dossier           VARCHAR(80)  NULL COMMENT 'Dossier de rangement (affiche, modèle 3D, son)',
   chemin            VARCHAR(255) NOT NULL COMMENT 'Fichier optimisé, nom généré par le serveur',
   chemin_original   VARCHAR(255) NULL,
   type_mime         VARCHAR(100) NOT NULL,
@@ -103,6 +104,7 @@ CREATE TABLE fichier (
   PRIMARY KEY (id),
   UNIQUE KEY uk_fichier_chemin (chemin),
   KEY ix_fichier_proprietaire (proprietaire_id, type),
+  KEY ix_fichier_dossier (proprietaire_id, dossier),
   CONSTRAINT fk_fichier_proprietaire FOREIGN KEY (proprietaire_id) REFERENCES compte (id) ON DELETE RESTRICT,
   CONSTRAINT ck_fichier_mime CHECK (type_mime IN ('model/gltf-binary','audio/mpeg','audio/mp4','audio/aac','image/png','image/jpeg','image/webp')),
   CONSTRAINT ck_fichier_refus CHECK (statut_controle <> 'REFUSE' OR raison_refus IS NOT NULL)

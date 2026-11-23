@@ -4,6 +4,7 @@ import { distanceM } from '../commun/geo'
 import { useLangue } from '../commun/i18n'
 import { Icone } from '../commun/Icone'
 import { useDonneesPubliques } from './donneesPubliques'
+import { FournisseurAccessibilite } from './composants/Accessibilite'
 import { EcranContexte } from './composants/Couche'
 import { FournisseurPosition, usePosition } from './contexte/position'
 import { useCompatibilite, useEnLigne } from './hooks/capteurs'
@@ -107,6 +108,7 @@ export default function Visiteur() {
         <div className="telephone">
           <div className="ecran" ref={setEcran} id="ecran-visiteur">
             <EcranContexte.Provider value={ecran}>
+              <FournisseurAccessibilite>
               <Suspense fallback={<div className="page page-centree"><span className="spinner" /></div>}>
                 <Routes>
                   <Route index element={<PageCarte />} />
@@ -121,6 +123,7 @@ export default function Visiteur() {
               </Suspense>
               <Bandeaux />
               <MessageProximite />
+              </FournisseurAccessibilite>
             </EcranContexte.Provider>
           </div>
         </div>

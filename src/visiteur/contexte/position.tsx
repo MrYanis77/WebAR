@@ -12,6 +12,7 @@ interface ContextePosition {
   /** Précision de la position en mètres (rayon à 68 %), utile au placement GPS en réalité augmentée. */
   precisionM: number | null
   simulee: boolean
+  /** Demande la position réelle (et quitte la position simulée de démonstration). */
   demander: () => void
   simuler: (c: Coordonnees | null) => void
 }
@@ -24,50 +25,78 @@ export function FournisseurPosition({ children }: { children: ReactNode }) {
   const [precisionM, setPrecisionM] = useState<number | null>(null)
   const [simulee, setSimulee] = useState<Coordonnees | null>(null)
   const surveillance = useRef<number | null>(null)
+  const dejaLocalise = useRef(false)
+
+  const arreter = useCallback(() => {
+    if (surveillance.current !== null) navigator.geolocation.clearWatch(surveillance.current)
+    surveillance.current = null
+  }, [])
+
+  const recevoir = useCallback((p: GeolocationPosition) => {
+    dejaLocalise.current = true
+    setEtat('accorde')
+    setCoords({ latitude: p.coords.latitude, longitude: p.coords.longitude })
+    setPrecisionM(p.coords.accuracy)
+  }, [])
 
   const demarrer = useCallback(() => {
-    if (!('geolocation' in navigator)) {
+    if (!('geolocation' in navigator) || !window.isSecureContext) {
+      // La géolocalisation n'existe qu'en HTTPS (ou sur localhost).
       setEtat('indisponible')
       return
     }
     if (surveillance.current !== null) return
-    setEtat('demande')
-    surveillance.current = navigator.geolocation.watchPosition(
-      (p) => {
-        setEtat('accorde')
-        setCoords({ latitude: p.coords.latitude, longitude: p.coords.longitude })
-        setPrecisionM(p.coords.accuracy)
-      },
-      (err) => {
-        setEtat(err.code === err.PERMISSION_DENIED ? 'refuse' : 'indisponible')
-        if (surveillance.current !== null) navigator.geolocation.clearWatch(surveillance.current)
-        surveillance.current = null
-      },
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
-    )
-  }, [])
+    if (!dejaLocalise.current) setEtat('demande')
+    const echec = (err: GeolocationPositionError) => {
+      if (err.code === err.PERMISSION_DENIED) {
+        setEtat('refuse')
+        arreter()
+        return
+      }
+      // Délai dépassé ou signal GPS absent : le suivi continue (le GPS peut revenir), on ne signale
+      // l'échec que si aucune position n'a encore été obtenue.
+      if (!dejaLocalise.current) setEtat('indisponible')
+    }
+    // Première position rapide (réseau / Wi-Fi), puis suivi précis par GPS.
+    navigator.geolocation.getCurrentPosition(recevoir, () => {}, { enableHighAccuracy: false, maximumAge: 60_000, timeout: 8000 })
+    surveillance.current = navigator.geolocation.watchPosition(recevoir, echec, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30_000 })
+  }, [recevoir, arreter])
 
-  // Si l'autorisation a déjà été donnée lors d'une visite précédente, on reprend le suivi sans redemander.
+  /** Nouvel essai demandé par le visiteur : on relance le suivi et on quitte la position de démonstration. */
+  const demander = useCallback(() => {
+    setSimulee(null)
+    if (etat === 'refuse' || etat === 'indisponible') arreter()
+    demarrer()
+  }, [etat, arreter, demarrer])
+
+  // Si l'autorisation a déjà été donnée lors d'une visite précédente, on reprend le suivi sans redemander ;
+  // si le visiteur l'accorde ensuite dans les réglages du navigateur, le suivi démarre aussitôt.
   useEffect(() => {
     let annule = false
+    let statut: PermissionStatus | null = null
+    const appliquer = () => {
+      if (annule || !statut) return
+      if (statut.state === 'granted') demarrer()
+      if (statut.state === 'denied') {
+        arreter()
+        setEtat('refuse')
+      }
+    }
     navigator.permissions
       ?.query({ name: 'geolocation' as PermissionName })
       .then((r) => {
-        if (!annule && r.state === 'granted') demarrer()
-        if (!annule && r.state === 'denied') setEtat('refuse')
+        statut = r
+        appliquer()
+        r.addEventListener('change', appliquer)
       })
       .catch(() => {})
     return () => {
       annule = true
+      statut?.removeEventListener('change', appliquer)
     }
-  }, [demarrer])
+  }, [demarrer, arreter])
 
-  useEffect(
-    () => () => {
-      if (surveillance.current !== null) navigator.geolocation.clearWatch(surveillance.current)
-    },
-    [],
-  )
+  useEffect(() => arreter, [arreter])
 
   const valeur = useMemo<ContextePosition>(
     () => ({
@@ -75,10 +104,10 @@ export function FournisseurPosition({ children }: { children: ReactNode }) {
       coords: simulee ?? coords,
       precisionM: simulee ? 5 : precisionM,
       simulee: !!simulee,
-      demander: demarrer,
+      demander,
       simuler: setSimulee,
     }),
-    [etat, coords, precisionM, simulee, demarrer],
+    [etat, coords, precisionM, simulee, demander],
   )
 
   return <Contexte.Provider value={valeur}>{children}</Contexte.Provider>

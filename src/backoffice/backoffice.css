@@ -520,12 +520,14 @@ i.cyan { background: var(--cyan); }
 /* =============================================================== Accès (connexion, inscription) */
 
 .acces { display: grid; grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr); min-height: 100vh; background: var(--chalk); }
-.acces-marque { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 30px; padding: 36px 44px; overflow: hidden; background: var(--ink); color: var(--chalk); }
+.acces-marque { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 30px; padding: 36px 44px; overflow: hidden; background: linear-gradient(180deg, rgb(14 16 22 / 0.72) 0%, rgb(14 16 22 / 0.45) 38%, rgb(14 16 22 / 0.88) 100%), url("/images/connexion.webp") center / cover no-repeat, var(--ink); color: var(--chalk); }
+.acces-marque > * { position: relative; z-index: 1; }
+.acces-marque h1, .acces-marque > div > p { text-shadow: 0 2px 14px rgb(0 0 0 / 0.55); }
 .acces-marque::before { content: ''; position: absolute; right: -180px; bottom: -180px; width: 480px; height: 480px; border: 1px solid rgb(216 210 198 / 0.12); border-radius: 50%; box-shadow: 0 0 0 80px rgb(216 210 198 / 0.03); }
 .acces-marque h1 { margin-top: 18px; font-size: clamp(36px, 4vw, 56px); font-weight: 650; letter-spacing: -2px; line-height: 0.95; }
 .acces-marque h1 em { color: var(--cyan); font-style: normal; }
-.acces-marque > div > p { max-width: 420px; margin-top: 18px; color: #aaa8a2; font-size: 14px; line-height: 1.7; }
-.acces-marque ul { display: grid; gap: 10px; color: #d3d0c9; font-size: 13px; }
+.acces-marque > div > p { max-width: 420px; margin-top: 18px; color: #e4e1da; font-size: 14px; line-height: 1.7; }
+.acces-marque ul { display: grid; gap: 10px; color: #ece9e2; text-shadow: 0 1px 8px rgb(0 0 0 / 0.6); font-size: 13px; }
 .acces-marque li { display: flex; align-items: center; gap: 8px; }
 .acces-marque li svg { color: var(--cyan); }
 .acces-formulaire { display: grid; place-items: center; padding: 70px 24px 40px; overflow-y: auto; }
@@ -744,6 +746,15 @@ i.cyan { background: var(--cyan); }
 .resume-situation span { font-weight: 600; font-variant-numeric: tabular-nums; }
 .resume-situation small { color: var(--muted); font-size: 12px; }
 .choix-affiche-apercu { display: grid; gap: 8px; }
+.actions-atelier { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Studio d'assemblage : liste ordonnée des modèles réunis. */
+.liste-assemblage { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.liste-assemblage li { display: flex; align-items: center; gap: 6px; padding: 4px; border: 1px solid var(--line, #e2ddd3); border-radius: 9px; }
+.liste-assemblage li.actif { border-color: var(--wine, #7b1e2e); box-shadow: 0 0 0 2px rgb(123 30 46 / 0.12); }
+.liste-assemblage .nom-element { display: flex; flex: 1; min-width: 0; align-items: center; gap: 6px; padding: 4px 6px; border: 0; background: none; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.liste-assemblage .nom-element span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.liste-assemblage .nom-element small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.liste-assemblage .boutons-rapides button { display: inline-flex; padding: 5px 7px; }
 .placement-sur-affiche { margin-top: 14px; padding: 10px 14px; border: 1px solid var(--line, #e2ddd3); border-radius: 12px; }
 .placement-sur-affiche summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; cursor: pointer; font-weight: 700; }
 .placement-sur-affiche summary small { color: var(--muted); font-weight: 500; }
@@ -827,3 +838,272 @@ i.cyan { background: var(--cyan); }
 @media (max-width: 640px) { .liste-animations-monument li { grid-template-columns: minmax(0, 1fr); } }
 .tiroir.large { width: min(1000px, 100%); }
 .atelier-3d { z-index: 300; }
+
+/* =============================================================== Assistants (affiche, monument) : étapes aérées */
+
+.editeur-affiche.pleine-largeur { grid-template-columns: minmax(0, 1fr); }
+.editeur-affiche.pleine-largeur .editeur-formulaire { padding-inline: 28px; }
+.etapes-editeur { margin-bottom: 22px; }
+.etapes-editeur::before { top: 16px; }
+.etapes-editeur button { gap: 2px; cursor: pointer; }
+.etapes-editeur span { width: 33px; height: 33px; margin-bottom: 4px; }
+.etapes-editeur strong { font-size: 12.5px; }
+.etapes-editeur small { color: var(--muted-2); font-size: 11px; }
+.etapes-editeur .actif small, .etapes-editeur .fait small { color: inherit; opacity: 0.7; }
+.section-editeur { display: flex; flex-direction: column; gap: 16px; }
+.section-editeur > .note-ok, .section-editeur > .erreur-acces { margin-top: 0; }
+.tete-etape h2 { margin: 6px 0 6px; font-size: 24px; }
+.tete-etape .intro-etape { max-width: 760px; margin: 0; }
+.bloc-etape { display: grid; gap: 12px; margin: 0; padding: 16px 18px; border: 1px solid var(--border); border-radius: 14px; background: #fff; }
+.bloc-etape > h3 { font-size: 14px; }
+.bloc-etape .case { margin: 0; }
+.bloc-etape.transcriptions legend { font-size: 14px; }
+.photos-facade.bloc-etape { padding: 16px 18px; }
+
+/* Atelier pleine largeur dans l'étape « Animation 3D » */
+.atelier-etape { position: relative; height: clamp(520px, calc(100vh - 380px), 880px); }
+.atelier-chargement.statique { position: static; padding: 40px 16px; border: 1px solid var(--border); border-radius: 14px; }
+.details-etape { border: 1px solid var(--border); border-radius: 14px; background: #fff; }
+.details-etape > summary { display: flex; align-items: center; gap: 8px; padding: 13px 16px; font-size: 13.5px; cursor: pointer; list-style: none; }
+.details-etape > summary::-webkit-details-marker { display: none; }
+.details-etape > summary::after { content: ''; width: 8px; height: 8px; margin-left: auto; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform 0.2s; }
+.details-etape[open] > summary::after { transform: rotate(-135deg); }
+.details-etape > summary svg { color: var(--wine); }
+.details-etape > summary small { color: var(--muted); font-size: 12px; }
+.details-etape[open] > summary { border-bottom: 1px solid var(--border); }
+.details-etape > :not(summary) { margin: 14px 16px 16px; }
+.etape-formulaire .details-etape { margin-top: 12px; }
+.son-et-duree { display: grid; gap: 12px; }
+
+/* Placement du QR code d'un clic */
+.consigne-clic { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--wine-soft); color: var(--wine); }
+.consigne-clic > svg { flex: none; margin-top: 1px; }
+.consigne-clic strong { display: block; font-size: 14px; }
+.consigne-clic small { display: block; margin-top: 3px; color: var(--ink); font-size: 12.5px; line-height: 1.45; opacity: 0.78; }
+/* L'aperçu défile : ses blocs gardent leur taille (sinon l'affiche, en overflow hidden, est écrasée et coupée). */
+.editeur-apercu > * { flex-shrink: 0; }
+.editeur-affiche.etape-qr { grid-template-columns: minmax(0, 0.9fr) minmax(420px, 1.1fr); }
+.editeur-apercu.etape-qr { padding: 24px 32px 32px; }
+.editeur-apercu.etape-qr .feuille-format { width: min(100%, 620px, calc((100vh - 250px) * var(--ratio, 0.71))); }
+.editeur-apercu.etape-qr .echelle-format { width: min(100%, 460px); margin-top: 22px; }
+.editeur-apercu.etape-qr .libelle-apercu strong { color: var(--wine); }
+.libelle-apercu > strong { align-self: center; }
+
+/* Aperçus de l'application (affiche, monument) */
+.apercu-fiche-app { display: grid; gap: 6px; width: min(100%, 340px); margin-top: 16px; padding: 14px 16px; border-radius: 14px; background: #fff; box-shadow: 0 8px 20px rgb(95 88 77 / 0.18); }
+.apercu-fiche-app > small { color: var(--muted-2); font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; }
+.apercu-fiche-app > strong { font: 650 17px var(--font-titre); }
+.apercu-fiche-app p { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.apercu-fiche-app .pill, .apercu-fiche-monument .pill { display: inline-flex; align-items: center; gap: 4px; justify-self: start; }
+.apercu-fiche-monument { width: min(100%, 360px); overflow: hidden; border-radius: 16px; background: #fff; box-shadow: 0 14px 30px rgb(95 88 77 / 0.25); }
+.apercu-fiche-monument .image { display: grid; place-items: center; height: 180px; background: linear-gradient(135deg, var(--wine), #4b1220); color: rgb(255 255 255 / 0.8); }
+.apercu-fiche-monument .image img { width: 100%; height: 100%; object-fit: cover; }
+.apercu-fiche-monument > div:last-child { display: grid; gap: 6px; padding: 14px 16px 16px; }
+.apercu-fiche-monument strong { font: 650 18px var(--font-titre); }
+.apercu-fiche-monument small { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
+.apercu-fiche-monument p { display: -webkit-box; overflow: hidden; color: #56534e; font-size: 12.5px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 6; }
+
+/* Publication */
+.boite-pret { display: flex; align-items: flex-start; gap: 12px; margin-top: 0; }
+.boite-pret > svg { flex: none; margin-top: 1px; }
+.verifications { margin-top: 0; }
+.verifications li.ko svg { color: var(--wine); }
+.verifications li.alerte svg { color: var(--amber); }
+.resume-zone { display: flex; gap: 10px; padding: 11px 12px; border-radius: 10px; background: var(--sand-2); font-size: 12.5px; }
+.resume-zone > svg { flex: none; margin-top: 2px; color: var(--wine); }
+.resume-zone strong, .resume-zone small { display: block; }
+.resume-zone small { margin-top: 2px; color: var(--muted); }
+.resume-zone.alerte { background: var(--amber-soft); }
+.resume-zone.alerte > svg { color: var(--amber); }
+.cellule-detail { display: block; margin-top: 2px; color: var(--muted-2); font-size: 11px; font-weight: 400; }
+.aide-champ.alerte-texte, .cellule-detail.alerte-texte { color: var(--amber); }
+.position-monument { display: grid; gap: 14px; }
+
+/* =============================================================== Ateliers 3D : mêmes outils partout */
+
+.atelier-integre { display: grid; grid-template-columns: minmax(0, 1fr) 360px; height: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: #fff; }
+.atelier-integre-vue { position: relative; min-width: 0; min-height: 0; }
+.vue-atelier { position: absolute; inset: 0; overflow: hidden; background: #eeeae2; }
+.vue-atelier .atelier-outils-vue { max-width: calc(100% - 28px); }
+.vue-monument .atelier-outils-vue { max-width: calc(100% - 80px); }
+.vue-atelier .atelier-outils-vue button { display: inline-flex; align-items: center; gap: 5px; }
+.vue-atelier .atelier-outils-vue button:disabled { opacity: 0.45; cursor: default; }
+.choix-geste { display: flex; gap: 2px; }
+.consigne-vue { position: absolute; right: 14px; bottom: 14px; max-width: min(340px, 45%); margin: 0; padding: 7px 12px; border-radius: 10px; background: rgb(30 32 36 / 0.78); color: #fff; font-size: 12px; line-height: 1.4; pointer-events: none; }
+.vue-monument .consigne-vue { top: 64px; right: auto; bottom: auto; left: 14px; }
+.vue-atelier .message-vue { position: absolute; top: 50%; left: 50%; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 40px); margin: 0; padding: 10px 14px; border-radius: 10px; background: rgb(255 255 255 / 0.95); box-shadow: 0 2px 10px rgb(0 0 0 / 0.1); color: var(--muted); font-size: 13px; transform: translate(-50%, -50%); }
+.vue-monument .atelier-carte-fond.clic-actif .maplibregl-canvas-container.maplibregl-interactive { cursor: crosshair; }
+.poignee-orientation.active { box-shadow: 0 0 0 5px rgb(79 209 197 / 0.45), 0 2px 6px rgb(0 0 0 / 0.45); }
+.poignee-taille { width: 16px; height: 16px; border: 3px solid var(--wine); border-radius: 4px; background: #fff; box-shadow: 0 2px 6px rgb(0 0 0 / 0.45); cursor: ew-resize; }
+
+.panneau-atelier { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; padding: 14px; border-left: 1px solid var(--border); background: #fff; }
+.choix-animation, .choix-modele { display: grid; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.choix-animation .note-partage, .choix-modele .erreur-acces { margin: 0; }
+.budget-ligne { display: flex; align-items: center; gap: 5px; color: var(--green); font-size: 11.5px; }
+.budget-ligne.depasse { color: var(--wine); }
+.grille-champs.serree { gap: 8px; }
+.panneau-atelier .choix-affiche-apercu { padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.onglets-outils { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; padding: 3px; border-radius: 11px; background: var(--sand-2); }
+.onglets-outils button { display: grid; justify-items: center; gap: 3px; padding: 7px 2px 6px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 11.5px; font-weight: 650; cursor: pointer; }
+.onglets-outils button:hover { color: var(--ink); }
+.onglets-outils button.actif { background: #fff; color: var(--wine); box-shadow: 0 1px 4px rgb(0 0 0 / 0.1); }
+.contenu-outil, .section-outil { display: grid; gap: 12px; }
+.titre-outil { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.titre-outil strong { display: block; font-size: 13.5px; }
+.titre-outil small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.titre-outil .btn { flex: none; }
+.section-outil > .titre-outil:not(:first-child) { padding-top: 12px; border-top: 1px solid var(--border); }
+.outil-vide { display: flex; align-items: center; gap: 8px; margin: 0; padding: 14px; border: 1px dashed var(--border); border-radius: 10px; color: var(--muted); font-size: 13px; }
+.note-partage { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 9px 11px; border-radius: 9px; background: var(--sand-2); color: var(--muted); font-size: 12px; line-height: 1.45; }
+.note-partage > svg { flex: none; margin-top: 1px; color: var(--wine); }
+.note-partage a { color: var(--wine); font-weight: 650; }
+.resume-taille { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--sand-2); font-size: 12.5px; line-height: 1.5; }
+.resume-taille b { font-variant-numeric: tabular-nums; }
+.section-outil .boutons-rapides button.actif { border-color: var(--wine); }
+.section-outil .champs-coordonnees .champ { flex-basis: 120px; }
+.section-outil .choix-type.compact { grid-template-columns: 1fr 1fr; }
+.section-outil .btn.petit { justify-self: start; }
+
+/* Atelier d'un fichier (fenêtre plein écran) */
+.atelier-corps-modal { position: relative; min-height: 0; }
+.atelier-corps-modal > .atelier-integre { border: 0; border-radius: 0; }
+.choix-decor-atelier { display: flex; gap: 3px; padding: 3px; border-radius: 11px; background: var(--sand-2); }
+.choix-decor-atelier button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 13px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 13px; font-weight: 650; cursor: pointer; }
+.choix-decor-atelier button.actif { background: #fff; color: var(--wine); box-shadow: 0 1px 4px rgb(0 0 0 / 0.1); }
+.choix-decor-atelier button:disabled { opacity: 0.5; cursor: default; }
+.retour-atelier { display: inline-flex; align-items: center; gap: 5px; max-width: 360px; font-size: 12px; }
+.retour-atelier.ok { color: var(--green); }
+.retour-atelier.ko { color: var(--wine); }
+.boutons-decor { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Formulaire étroit (tiroir) : vue au-dessus du panneau */
+.atelier-integre.pile { grid-template-columns: minmax(0, 1fr); grid-template-rows: 380px auto; height: auto; }
+.atelier-integre.pile .panneau-atelier { overflow: visible; border-top: 1px solid var(--border); border-left: 0; }
+
+@media (max-width: 1200px) {
+  .editeur-affiche.etape-qr { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1150px) {
+  .atelier-integre:not(.pile) { grid-template-columns: minmax(0, 1fr) 320px; }
+}
+@media (max-width: 860px) {
+  .atelier-integre, .atelier-integre:not(.pile) { grid-template-columns: minmax(0, 1fr); grid-template-rows: min(420px, 60vh) auto; height: auto; }
+  .panneau-atelier { overflow: visible; border-top: 1px solid var(--border); border-left: 0; }
+  .atelier-etape { height: auto; }
+  .atelier-corps-modal { overflow-y: auto; }
+  .editeur-affiche.pleine-largeur .editeur-formulaire { padding-inline: 16px; }
+  .etapes-editeur small { display: none; }
+}
+@media (max-width: 600px) {
+  .etapes-editeur strong { font-size: 11px; }
+  .consigne-vue { display: none; }
+}
+.lien-champ { margin-left: auto; padding: 0; border: 0; background: none; color: var(--wine); font-size: 11.5px; font-weight: 650; text-decoration: underline; }
+.etiquette:has(.lien-champ) { display: flex; align-items: center; gap: 6px; }
+
+/* =============================================================== Studio : modifier ou copier */
+.voile-dialogue { position: fixed; inset: 0; z-index: 400; display: grid; place-items: center; padding: 16px; background: rgb(14 16 22 / 0.5); }
+.dialogue-choix { display: grid; gap: 10px; width: min(480px, 100%); padding: 22px; border-radius: 16px; background: var(--chalk); box-shadow: 0 20px 60px rgb(0 0 0 / 0.3); }
+.dialogue-choix h3 { font-size: 20px; }
+.dialogue-choix > p { color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+.choix-enregistrement { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 14px; border: 1.5px solid var(--border); border-radius: 12px; background: #fff; color: var(--ink); text-align: left; }
+.choix-enregistrement:hover, .choix-enregistrement:focus-visible { border-color: var(--wine); background: var(--wine-soft); }
+.choix-enregistrement > svg { flex: none; margin-top: 2px; color: var(--wine); }
+.choix-enregistrement strong, .choix-enregistrement small { display: block; }
+.choix-enregistrement small { margin-top: 3px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.dialogue-choix .btn-fantome { justify-self: end; }
+
+/* =============================================================== Fichiers : dossiers */
+.barre-dossiers { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0 4px; }
+.libelle-dossiers { display: flex; align-items: center; gap: 6px; margin-right: 4px; color: var(--muted); font-size: 12.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.6px; }
+.barre-dossiers > button { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: #fff; color: var(--ink); font-size: 13px; font-weight: 550; }
+.barre-dossiers > button b { padding: 1px 7px; border-radius: 999px; background: var(--sand-2); color: var(--muted); font-size: 11px; }
+.barre-dossiers > button[aria-pressed='true'] { border-color: var(--ink); background: var(--ink); color: var(--chalk); }
+.barre-dossiers > button[aria-pressed='true'] b { background: rgb(255 255 255 / 0.18); color: var(--chalk); }
+.barre-dossiers .ajout-dossier { border-style: dashed; color: var(--wine); }
+.saisie-dossier { display: flex; align-items: center; gap: 6px; }
+.saisie-dossier input { height: 34px; width: 200px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; }
+.aide-dossier { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.choix-dossier { margin-bottom: 12px; }
+.choix-dossier .etiquette > span { display: inline-flex; align-items: center; gap: 5px; }
+.onglets-page { margin-bottom: 18px; }
+
+/* =============================================================== Monuments & animations */
+.parcours-aide { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 16px; padding: 0; list-style: none; }
+.parcours-aide li { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: #fff; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.parcours-aide li span { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--wine-soft); color: var(--wine); font-weight: 700; }
+.parcours-aide li strong { color: var(--ink); }
+.compte-liste { color: var(--muted); font-size: 13px; }
+.animations-lieu { margin: 10px 0 4px; padding: 10px 0 2px; border-top: 1px solid var(--border); }
+.sous-titre-liste { display: flex; align-items: center; gap: 5px; margin-bottom: 6px; color: var(--muted); font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.5px; }
+.animations-lieu ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.animations-lieu li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; background: var(--sand-2); }
+.nom-animation { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: var(--ink); text-align: left; }
+.nom-animation strong, .nom-animation small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nom-animation strong { font-size: 13px; }
+.nom-animation small { color: var(--muted); font-size: 11.5px; }
+.nom-animation:hover strong { color: var(--wine); text-decoration: underline; }
+.animations-lieu .cellule-vide { margin: 0; font-size: 12.5px; }
+@media (max-width: 900px) { .parcours-aide { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* =============================================================== Barre latérale : sous-menus */
+.parent-sous-menu { display: flex; align-items: center; gap: 11px; width: 100%; height: 40px; padding: 0 10px; border: 0; border-radius: 9px; background: none; color: #c4c4c1; font-size: 13px; text-align: left; }
+.parent-sous-menu:hover { background: var(--ink-2); color: #fff; }
+.groupe-sous-menu.dedans > .parent-sous-menu { color: #fff; font-weight: 600; }
+.parent-sous-menu b { margin-left: auto; padding: 2px 7px; border-radius: 8px; background: var(--cyan); color: var(--ink); font-size: 10.5px; }
+.parent-sous-menu .chevron { margin-left: auto; opacity: 0.7; }
+.parent-sous-menu b + .chevron { margin-left: 6px; }
+.liste-sous-menu { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 6px 19px; padding-left: 10px; border-left: 1px solid #3d3e42; }
+.bo-nav a.sous-lien { height: 34px; gap: 9px; font-size: 12.5px; }
+
+/* =============================================================== Aide et résumés (pages Monuments / Affiches) */
+.encart-aide { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 18px; padding: 12px 14px; border-radius: 12px; background: var(--cyan-soft); color: var(--cyan-dark); font-size: 13.5px; line-height: 1.5; }
+.encart-aide > svg { flex: none; margin-top: 2px; }
+.resume-animations { display: flex; align-items: center; gap: 8px; width: 100%; margin: 10px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--sand-2); color: var(--ink); font-size: 13px; text-align: left; }
+.resume-animations span { flex: 1; }
+.resume-animations:hover { border-color: var(--wine); color: var(--wine); }
+.ajout-animation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.table-animations td { vertical-align: middle; }
+
+/* =============================================================== Recadrage de l'affiche */
+.dialogue.recadrage { display: grid; gap: 12px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.recadrage-tete { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.recadrage-tete .dialogue-texte { max-width: 560px; margin-bottom: 0; }
+.recadrage-options { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; }
+.recadrage-options .champ { min-width: 180px; }
+.recadrage-scene {
+  position: relative;
+  justify-self: center;
+  overflow: hidden;
+  border-radius: 10px;
+  background: repeating-conic-gradient(#d9d4cc 0 25%, #ebe7e0 0 50%) 0 0 / 16px 16px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  overscroll-behavior: contain;
+}
+.recadrage-scene:active { cursor: grabbing; }
+.recadrage-scene:focus-visible { outline: 2px solid var(--wine); outline-offset: 2px; }
+.recadrage-page, .recadrage-cadre, .recadrage-image, .recadrage-attente { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.recadrage-page { background: #fff; }
+.recadrage-image { max-width: none; pointer-events: none; }
+.recadrage-cadre { pointer-events: none; border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35), 0 0 0 9999px rgb(22 23 26 / 0.55); }
+.recadrage-cadre span { position: absolute; top: 0; bottom: 0; width: 1px; background: rgb(255 255 255 / 0.45); }
+.recadrage-cadre span.h { top: auto; right: 0; bottom: auto; left: 0 !important; width: auto; height: 1px; }
+.recadrage-zoom { display: flex; align-items: center; gap: 8px; }
+.recadrage-zoom input[type='range'] { flex: 1; accent-color: var(--wine); }
+.recadrage-pourcent { min-width: 52px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
+.recadrage-info { display: flex; align-items: flex-start; gap: 8px; min-height: 54px; margin: 0; padding: 8px 10px; border-radius: 9px; background: #f2eee8; color: var(--ink); font-size: 12.5px; line-height: 1.4; }
+.recadrage-info strong, .recadrage-info small { display: block; }
+.recadrage-info strong { font-variant-numeric: tabular-nums; }
+.recadrage-info small { color: var(--muted); font-size: 12px; }
+.recadrage-info svg { flex: none; margin-top: 1px; }
+.recadrage-info.ok svg { color: var(--green); }
+.recadrage-info.agrandie { background: #fdf3e2; }
+.recadrage-info.agrandie svg { color: #b26b00; }
+.recadrage-info.faible { background: #fdecea; }
+.recadrage-info.faible svg, .recadrage-info.faible small { color: #b42318; }
+.dialogue.recadrage .dialogue-actions { flex-wrap: wrap; margin-top: 0; }
+.infos-fichier-affiche .btn-petit { flex: none; height: 30px; padding: 0 10px; font-size: 12px; color: var(--ink); }
+.lien-bouton { margin-left: 6px; padding: 0; border: 0; background: none; color: var(--wine); font: inherit; font-weight: 650; text-decoration: underline; cursor: pointer; }
+.lien-bouton:disabled { opacity: 0.5; cursor: default; }

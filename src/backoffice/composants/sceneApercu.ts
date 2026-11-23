@@ -91,6 +91,14 @@ export function limiterDecalage(d: Decalage, zMin = -Infinity): Decalage {
   return { x: arrondi(x), y: arrondi(y), z: arrondi(z) }
 }
 
+/**
+ * Recul possible depuis la position de départ jusqu'au plan de l'affiche (négatif) : le modèle ne passe
+ * pas derrière le mur. Même calcul que `poseSurCible` (départ à 0,35 ou 0,1 hauteur de cible du mur).
+ */
+export function reculMur(position: ReglageAfficheRA['position'], hauteurCible: number) {
+  return -Math.round((position === 'dessus' ? 0.1 : 0.35) * hauteurCible * 100) / 100
+}
+
 /** Gabarit d'affiche vierge (aucune affiche choisie) : cadre, titre et emplacement du QR code. */
 function gabaritAffiche(format: string, ratio: number): HTMLCanvasElement {
   const H = 1200

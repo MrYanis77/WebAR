@@ -1,4 +1,4 @@
-# Montbéliard Expériences — WebAR
+# Mindi — WebAR
 
 Application web de **réalité augmentée** qui relie le patrimoine de Montbéliard aux événements de la ville.
 
@@ -169,6 +169,12 @@ Dans le même menu, onglet **Zones d'affichage**, créez les **zones d'affichage
 
 N'oubliez pas **Enregistrer** en haut de l'atelier.
 
+**Assembler des modèles** (en haut de la page, ou **Assembler** à côté de « Ouvrir l'atelier ») réunit plusieurs modèles en un seul, par exemple *logo · séparateur · logo* pour un match :
+
+1. Ajoutez les modèles un par un dans la liste (un même modèle peut être ajouté plusieurs fois).
+2. **Aligner côte à côte** les pose au sol dans l'ordre de la liste ; ajustez ensuite chacun avec les poignées (**Déplacer**, **Tourner**) et sa **taille** en mètres. Cliquez sur un modèle dans la vue pour le sélectionner.
+3. **Créer le modèle assemblé** : le serveur produit un nouveau fichier GLB. Chaque modèle y garde ses animations, qui jouent ensemble, et les modèles d'origine ne changent pas. Le nouveau fichier passe le contrôle automatique comme un import : validez-le, puis utilisez-le dans une animation.
+
 ### 4.3 Créer une animation
 
 **Animations › Nouvelle animation**. Le formulaire suit 5 étapes :
@@ -279,8 +285,9 @@ Si votre base `webar` a été créée avant une évolution, importez dans phpMyA
 | `2026-11-16_placement_gps.sql` | Placement GPS en 3D des animations de monument |
 | `2026-11-17_reglage_affiche.sql` | Position (devant / au-dessus) et taille sur l'affiche |
 | `2026-11-18_decalage_affiche.sql` | Déplacement du modèle autour de l'affiche (rayon de 3 m) |
+| `2026-11-21_dossiers_fichiers.sql` | Dossiers de la bibliothèque de fichiers (affiche + modèle 3D + son) |
 
-Le script `database/montbeliard_webar.sql` contient déjà les trois premières : après une installation neuve, seule la dernière est à importer.
+Le script `database/montbeliard_webar.sql` contient déjà les trois premières et la dernière (dossiers) : après une installation neuve, seule `2026-11-18_decalage_affiche.sql` est à importer.
 
 ---
 

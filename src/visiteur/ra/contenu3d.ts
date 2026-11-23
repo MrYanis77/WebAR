@@ -7,7 +7,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
-import { NOM_ANIMATION_COMBINEE, RAYON_AFFICHE_M, REGLAGE_AFFICHE_RA_DEFAUT, REGLAGES_3D_DEFAUT } from '../../commun/constantes'
+import { NOM_ANIMATION_COMBINEE, RAYON_AFFICHE_M, REGLAGE_AFFICHE_RA_DEFAUT, reglagesComplets } from '../../commun/constantes'
 import { geometrieAffiche } from '../../commun/impression'
 import type { Animation, Reglages3D } from '../../commun/types'
 import type { DetailCible } from './moteur'
@@ -61,19 +61,9 @@ export function eclairer(scene: THREE.Scene, renderer: THREE.WebGLRenderer): Ecl
 
 const DUREE_APPARITION_S = 0.8
 
-/**
- * Réglages complets (valeurs par défaut pour les champs absents). Une ancienne « échelle » enregistrée
- * par l'atelier est ignorée : la taille se règle au placement de l'animation.
- */
-export function reglagesComplets(r?: Partial<Reglages3D>): Reglages3D {
-  return {
-    rotation: { ...REGLAGES_3D_DEFAUT.rotation, ...r?.rotation },
-    ancrage: r?.ancrage ?? REGLAGES_3D_DEFAUT.ancrage,
-    hauteur: r?.hauteur ?? REGLAGES_3D_DEFAUT.hauteur,
-    vitesse: r?.vitesse ?? REGLAGES_3D_DEFAUT.vitesse,
-    luminosite: r?.luminosite ?? REGLAGES_3D_DEFAUT.luminosite,
-  }
-}
+// Réglages complets d'un modèle (valeurs par défaut pour les champs absents) : définis avec les
+// constantes, sans Three.js, pour les panneaux du back-office.
+export { reglagesComplets }
 
 /**
  * Modèle de l'animation prêt à poser dans la scène. Hiérarchie :
@@ -178,6 +168,22 @@ export class ModeleAnime {
     this.apparition.scale.setScalar(e)
     this.racine.updateMatrixWorld(true)
     return boite
+  }
+
+  /**
+   * Place de la scène du fichier GLB dans le repère du parent de `racine` (pose, réglages de l'atelier
+   * et mise à l'échelle comprises, sans l'effet d'apparition) : studio d'assemblage, qui réunit plusieurs
+   * fichiers en un seul en gardant ce que l'on voit.
+   */
+  matriceScene(): THREE.Matrix4 {
+    const e = this.apparition.scale.x
+    this.apparition.scale.setScalar(1)
+    this.racine.updateMatrixWorld(true)
+    const parent = this.racine.parent ? new THREE.Matrix4().copy(this.racine.parent.matrixWorld).invert() : new THREE.Matrix4()
+    const m = parent.multiply(this.gltf.scene.matrixWorld)
+    this.apparition.scale.setScalar(e)
+    this.racine.updateMatrixWorld(true)
+    return m
   }
 
   /** Noms des animations intégrées au fichier. */

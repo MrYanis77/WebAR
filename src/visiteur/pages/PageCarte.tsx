@@ -12,19 +12,37 @@ import { FormulaireSignalement, type CibleSignalement } from '../composants/Form
 import { MessageErreur } from '../composants/MessageErreur'
 import { NavBas } from '../composants/NavBas'
 import { usePosition } from '../contexte/position'
-import { calculerItineraire, type Itineraire } from '../services/itineraire'
+import { calculerItineraire, distanceRestante, lienNavigation, type EtapeItineraire, type Itineraire, type ModeTrajet } from '../services/itineraire'
+import type { NomIcone } from '../../commun/Icone'
 import { animationsDuLieu, lieuxVisibles } from '../utils'
 
 // MapLibre est chargé à part pour garder un code initial léger.
 const CarteLieux = lazy(() => import('../composants/CarteLieux'))
 
 const GARE: Coordonnees = { latitude: 47.51035, longitude: 6.80345 }
-const DISTANCE_MAX_PIETON_M = 25_000
+const DISTANCE_MAX_M = 60_000
+const MODES: { mode: ModeTrajet; icone: NomIcone }[] = [
+  { mode: 'pied', icone: 'pieton' },
+  { mode: 'velo', icone: 'velo' },
+  { mode: 'voiture', icone: 'voiture' },
+]
+const ICONE_MANOEUVRE: Record<EtapeItineraire['manoeuvre'], NomIcone> = {
+  depart: 'pin',
+  arrivee: 'drapeau',
+  gauche: 'tournerGauche',
+  droite: 'tournerDroite',
+  'tout-droit': 'toutDroit',
+  'demi-tour': 'demiTour',
+  'rond-point': 'rondPoint',
+}
+/** Écart au tracé au-delà duquel l'itinéraire est recalculé (visiteur sorti du chemin). */
+const ECART_RECALCUL_M = 60
 
+type Resultats = Partial<Record<ModeTrajet, Itineraire>>
 type EtatItineraire =
   | { statut: 'attente-position' | 'calcul'; lieuId: string }
   | { statut: 'loin'; lieuId: string; distance: number }
-  | { statut: 'pret'; lieuId: string; donnees: Itineraire }
+  | { statut: 'pret'; lieuId: string; resultats: Resultats; depart: Coordonnees; calculeLe: number }
 
 /** Grand écran : la carte occupe toute la largeur, la fiche flotte à gauche. */
 function useLarge() {
@@ -59,6 +77,7 @@ export default function PageCarte() {
   const [attenteCentrage, setAttenteCentrage] = useState(false)
   const [repliee, setRepliee] = useState(false)
   const [itin, setItin] = useState<EtatItineraire | null>(null)
+  const [mode, setMode] = useState<ModeTrajet>('pied')
   const requete = useRef<AbortController | null>(null)
   const large = useLarge()
 
@@ -93,23 +112,32 @@ export default function PageCarte() {
   const lieu = lieux.find((l) => l.id === selection) ?? lieux[0]
   const { active, prochaines } = lieu ? animationsDuLieu(etat, lieu.id) : { active: undefined, prochaines: [] }
   const distance = lieu && position.coords ? distanceM(position.coords, lieu) : null
+  const dansZone = !!lieu && distance !== null && distance <= lieu.rayonM
 
   // ---------------------------------------------------------------- itinéraire
 
+  /** Calcule les trois modes en parallèle : le visiteur compare les temps de trajet d'un coup d'œil. */
   const lancerCalcul = useCallback(
     (l: Lieu, depart: Coordonnees) => {
       const d = distanceM(depart, l)
-      if (d > DISTANCE_MAX_PIETON_M) {
+      if (d > DISTANCE_MAX_M) {
         setItin({ statut: 'loin', lieuId: l.id, distance: d })
         return
       }
       requete.current?.abort()
       const ctrl = new AbortController()
       requete.current = ctrl
-      setItin({ statut: 'calcul', lieuId: l.id })
-      calculerItineraire(depart, l, langue, ctrl.signal)
-        .then((donnees) => setItin({ statut: 'pret', lieuId: l.id, donnees }))
-        .catch(() => {})
+      setItin((precedent) => (precedent?.statut === 'pret' && precedent.lieuId === l.id ? precedent : { statut: 'calcul', lieuId: l.id }))
+      const resultats: Resultats = {}
+      for (const { mode: m } of MODES) {
+        calculerItineraire(depart, l, langue, ctrl.signal, m)
+          .then((r) => {
+            if (ctrl.signal.aborted) return
+            resultats[m] = r
+            setItin({ statut: 'pret', lieuId: l.id, resultats: { ...resultats }, depart, calculeLe: Date.now() })
+          })
+          .catch(() => {})
+      }
     },
     [langue],
   )
@@ -137,6 +165,16 @@ export default function PageCarte() {
 
   useEffect(() => () => requete.current?.abort(), [])
 
+  // Arrivée depuis la fiche d'un lieu (« Itinéraire ») : l'itinéraire est lancé directement.
+  const itineraireDemande = params.get('itineraire') === '1'
+  useEffect(() => {
+    if (!itineraireDemande || !lieu || lieu.id !== lieuParam) return
+    params.delete('itineraire')
+    setParams(params, { replace: true })
+    demanderItineraire()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itineraireDemande, lieu?.id, lieuParam])
+
   function fermerItineraire() {
     requete.current?.abort()
     setItin(null)
@@ -144,7 +182,26 @@ export default function PageCarte() {
   }
 
   const lieuItin = itin ? lieux.find((l) => l.id === itin.lieuId) : undefined
-  const arrive = !!lieuItin && distance !== null && lieu?.id === lieuItin.id && distance <= lieuItin.rayonM
+  const distanceItin = lieuItin && position.coords ? distanceM(position.coords, lieuItin) : null
+  const arrive = !!lieuItin && distanceItin !== null && distanceItin <= lieuItin.rayonM
+  const activeItin = lieuItin ? animationsDuLieu(etat, lieuItin.id).active : undefined
+  const resultat = itin?.statut === 'pret' ? itin.resultats[mode] : undefined
+  // Progression le long du tracé : distance restante et écart au chemin prévu.
+  const progression = resultat && position.coords && !resultat.approximatif ? distanceRestante(resultat.trace, position.coords) : null
+
+  // Visiteur sorti du chemin : nouveau calcul depuis sa position (au plus toutes les 15 s).
+  useEffect(() => {
+    if (itin?.statut !== 'pret' || !lieuItin || !position.coords || !progression) return
+    if (progression.ecartM > ECART_RECALCUL_M && Date.now() - itin.calculeLe > 15_000) lancerCalcul(lieuItin, position.coords)
+  }, [itin, lieuItin, position.coords, progression, lancerCalcul])
+
+  /** Durée affichée : temps restant si le visiteur a avancé, sinon durée totale. */
+  function resume(r: Itineraire) {
+    const avance = progression && itin?.statut === 'pret' && position.coords && distanceM(itin.depart, position.coords) > 20
+    const restanteM = avance ? Math.min(r.distanceM, progression.restanteM) : r.distanceM
+    const dureeS = r.dureeS * (r.distanceM > 0 ? restanteM / r.distanceM : 1)
+    return { restanteM, dureeS, avance: !!avance }
+  }
 
   // ---------------------------------------------------------------- rendu
 
@@ -157,6 +214,12 @@ export default function PageCarte() {
   }
 
   function maPosition() {
+    if (position.simulee) {
+      // Fin de la démonstration : retour à la position réelle du téléphone.
+      setAttenteCentrage(true)
+      position.demander()
+      return
+    }
     if (position.etat === 'refuse' || position.etat === 'indisponible') {
       setErreurPosition(true)
       return
@@ -186,7 +249,7 @@ export default function PageCarte() {
           position={position.coords}
           misEnAvant={affichePromo ? lieuParam : null}
           centrage={centrage}
-          trace={itin?.statut === 'pret' ? itin.donnees.trace : null}
+          trace={resultat?.trace ?? null}
           marges={{ haut: 110, bas: margeBas, gauche: large ? 480 : 20 }}
         />
       </Suspense>
@@ -268,30 +331,77 @@ export default function PageCarte() {
 
             {itin.statut === 'pret' && (
               <>
-                <div className="resume-itineraire">
-                  <strong>{t('itin.resume', { d: formaterDistance(itin.donnees.distanceM), m: Math.max(1, Math.round(itin.donnees.dureeS / 60)) })}</strong>
-                  {itin.donnees.approximatif && <small>{t('itin.approx')}</small>}
-                  {arrive && <small className="arrive">{t('itin.arrive')}</small>}
+                <div className="modes-itineraire" role="radiogroup" aria-label={t('itin.modes')}>
+                  {MODES.map(({ mode: m, icone }) => {
+                    const r = itin.resultats[m]
+                    return (
+                      <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)}>
+                        <Icone nom={icone} taille={18} />
+                        <span>{t(`itin.mode.${m}`)}</span>
+                        <strong>{r ? `${Math.max(1, Math.round(resume(r).dureeS / 60))} min` : '…'}</strong>
+                      </button>
+                    )
+                  })}
                 </div>
-                {itin.donnees.etapes.length > 0 && (
+                {!resultat ? (
+                  <p className="etat-itineraire">
+                    <span className="spinner" /> {t('itin.calcul')}
+                  </p>
+                ) : (
+                  (() => {
+                    const r = resume(resultat)
+                    const minutes = Math.max(1, Math.round(r.dureeS / 60))
+                    const heureArrivee = date(new Date(Date.now() + r.dureeS * 1000).toISOString(), { hour: '2-digit', minute: '2-digit' })
+                    return (
+                      <div className="resume-itineraire">
+                        <strong>{r.avance ? t('itin.restant', { d: formaterDistance(r.restanteM), m: minutes }) : t('itin.resume', { d: formaterDistance(r.restanteM), m: minutes })}</strong>
+                        <small className="heure-arrivee">
+                          <Icone nom="horloge" taille={13} /> {t('itin.arriveeVers', { h: heureArrivee })}
+                        </small>
+                        {resultat.approximatif && <small>{t('itin.approx')}</small>}
+                        {arrive && <small className="arrive">{t('itin.arrive')}</small>}
+                      </div>
+                    )
+                  })()
+                )}
+                {position.simulee && (
+                  <div className="bandeau-demo-position">
+                    <span>
+                      <Icone nom="pin" taille={14} /> {t('itin.positionDemo')}
+                    </span>
+                    <button type="button" className="btn-texte" onClick={() => position.demander()}>
+                      {t('itin.positionReelle')}
+                    </button>
+                  </div>
+                )}
+                {resultat && resultat.etapes.length > 0 && (
                   <ol className="etapes-itineraire" aria-label={t('itin.etapes')}>
-                    {itin.donnees.etapes.map((e, i) => (
-                      <li key={`${i}-${e}`}>
-                        <span>{i + 1}</span>
-                        {e}
+                    {resultat.etapes.map((e, i) => (
+                      <li key={`${i}-${e.texte}`}>
+                        <span className={`manoeuvre ${e.manoeuvre}`}>
+                          <Icone nom={ICONE_MANOEUVRE[e.manoeuvre]} taille={14} />
+                        </span>
+                        <p>{e.texte}</p>
+                        {e.distanceM >= 10 && <small>{formaterDistance(e.distanceM)}</small>}
                       </li>
                     ))}
                   </ol>
                 )}
-                <div className="fiche-carte-actions">
+                <div className={`fiche-carte-actions ${arrive && activeItin ? 'trois' : ''}`}>
                   <button type="button" className="btn btn-secondaire" onClick={() => position.coords && lancerCalcul(lieuItin, position.coords)} disabled={!position.coords}>
                     <Icone nom="relancer" taille={16} />
                     {t('itin.recalculer')}
                   </button>
-                  <button type="button" className="btn btn-cyan" onClick={() => navigate(`/lieux/${lieuItin.id}/ra`)}>
-                    <Icone nom="scan" taille={18} />
-                    {t('carte.scanner')}
-                  </button>
+                  <a className="btn btn-fantome-carte" href={lienNavigation(lieuItin, mode)} target="_blank" rel="noopener noreferrer">
+                    <Icone nom="lien" taille={16} />
+                    {t('itin.ouvrirGps')}
+                  </a>
+                  {arrive && activeItin && (
+                    <button type="button" className="btn btn-cyan" onClick={() => navigate(`/lieux/${lieuItin.id}/ra`)}>
+                      <Icone nom="scan" taille={18} />
+                      {t('carte.scanner')}
+                    </button>
+                  )}
                 </div>
                 <p className="note-itineraire">{t('itin.confidentialite')}</p>
               </>
@@ -334,19 +444,28 @@ export default function PageCarte() {
                   )}
                 </div>
               </div>
-              <div className="fiche-carte-actions trois">
+              {/* Le bouton « Scanner » n'apparaît que dans le rayon du lieu, quand un spectacle est en cours ;
+                  ailleurs, l'itinéraire mène jusqu'au lieu. */}
+              <div className={`fiche-carte-actions ${dansZone && active ? 'trois' : ''}`}>
                 <button type="button" className="btn btn-secondaire" onClick={() => navigate(`/lieux/${lieu.id}`)}>
                   {t('carte.plusInfos')}
                 </button>
-                <button type="button" className="btn btn-fantome-carte" onClick={demanderItineraire}>
+                <button type="button" className={`btn ${dansZone && active ? 'btn-fantome-carte' : 'btn-primaire'}`} onClick={demanderItineraire}>
                   <Icone nom="itineraire" taille={17} />
                   {t('itin.bouton')}
                 </button>
-                <button type="button" className="btn btn-cyan" onClick={() => navigate(`/lieux/${lieu.id}/ra`)} disabled={!active}>
-                  <Icone nom="scan" taille={18} />
-                  {t('nav.scanner')}
-                </button>
+                {dansZone && active && (
+                  <button type="button" className="btn btn-cyan" onClick={() => navigate(`/lieux/${lieu.id}/ra`)}>
+                    <Icone nom="scan" taille={18} />
+                    {t('nav.scanner')}
+                  </button>
+                )}
               </div>
+              {active && !dansZone && !repliee && (
+                <p className="note-zone">
+                  <Icone nom="zone" taille={13} /> {t('carte.horsZone', { r: lieu.rayonM })}
+                </p>
+              )}
               {lieux.length > 1 && !repliee && (
                 <div className="pagination-lieux" role="tablist" aria-label="Lieux">
                   {lieux.map((l) => (
