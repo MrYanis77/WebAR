@@ -13,7 +13,7 @@ import type { PlacementGps, Reglages3D } from '../../../commun/types'
 import { cercle, decaler, element, ligne } from '../ChoixPosition'
 import { metres } from '../sceneApercu'
 import { calqueModele, PLAN, styleSatellite3D } from './carteModele'
-import { OutilsVue, type Outil } from './OutilsAtelier'
+import type { Outil } from './OutilsAtelier'
 
 type Fond = 'satellite' | 'plan'
 
@@ -41,7 +41,6 @@ export function VueMonument({
   lecture,
   reglages3d,
   outil,
-  onOutil,
   onDimensions,
   desactive,
 }: {
@@ -53,7 +52,8 @@ export function VueMonument({
   lecture?: 'BOUCLE' | 'UNE_FOIS'
   reglages3d: Reglages3D
   outil: Outil
-  onOutil: (o: Outil) => void
+  /** Ancien sélecteur d’outil dans la vue (les outils sont maintenant dans le panneau du studio). */
+  onOutil?: (o: Outil) => void
   onDimensions?: (d: THREE.Vector3 | null) => void
   desactive?: boolean
 }) {
@@ -225,8 +225,6 @@ export function VueMonument({
     <div className="vue-atelier vue-monument">
       <div className="atelier-carte-fond" ref={conteneur} role="application" aria-label={`Carte du monument ${lieu.nom} avec le modèle 3D de l’animation`} />
       <div className="atelier-outils-vue">
-        <OutilsVue outil={outil} onOutil={onOutil} desactive={desactive} />
-        <span className="separateur" />
         {(['satellite', 'plan'] as const).map((f) => (
           <button key={f} type="button" className={fond === f ? 'actif' : ''} aria-pressed={fond === f} onClick={() => setFond(f)}>
             {f === 'satellite' ? 'Satellite' : 'Plan'}

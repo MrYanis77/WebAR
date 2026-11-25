@@ -46,8 +46,9 @@ export default function PageAffiches() {
         titre={agent ? 'Toutes les affiches' : 'Mes affiches'}
         description="Chaque affiche reçoit un QR code unique : le visiteur le scanne pour voir l’animation 3D qui sort de l’affiche. Une affiche est collée dans une zone d’affichage attribuée par la mairie."
         actions={
-          <button type="button" className="btn btn-primaire" onClick={() => navigate('/backoffice/affiches/nouvelle')} disabled={!peutCreer(etat, session)}>
-            <Icone nom="plus" taille={16} />
+          // Bouton le plus utilisé par les testeurs pour démarrer : agrandi.
+          <button type="button" className="btn btn-primaire btn-grand" onClick={() => navigate('/backoffice/affiches/nouvelle')} disabled={!peutCreer(etat, session)}>
+            <Icone nom="plus" taille={19} />
             Créer une affiche
           </button>
         }

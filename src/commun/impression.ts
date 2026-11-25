@@ -47,3 +47,24 @@ export function geometrieAffiche(format: string | undefined, imageLargeur?: numb
   const hauteurCible = portraitL / 3 > portraitH / 4 ? portraitH : (portraitL * 4) / 3
   return { format: f, pageL, pageH, imageL, imageH, hauteurCible }
 }
+
+/** Taille minimale du QR code imprimé pour qu'il se scanne facilement (cahier des charges). */
+export const QR_MIN_CM = 3
+/** Bornes de la taille du QR code, en fraction de la largeur de l'image imprimée (schéma de l'API). */
+export const QR_TAILLE_MIN = 0.05
+export const QR_TAILLE_MAX = 0.4
+
+/**
+ * Côté du QR code imprimé, en centimètres. Sa taille est une fraction de la largeur de l'image ajustée
+ * dans la page, exactement comme dans le PDF produit par l'API (genererPDF.ts).
+ */
+export function qrImprimeCm(taille: number, format: string | undefined, imageLargeur?: number, imageHauteur?: number): number {
+  return taille * geometrieAffiche(format, imageLargeur, imageHauteur).imageL * 100
+}
+
+/** Plus petite taille du QR code (fraction de la largeur de l'image) qui donne au moins 3 cm imprimés. */
+export function tailleQrMinimale(format: string | undefined, imageLargeur?: number, imageHauteur?: number): number {
+  const largeurCm = geometrieAffiche(format, imageLargeur, imageHauteur).imageL * 100
+  // Arrondi au demi-millième supérieur : le curseur ne descend jamais sous 3 cm.
+  return Math.min(QR_TAILLE_MAX, Math.max(QR_TAILLE_MIN, Math.ceil((QR_MIN_CM / largeurCm) * 2000) / 2000))
+}

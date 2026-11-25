@@ -80,6 +80,10 @@ const chemins = {
   texte: ['M4 7V5h16v2', 'M12 5v14', 'M9 19h6'],
   contraste: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', 'M12 3v18', 'M12 8h5', 'M12 12h6', 'M12 16h5'],
   copie: ['M8 8h11a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1Z', 'M16 8V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h4'],
+  // Geste « cliquer » (pointeur de souris) et conseil (ampoule) : consignes des ateliers et du scan.
+  curseur: ['m5 3 6.5 17 2.3-6.7L20.5 11Z', 'm14 14 5 5'],
+  ampoule: ['M9 18h6', 'M10 21h4', 'M12 3a6 6 0 0 0-3.8 10.6c.6.6.8 1.3.8 2.4h6c0-1.1.2-1.8.8-2.4A6 6 0 0 0 12 3Z'],
+  lampe: ['M9 2h6l-1 6h-4Z', 'M10 8v13h4V8', 'M12 12v2'],
 } satisfies Record<string, string[]>
 
 export type NomIcone = keyof typeof chemins

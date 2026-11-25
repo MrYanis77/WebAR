@@ -15,7 +15,8 @@ import { consignesVues, marquerConsignesVues } from '../utils'
  * Entrée par QR code (/a/:code) : consignes (le dernier écran seulement si elles ont déjà été lues),
  * puis « Autoriser et commencer » ouvre la caméra : 8th Wall reconnaît l'affiche, l'animation 3D en
  * surgit et le SLAM la garde en place dans l'environnement du visiteur. Le moteur, le modèle et le son
- * sont téléchargés pendant les consignes. Ensuite : carte centrée sur le lieu promu (BF-02, BF-16, BF-30 à BF-33).
+ * sont téléchargés pendant les consignes. L'animation reste affichée jusqu'à ce que le visiteur choisisse
+ * « Voir le lieu » : la carte s'ouvre alors sur le lieu promu (BF-02, BF-16, BF-30 à BF-33).
  */
 export default function PageAffiche() {
   const { code = '' } = useParams()
@@ -92,6 +93,8 @@ export default function PageAffiche() {
     return (
       <Consignes
         onRetour={voirLieu}
+        // Le scan a fonctionné : on le confirme tout de suite, avant les conseils (tests utilisateurs).
+        confirmation={affiche.nom}
         etapeDepart={consignesVues() ? 2 : 0}
         onTerminer={() => {
           // Dans le clic : autorisations demandées pendant le geste du visiteur (iPhone).

@@ -52,6 +52,8 @@ export async function rangerFichier(fichier: Express.Multer.File) {
   const format = detecte ? FORMATS[detecte.ext] : undefined
   if (!format) {
     await rm(fichier.path, { force: true })
+    if (detecte?.ext === 'pdf')
+      throw new ErreurApi(400, `« ${fichier.originalname} » refusé : les PDF ne sont pas acceptés. Exportez votre affiche en image (PNG ou JPEG) depuis votre logiciel de mise en page.`)
     throw new ErreurApi(400, `« ${fichier.originalname} » refusé : seuls les formats GLB, MP3, AAC (M4A), PNG, JPEG et WebP sont acceptés.`)
   }
   if (fichier.size > format.maxOctets) {

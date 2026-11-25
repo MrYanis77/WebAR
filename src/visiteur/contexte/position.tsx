@@ -6,6 +6,11 @@ import type { Coordonnees } from '../../commun/geo'
 
 export type EtatPosition = 'inconnu' | 'demande' | 'accorde' | 'refuse' | 'indisponible'
 
+/** En dessous de cette précision (m), toute nouvelle mesure est acceptée (le visiteur se déplace). */
+const PRECISION_SUFFISANTE_M = 25
+/** Une mesure moins précise n'est acceptée qu'une fois la bonne mesure plus vieille que ce délai. */
+const DUREE_VALIDITE_MS = 20_000
+
 interface ContextePosition {
   etat: EtatPosition
   coords: Coordonnees | null
@@ -26,17 +31,29 @@ export function FournisseurPosition({ children }: { children: ReactNode }) {
   const [simulee, setSimulee] = useState<Coordonnees | null>(null)
   const surveillance = useRef<number | null>(null)
   const dejaLocalise = useRef(false)
+  /** Dernière position retenue : sa précision et l'heure de la mesure. */
+  const retenue = useRef<{ precision: number; heure: number } | null>(null)
 
   const arreter = useCallback(() => {
     if (surveillance.current !== null) navigator.geolocation.clearWatch(surveillance.current)
     surveillance.current = null
   }, [])
 
+  /**
+   * Une mesure moins précise ne remplace pas une bonne mesure récente : la position rapide (réseau, Wi-Fi,
+   * parfois à plusieurs centaines de mètres) arrivait après le GPS et déplaçait le visiteur sur la carte.
+   */
   const recevoir = useCallback((p: GeolocationPosition) => {
+    const precision = p.coords.accuracy
+    const heure = p.timestamp || Date.now()
+    const r = retenue.current
+    const moinsPrecise = !!r && precision > Math.max(r.precision * 1.5, PRECISION_SUFFISANTE_M)
+    if (moinsPrecise && heure - r.heure < DUREE_VALIDITE_MS) return
+    retenue.current = { precision, heure }
     dejaLocalise.current = true
     setEtat('accorde')
     setCoords({ latitude: p.coords.latitude, longitude: p.coords.longitude })
-    setPrecisionM(p.coords.accuracy)
+    setPrecisionM(precision)
   }, [])
 
   const demarrer = useCallback(() => {
@@ -57,9 +74,9 @@ export function FournisseurPosition({ children }: { children: ReactNode }) {
       // l'échec que si aucune position n'a encore été obtenue.
       if (!dejaLocalise.current) setEtat('indisponible')
     }
-    // Première position rapide (réseau / Wi-Fi), puis suivi précis par GPS.
-    navigator.geolocation.getCurrentPosition(recevoir, () => {}, { enableHighAccuracy: false, maximumAge: 60_000, timeout: 8000 })
-    surveillance.current = navigator.geolocation.watchPosition(recevoir, echec, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30_000 })
+    // Première position rapide (réseau / Wi-Fi), puis suivi précis par GPS, toujours avec des mesures fraîches.
+    navigator.geolocation.getCurrentPosition(recevoir, () => {}, { enableHighAccuracy: false, maximumAge: 30_000, timeout: 8000 })
+    surveillance.current = navigator.geolocation.watchPosition(recevoir, echec, { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 })
   }, [recevoir, arreter])
 
   /** Nouvel essai demandé par le visiteur : on relance le suivi et on quitte la position de démonstration. */

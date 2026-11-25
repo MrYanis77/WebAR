@@ -20,6 +20,17 @@ export interface CentrageCarte {
 const PIN =
   '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><path d="M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/></svg>'
 
+const AFFICHE =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18H6Z"/><path d="M9 7h6"/><path d="M9 11h6"/><path d="M13 15h2v2h-2Z"/></svg>'
+
+/** Affiche animée placée sur la carte (emplacement de sa zone d'affichage). */
+export interface RepereAffiche {
+  code: string
+  nom: string
+  latitude: number
+  longitude: number
+}
+
 /** Cercle du rayon de proximité, en polygone GeoJSON. */
 function cercle(c: Coordonnees, rayonM: number): Feature<Polygon> {
   const points: [number, number][] = []
@@ -39,23 +50,36 @@ export default function CarteLieux({
   selection,
   onSelection,
   position,
+  precisionM,
   misEnAvant,
   centrage,
   trace,
   marges,
+  affiches = [],
+  afficheChoisie,
+  onAffiche,
 }: {
   lieux: Lieu[]
   selection: string | null
   onSelection: (id: string) => void
   position: Coordonnees | null
+  /** Précision de la position (m) : halo autour du point bleu, comme dans les applications de cartes. */
+  precisionM?: number | null
   misEnAvant?: string | null
   centrage: CentrageCarte | null
   trace: [number, number][] | null
   marges: { haut: number; bas: number; gauche: number }
+  /** Affiches animées placées sur la carte (emplacement d'affichage), en repères secondaires. */
+  affiches?: RepereAffiche[]
+  afficheChoisie?: string | null
+  onAffiche?: (code: string) => void
 }) {
   const conteneur = useRef<HTMLDivElement>(null)
   const carte = useRef<CarteMapLibre | null>(null)
   const marqueurs = useRef(new Map<string, Marker>())
+  const marqueursAffiches = useRef(new Map<string, Marker>())
+  const surAffiche = useRef(onAffiche)
+  surAffiche.current = onAffiche
   const moi = useRef<Marker | null>(null)
   const surSelection = useRef(onSelection)
   surSelection.current = onSelection
@@ -92,6 +116,9 @@ export default function CarteLieux({
         else if (couche.type === 'fill' && /park|landcover|wood|grass/.test(couche.id)) m.setPaintProperty(couche.id, 'fill-color', '#d6dbc6')
         else if (couche.type === 'fill' && /building/.test(couche.id)) m.setPaintProperty(couche.id, 'fill-color', '#ddd5c7')
       }
+      m.addSource('precision', { type: 'geojson', data: vide })
+      m.addLayer({ id: 'precision-fond', type: 'fill', source: 'precision', paint: { 'fill-color': '#4fd1c5', 'fill-opacity': 0.16 } })
+      m.addLayer({ id: 'precision-bord', type: 'line', source: 'precision', paint: { 'line-color': '#2aa198', 'line-opacity': 0.45, 'line-width': 1 } })
       m.addSource('rayon', { type: 'geojson', data: vide })
       m.addLayer({ id: 'rayon-fond', type: 'fill', source: 'rayon', paint: { 'fill-color': '#7b1e2e', 'fill-opacity': 0.08 } })
       m.addLayer({ id: 'rayon-bord', type: 'line', source: 'rayon', paint: { 'line-color': '#7b1e2e', 'line-opacity': 0.5, 'line-width': 1.5, 'line-dasharray': [2, 2] } })
@@ -106,6 +133,7 @@ export default function CarteLieux({
     })
     return () => {
       marqueurs.current.clear()
+      marqueursAffiches.current.clear()
       moi.current = null
       m.remove()
       carte.current = null
@@ -153,6 +181,40 @@ export default function CarteLieux({
     }
   }, [lieux, selection, misEnAvant, prete])
 
+  // Repères des affiches animées : plus petits que ceux des monuments, avec une icône d'affiche.
+  useEffect(() => {
+    const m = carte.current
+    if (!m) return
+    const codes = new Set(affiches.map((a) => a.code))
+    for (const [code, mk] of marqueursAffiches.current) {
+      if (!codes.has(code)) {
+        mk.remove()
+        marqueursAffiches.current.delete(code)
+      }
+    }
+    for (const a of affiches) {
+      let mk = marqueursAffiches.current.get(a.code)
+      if (!mk) {
+        const el = document.createElement('button')
+        el.type = 'button'
+        el.innerHTML = AFFICHE
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation()
+          surAffiche.current?.(a.code)
+        })
+        // Légèrement au-dessus du point : reste visible quand l'affiche est collée devant le monument.
+        mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -16] }).setLngLat([a.longitude, a.latitude]).addTo(m)
+        marqueursAffiches.current.set(a.code, mk)
+      }
+      mk.setLngLat([a.longitude, a.latitude])
+      const el = mk.getElement() as HTMLButtonElement
+      el.className = `marqueur-affiche ${a.code === afficheChoisie ? 'choisi' : ''}`
+      el.setAttribute('aria-label', `Affiche animée : ${a.nom}`)
+      el.setAttribute('title', a.nom)
+      el.setAttribute('aria-pressed', String(a.code === afficheChoisie))
+    }
+  }, [affiches, afficheChoisie, prete])
+
   // Rayon de proximité du lieu sélectionné.
   useEffect(() => {
     const src = carte.current?.getSource('rayon') as GeoJSONSource | undefined
@@ -177,6 +239,12 @@ export default function CarteLieux({
       moi.current = new maplibregl.Marker({ element: el }).setLngLat([position.longitude, position.latitude]).addTo(m)
     } else moi.current.setLngLat([position.longitude, position.latitude])
   }, [position, prete])
+
+  // Halo de précision : plus il est large, moins la position est sûre (GPS faible, intérieur d’un bâtiment).
+  useEffect(() => {
+    const src = carte.current?.getSource('precision') as GeoJSONSource | undefined
+    src?.setData(position && precisionM && precisionM > 8 ? cercle(position, Math.min(precisionM, 2000)) : vide)
+  }, [position, precisionM, prete])
 
   // Itinéraire : tracé et cadrage.
   useEffect(() => {

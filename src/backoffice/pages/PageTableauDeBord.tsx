@@ -48,13 +48,13 @@ export default function PageTableauDeBord() {
         actions={
           <button
             type="button"
-            className="btn btn-primaire"
+            className="btn btn-primaire btn-grand"
             onClick={() => navigate('/backoffice/affiches/nouvelle')}
             disabled={!peutCreer(etat, session)}
             title={peutCreer(etat, session) ? undefined : 'Possible après la vérification du compte et l’acceptation de la charte'}
           >
-            <Icone nom="plus" taille={16} />
-            Nouvelle affiche
+            <Icone nom="plus" taille={19} />
+            Créer une affiche
           </button>
         }
       />

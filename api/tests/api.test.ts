@@ -359,6 +359,10 @@ describe('Parcours affiche : création, conditions, publication, visiteur, modé
     const base = { imageId: image.corps.id, animationAfficheId: animAfficheId, lieuId, nom: 'Sans spectacle', texte: 'Texte', format: 'A4', qr: { x: 0.7, y: 0.7, taille: 0.2, fond: true, mention: true }, debut: dateLocale(-1), fin: dateLocale(5) }
     const autreLieu = await agent.c.post(`${API}/lieux`).set('X-CSRF-Token', agent.jeton).send({ nom: 'Autre lieu', nomCourt: 'Autre', categorie: { fr: 'Parc' }, adresse: 'Rue', description: { fr: 'Parc' }, latitude: 47.51, longitude: 6.8, rayonM: 50, accesLibre: true, actif: true }).expect(201)
     expect((await partenaire.c.post(`${API}/affiches`).set('X-CSRF-Token', partenaire.jeton).send({ ...base, lieuId: autreLieu.body.id, animationLieuId: animLieuId })).status).toBe(400)
+    // QR code de moins de 3 cm une fois imprimé : refusé dès l'enregistrement.
+    const qrTropPetit = await partenaire.c.post(`${API}/affiches`).set('X-CSRF-Token', partenaire.jeton).send({ ...base, qr: { ...base.qr, taille: 0.08 } })
+    expect(qrTropPetit.status).toBe(400)
+    expect(qrTropPetit.body.erreur).toMatch(/QR code trop petit/)
     const r = await partenaire.c.post(`${API}/affiches`).set('X-CSRF-Token', partenaire.jeton).send(base).expect(201)
     expect(r.body.animationLieuId).toBeUndefined()
     // Un lieu promu par une affiche ne peut pas être supprimé.
@@ -414,6 +418,11 @@ describe('Parcours affiche : création, conditions, publication, visiteur, modé
     expect(luminance.headers['content-type']).toBe('image/jpeg')
     expect(await sharp(luminance.body as Buffer).metadata()).toMatchObject({ width: 480, height: 640, channels: 1 })
     expect((await request(app).get(`${API}/public/affiches/inconnu-0000000000000`)).status).toBe(404)
+    // Liste « Les affiches à découvrir » : de quoi reconnaître l'affiche, la trouver et le monument promu.
+    const liste = await request(app).get(`${API}/public/affiches`).expect(200)
+    const diffusee = liste.body.find((x: { codeQr: string }) => x.codeQr === codeQr)
+    expect(diffusee).toMatchObject({ nom: 'Festival de test', lieu: { id: lieuId, nomCourt: 'Château' }, emplacement: { nom: 'Place Saint-Martin', adresse: 'Place Saint-Martin' } })
+    expect(diffusee.image.url).toMatch(/^\/uploads\//)
     await request(app).post(`${API}/public/statistiques`).send({ type: 'SCAN', afficheId }).expect(204)
     await request(app).post(`${API}/public/statistiques`).send({ type: 'LANCEMENT', animationId: animAfficheId, declencheur: 'AFFICHE' }).expect(204)
     const stats = await partenaire.c.get(`${API}/statistiques?jours=7`).expect(200)

@@ -3,16 +3,17 @@ import { Link } from 'react-router'
 import { BUDGETS_3D, FORMATS_ACCEPTES, MODELE_3D_MAX_MO } from '../../commun/constantes'
 import { Icone, type NomIcone } from '../../commun/Icone'
 import { messageErreur } from '../../commun/api'
-import { importerFichier, nomProprietaire, rangerFichier, supprimerFichier, useEtat, validerFichier } from '../../commun/store'
+import { importerFichier, nomProprietaire, rangerFichier, rangerFichiers, supprimerFichier, useEtat, validerFichier } from '../../commun/store'
 import type { Fichier, TypeFichier } from '../../commun/types'
 import { peutCreer, useSession } from '../session'
 import { BadgeStatut, EnTetePage, formaterDate, formaterPoids, Onglets, Panneau, useToast, Vide } from '../ui'
 
 const ApercuModele3D = lazy(() => import('../composants/ApercuModele3D'))
 const Atelier3D = lazy(() => import('../composants/Atelier3D'))
-const StudioAssemblage = lazy(() => import('../composants/StudioAssemblage'))
 
 const ICONES: Record<TypeFichier, NomIcone> = { MODELE_3D: 'cube', SON: 'musique', IMAGE: 'image' }
+/** Glisser-déposer d'une ligne de fichier sur un dossier (distinct d'un import depuis l'ordinateur). */
+const TYPE_GLISSER = 'application/x-fichiers-webar'
 /** Étapes du contrôle automatique exécuté par l'API (file-type, glTF-Validator, glTF-Transform, ffprobe, sharp). */
 const ETAPES = ['Envoi au serveur', 'Type réel du fichier (file-type)', 'Validation glTF / audio / image', 'Mesure : triangles, textures, animations']
 
@@ -58,8 +59,6 @@ export default function PageFichiers() {
   /** Modèle ouvert dans l'atelier 3D. */
   const [atelier, setAtelier] = useState<string | null>(null)
   const fichierAtelier = etat.fichiers.find((f) => f.id === atelier)
-  /** Studio d'assemblage ouvert : vide, ou en partant d'un modèle. */
-  const [assemblage, setAssemblage] = useState<{ depart?: Fichier } | null>(null)
   /** Envoi en cours : progression de 0 à 1. */
   const [envoi, setEnvoi] = useState<{ nom: string; progression: number } | null>(null)
   const [action, setAction] = useState(false)
@@ -74,6 +73,12 @@ export default function PageFichiers() {
   /** Dossiers créés pendant la session, encore vides (ils existent dès qu'un fichier y est rangé). */
   const [dossiersVides, setDossiersVides] = useState<string[]>([])
   const [nouveauDossier, setNouveauDossier] = useState<string | null>(null)
+  /** Nouveau nom en cours de saisie pour le dossier ouvert. */
+  const [renommage, setRenommage] = useState<string | null>(null)
+  /** Fichiers cochés, à déplacer ensemble. */
+  const [coches, setCoches] = useState<Set<string>>(() => new Set())
+  /** Dossier survolé pendant un glisser-déposer ('' : « Sans dossier »). */
+  const [cibleDepot, setCibleDepot] = useState<string | null>(null)
   const mesFichiers = etat.fichiers.filter((f) => agent || f.proprietaireId === session.partenaireId)
   const dossiers = [...new Set([...mesFichiers.map((f) => f.dossier).filter((d): d is string => !!d), ...dossiersVides])].sort((a, b) => a.localeCompare(b, 'fr'))
   const fichiers = mesFichiers
@@ -87,6 +92,95 @@ export default function PageFichiers() {
     if (!dossiers.includes(nomDossier)) setDossiersVides((l) => [...l, nomDossier])
     setDossier(nomDossier)
   }
+
+  const peutRanger = (f: Fichier) => autorise && (agent || f.proprietaireId === session.partenaireId)
+  const fichiersDuDossier = (d: string) => mesFichiers.filter((f) => f.dossier === d)
+  const basculerCoche = (id: string) =>
+    setCoches((c) => {
+      const n = new Set(c)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+
+  /** Range plusieurs fichiers d'un coup (sélection cochée ou fichiers glissés sur un dossier). */
+  async function rangerPlusieurs(ids: string[], cibleDossier: string | null) {
+    if (!ids.length) return
+    setAction(true)
+    try {
+      await rangerFichiers(ids, cibleDossier)
+      setCoches(new Set())
+      const n = ids.length > 1 ? `${ids.length} fichiers` : '1 fichier'
+      toast.afficher(cibleDossier ? `${n} rangé${ids.length > 1 ? 's' : ''} dans « ${cibleDossier} »` : `${n} sorti${ids.length > 1 ? 's' : ''} de son dossier`)
+    } catch (e) {
+      toast.afficher(messageErreur(e))
+    } finally {
+      setAction(false)
+    }
+  }
+
+  /** Renomme le dossier ouvert : ses fichiers passent sous le nouveau nom. */
+  async function renommerDossier() {
+    const ancien = dossier
+    const nouveau = (renommage ?? '').trim().slice(0, 80)
+    setRenommage(null)
+    if (!nouveau || nouveau === ancien) return
+    if (dossiers.includes(nouveau)) {
+      toast.afficher(`Un dossier « ${nouveau} » existe déjà : choisissez un autre nom`)
+      return
+    }
+    setAction(true)
+    try {
+      await rangerFichiers(fichiersDuDossier(ancien).map((f) => f.id), nouveau)
+      setDossiersVides((l) => l.map((d) => (d === ancien ? nouveau : d)))
+      setDossier(nouveau)
+      toast.afficher(`Dossier renommé en « ${nouveau} »`)
+    } catch (e) {
+      toast.afficher(messageErreur(e))
+    } finally {
+      setAction(false)
+    }
+  }
+
+  /** Supprime le dossier ouvert ; ses fichiers ne sont pas supprimés, ils passent « sans dossier ». */
+  async function supprimerDossier() {
+    const nomDossier = dossier
+    const contenu = fichiersDuDossier(nomDossier)
+    const message = contenu.length
+      ? `Supprimer le dossier « ${nomDossier} » ?\n\nSes fichiers ne sont pas supprimés : ${contenu.length > 1 ? `les ${contenu.length} fichiers passent` : 'le fichier passe'} dans « Sans dossier ».`
+      : `Supprimer le dossier vide « ${nomDossier} » ?`
+    if (!window.confirm(message)) return
+    setAction(true)
+    try {
+      if (contenu.length) await rangerFichiers(contenu.map((f) => f.id), null)
+      setDossiersVides((l) => l.filter((d) => d !== nomDossier))
+      setDossier('tous')
+      toast.afficher(`Dossier « ${nomDossier} » supprimé${contenu.length ? ' : ses fichiers sont dans « Sans dossier »' : ''}`)
+    } catch (e) {
+      toast.afficher(messageErreur(e))
+    } finally {
+      setAction(false)
+    }
+  }
+
+  /** Cible d'un glisser-déposer : un dossier, ou « Sans dossier » avec null. */
+  const depot = (cibleDossier: string | null) => ({
+    onDragOver: (e: DragEvent) => {
+      if (!e.dataTransfer.types.includes(TYPE_GLISSER)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      setCibleDepot(cibleDossier ?? '')
+    },
+    onDragLeave: () => setCibleDepot(null),
+    onDrop: (e: DragEvent) => {
+      const donnees = e.dataTransfer.getData(TYPE_GLISSER)
+      setCibleDepot(null)
+      if (!donnees) return
+      e.preventDefault()
+      const ids = (JSON.parse(donnees) as string[]).filter((id) => (etat.fichiers.find((f) => f.id === id)?.dossier ?? null) !== cibleDossier)
+      void rangerPlusieurs(ids, cibleDossier)
+    },
+  })
 
   async function deplacer(f: Fichier, cibleDossier: string | null) {
     setAction(true)
@@ -144,12 +238,7 @@ export default function PageFichiers() {
     <>
       <EnTetePage
         titre="Fichiers 3D & sons"
-        description="Importez vos modèles et sons : contrôle automatique, aperçu 3D, puis validation de l’enregistrement."
-        actions={
-          <button type="button" className="btn btn-secondaire" onClick={() => setAssemblage({})} disabled={!autorise} title="Réunir plusieurs modèles 3D en un seul">
-            <Icone nom="couches" taille={16} /> Assembler des modèles
-          </button>
-        }
+        description="Importez vos modèles 3D, sons et images, puis rangez-les dans des dossiers."
       />
       <div className="bo-defilement">
         {!autorise && (
@@ -173,7 +262,7 @@ export default function PageFichiers() {
           </span>
           <div>
             <strong>Glissez un fichier ici ou choisissez-le</strong>
-            <p>GLB (glTF 2.0) jusqu’à 100 Mo avec ses animations intégrées, MP3, AAC/M4A, PNG, JPEG · affiche 30 000 triangles · lieu 100 000 triangles</p>
+            <p title="GLB (glTF 2.0) avec ses animations intégrées · affiche 30 000 triangles · lieu 100 000 triangles">GLB, MP3, M4A, PNG ou JPEG · 100 Mo maximum</p>
           </div>
           <label className="select-compact">
             Usage
@@ -218,11 +307,11 @@ export default function PageFichiers() {
             Tous les fichiers <b>{mesFichiers.length}</b>
           </button>
           {dossiers.map((d) => (
-            <button key={d} type="button" aria-pressed={dossier === d} onClick={() => setDossier(d)}>
-              <Icone nom="dossier" taille={14} /> {d} <b>{mesFichiers.filter((f) => f.dossier === d).length}</b>
+            <button key={d} type="button" aria-pressed={dossier === d} className={cibleDepot === d ? 'cible-depot' : undefined} onClick={() => setDossier(d)} {...depot(d)}>
+              <Icone nom="dossier" taille={14} /> {d} <b>{fichiersDuDossier(d).length}</b>
             </button>
           ))}
-          <button type="button" aria-pressed={dossier === ''} onClick={() => setDossier('')}>
+          <button type="button" aria-pressed={dossier === ''} className={cibleDepot === '' ? 'cible-depot' : undefined} onClick={() => setDossier('')} {...depot(null)}>
             Sans dossier <b>{mesFichiers.filter((f) => !f.dossier).length}</b>
           </button>
           {nouveauDossier === null ? (
@@ -247,10 +336,48 @@ export default function PageFichiers() {
             </form>
           )}
         </nav>
-        {dossier !== 'tous' && dossier && (
-          <p className="aide-dossier">
-            <Icone nom="info" taille={14} /> Dossier « {dossier} » : rangez-y l’image de l’affiche, son modèle 3D et son son. Les fichiers importés ici y sont rangés directement ; le modèle est ensuite proposé en premier dans l’éditeur d’affiche.
-          </p>
+        {dossier !== 'tous' && dossier ? (
+          <div className="outils-dossier">
+            {renommage === null ? (
+              <>
+                <span className="nom-dossier-ouvert">
+                  <Icone nom="dossier" taille={16} /> <strong>{dossier}</strong>
+                  <small>
+                    {fichiersDuDossier(dossier).length} fichier{fichiersDuDossier(dossier).length > 1 ? 's' : ''} · les imports s’y rangent directement
+                  </small>
+                </span>
+                <button type="button" className="btn btn-fantome petit" onClick={() => setRenommage(dossier)} disabled={!autorise || action}>
+                  <Icone nom="crayon" taille={14} /> Renommer
+                </button>
+                <button type="button" className="btn btn-texte-danger petit" onClick={() => void supprimerDossier()} disabled={!autorise || action}>
+                  <Icone nom="poubelle" taille={14} /> Supprimer le dossier
+                </button>
+              </>
+            ) : (
+              <form
+                className="saisie-dossier"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  void renommerDossier()
+                }}
+              >
+                <Icone nom="dossier" taille={16} />
+                <input autoFocus value={renommage} onChange={(e) => setRenommage(e.target.value)} maxLength={80} aria-label={`Nouveau nom du dossier « ${dossier} »`} onKeyDown={(e) => e.key === 'Escape' && setRenommage(null)} />
+                <button type="submit" className="btn btn-primaire petit" disabled={!renommage.trim() || renommage.trim() === dossier}>
+                  Renommer
+                </button>
+                <button type="button" className="btn btn-fantome petit" onClick={() => setRenommage(null)}>
+                  Annuler
+                </button>
+              </form>
+            )}
+          </div>
+        ) : (
+          dossiers.length > 0 && (
+            <p className="aide-dossier">
+              <Icone nom="deplacer" taille={14} /> Pour ranger des fichiers : cochez-les puis « Déplacer vers », ou glissez-les sur un dossier.
+            </p>
+          )
         )}
 
         <div className="grille-fichiers">
@@ -269,12 +396,52 @@ export default function PageFichiers() {
               />
             }
           >
+            {coches.size > 0 && (
+              <div className="barre-selection" role="region" aria-label="Fichiers sélectionnés">
+                <strong>
+                  {coches.size} sélectionné{coches.size > 1 ? 's' : ''}
+                </strong>
+                <label>
+                  <Icone nom="deplacer" taille={14} /> Déplacer vers
+                  <select
+                    value=""
+                    disabled={action}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      if (v) void rangerPlusieurs([...coches], v === '__aucun' ? null : v)
+                    }}
+                  >
+                    <option value="">Choisir…</option>
+                    {dossiers.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                    <option value="__aucun">Sans dossier</option>
+                  </select>
+                </label>
+                <button type="button" className="btn btn-fantome petit" onClick={() => setCoches(new Set())}>
+                  Annuler
+                </button>
+              </div>
+            )}
             {fichiers.length === 0 ? (
-              <Vide icone="cube" titre="Aucun fichier" texte="Importez votre premier modèle 3D ou son." />
+              <Vide icone="cube" titre="Aucun fichier" texte={dossier !== 'tous' && dossier ? 'Dossier vide : importez un fichier ici, ou glissez-y des fichiers.' : 'Importez votre premier modèle 3D ou son.'} />
             ) : (
               <ul className="liste-fichiers">
                 {fichiers.map((f) => (
-                  <li key={f.id}>
+                  <li
+                    key={f.id}
+                    className={coches.has(f.id) ? 'coche' : undefined}
+                    draggable={peutRanger(f)}
+                    onDragStart={(e) => {
+                      const ids = coches.has(f.id) ? [...coches] : [f.id]
+                      e.dataTransfer.setData(TYPE_GLISSER, JSON.stringify(ids))
+                      e.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragEnd={() => setCibleDepot(null)}
+                  >
+                    <input type="checkbox" className="case-fichier" checked={coches.has(f.id)} onChange={() => basculerCoche(f.id)} disabled={!peutRanger(f)} aria-label={`Sélectionner « ${f.nomOriginal} »`} />
                     <button type="button" className={courant?.id === f.id ? 'actif' : ''} onClick={() => setSelection(f.id)}>
                       <span className="icone-fichier">
                         <Icone nom={ICONES[f.type]} taille={18} />
@@ -300,7 +467,7 @@ export default function PageFichiers() {
               <label className="champ choix-dossier">
                 <span className="etiquette">
                   <span>
-                    <Icone nom="dossier" taille={14} /> Dossier
+                    <Icone nom="dossier" taille={14} /> Ranger dans le dossier
                   </span>
                 </span>
                 <select value={courant.dossier ?? ''} onChange={(e) => void deplacer(courant, e.target.value || null)} disabled={action || (!agent && courant.proprietaireId !== session.partenaireId)}>
@@ -328,9 +495,6 @@ export default function PageFichiers() {
                     </small>
                   </div>
                   <span className="actions-atelier">
-                    <button type="button" className="btn btn-secondaire" onClick={() => setAssemblage({ depart: courant })} disabled={!autorise || courant.statutControle === 'REFUSE'} title="Réunir ce modèle avec d’autres en un seul">
-                      <Icone nom="couches" taille={15} /> Assembler
-                    </button>
                     <button type="button" className="btn btn-primaire" onClick={() => setAtelier(courant.id)}>
                       <Icone nom="reglages" taille={15} /> Ouvrir l’atelier
                     </button>
@@ -428,24 +592,6 @@ export default function PageFichiers() {
       {fichierAtelier && (
         <Suspense fallback={null}>
           <Atelier3D key={fichierAtelier.id} fichier={fichierAtelier} onFermer={() => setAtelier(null)} />
-        </Suspense>
-      )}
-      {assemblage && (
-        <Suspense fallback={null}>
-          <StudioAssemblage
-            depart={assemblage.depart}
-            onFermer={() => setAssemblage(null)}
-            onCree={(f, remplace) => {
-              setAssemblage(null)
-              setSelection(f.id)
-              setOnglet('tous')
-              toast.afficher(
-                remplace
-                  ? `« ${f.nomOriginal} » modifié : ses animations utilisent le nouveau modèle (contrôle automatique en cours)`
-                  : `« ${f.nomOriginal} » créé : contrôle automatique en cours, puis validez l’enregistrement`,
-              )
-            }}
-          />
         </Suspense>
       )}
       {toast.element}

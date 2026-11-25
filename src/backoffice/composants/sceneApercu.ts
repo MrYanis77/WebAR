@@ -157,8 +157,11 @@ export interface DecorAffiche {
   rayon: THREE.Group
   /** Affiche à ses dimensions imprimées, bas à BAS_AFFICHE_M du sol, face au visiteur (+Z). */
   dimensionner(geo: GeometrieAffiche): void
-  /** Image de l'affiche avec son QR code, ajustée à la page (après `dimensionner`), ou gabarit ; renvoie l'annulation. */
-  habiller(affiche: Affiche | undefined, format: string): () => void
+  /**
+   * Image de l'affiche avec son QR code, ajustée à la page (après `dimensionner`), ou gabarit ; renvoie
+   * l'annulation. `avecQr` faux : l'affiche seule (QR code pas encore placé, création d'affiche).
+   */
+  habiller(affiche: Affiche | undefined, format: string, avecQr?: boolean): () => void
   /**
    * Pose le modèle comme l'application visiteur (la cible 3:4 de l'affiche, mesurée en mètres) et
    * renvoie sa position de départ, sans le déplacement.
@@ -210,10 +213,10 @@ export function creerDecorAffiche(): DecorAffiche {
       affiche.scale.set(g.pageL, g.pageH, 1)
       affiche.position.set(0, BAS_AFFICHE_M + g.pageH / 2, 0)
     },
-    habiller(a, format) {
+    habiller(a, format, avecQr = true) {
       const mat = affiche.material
       const url = a?.image?.url
-      const cle = `${url ?? 'gabarit'}|${a?.codeQr}|${JSON.stringify(a?.qr)}|${format}|${geo.pageL}x${geo.pageH}`
+      const cle = `${url ?? 'gabarit'}|${a?.codeQr}|${avecQr ? JSON.stringify(a?.qr) : 'sans-qr'}|${format}|${geo.pageL}x${geo.pageH}`
       if (mat.userData.cle === cle) return () => {}
       let annule = false
       const g = geo
@@ -230,7 +233,7 @@ export function creerDecorAffiche(): DecorAffiche {
       if (url && a) {
         fetch(url)
           .then((reponse) => (reponse.ok ? reponse.blob() : Promise.reject(new Error(`HTTP ${reponse.status}`))))
-          .then((b) => composerAffiche(b, a.codeQr, a.qr ?? QR_DEFAUT, 1600))
+          .then((b) => composerAffiche(b, a.codeQr, avecQr ? (a.qr ?? QR_DEFAUT) : null, 1600))
           .then(appliquer)
           .catch(gabarit)
       } else gabarit()

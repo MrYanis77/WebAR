@@ -2,7 +2,7 @@
 // GET /public/lieux, /public/affiches/:code, POST /public/statistiques, /public/signalements.
 import { Router } from 'express'
 import { schemaSignalement, schemaStatistique } from '../../../src/commun/schemas.js'
-import { heureArrondie } from '../dates.js'
+import { heureArrondie, versLocal } from '../dates.js'
 import { prisma } from '../db.js'
 import { ErreurApi, introuvable } from '../erreurs.js'
 import { limiteSignalements, limiteStatistiques, valider } from '../middlewares/index.js'
@@ -10,7 +10,7 @@ import { creerDefi, verifierAltcha } from '../services/altcha.js'
 import { journaliser, VISITEUR_ANONYME } from '../services/journal.js'
 import { notifierAgents, notifierCompte } from '../services/notifications.js'
 import { animationActive, conditionsAffiche, publiable } from '../services/regles.js'
-import { chargerProprietaires, serialiserAffiche, serialiserAnimation, serialiserLieu } from '../services/serialiser.js'
+import { chargerProprietaires, serialiserAffiche, serialiserAnimation, serialiserLieu, urlFichier } from '../services/serialiser.js'
 import { cibleImage } from '../traitements/cibleImage.js'
 
 export const routesPublic = Router()
@@ -47,19 +47,47 @@ routesPublic.get('/lieux', async (_req, res) => {
   })
 })
 
-/** Affiches diffusées (scanner intégré à l'application visiteur). */
+/**
+ * Affiches diffusées : liste « Les affiches à découvrir » et scanner de l'application visiteur. Pour chaque
+ * affiche, de quoi la reconnaître et la trouver : visuel, accroche, fin de diffusion, emplacement
+ * d'affichage (zone, adresse, position) et monument vers lequel elle invite.
+ */
 routesPublic.get('/affiches', async (_req, res) => {
   const maintenant = new Date()
   const candidates = await prisma.affiche.findMany({
     where: { statut: 'PUBLIEE', debut: { lte: maintenant }, fin: { gte: maintenant }, compte: { statut: 'VERIFIE' } },
-    select: { id: true, nom: true, code_qr: true, animation_affiche_animation_affiche_idToanimation: { select: { statut: true, debut: true, fin: true } } },
+    select: {
+      id: true,
+      nom: true,
+      accroche: true,
+      code_qr: true,
+      fin: true,
+      fichier: { select: { chemin: true, largeur_px: true, hauteur_px: true } },
+      lieu: { select: { id: true, nom: true, nom_court: true, actif: true } },
+      zone_affichage_affiche_zone_idTozone_affichage: { select: { nom: true, adresse: true, latitude: true, longitude: true } },
+      animation_affiche_animation_affiche_idToanimation: { select: { statut: true, debut: true, fin: true } },
+    },
+    orderBy: { fin: 'asc' },
   })
   const diffusees = []
   for (const a of candidates) {
     // Même règle que l'ouverture par QR code : l'animation de l'affiche doit être diffusée elle aussi.
     if (!animationActive(a.animation_affiche_animation_affiche_idToanimation, maintenant)) continue
     const c = await conditionsAffiche(a.id)
-    if (c && publiable(c)) diffusees.push({ codeQr: a.code_qr, nom: a.nom })
+    if (!c || !publiable(c)) continue
+    const zone = a.zone_affichage_affiche_zone_idTozone_affichage
+    diffusees.push({
+      codeQr: a.code_qr,
+      nom: a.nom,
+      accroche: a.accroche ?? '',
+      fin: versLocal(a.fin),
+      image: a.fichier.chemin ? { url: urlFichier(a.fichier.chemin), largeur: a.fichier.largeur_px ?? 0, hauteur: a.fichier.hauteur_px ?? 0 } : null,
+      // Le monument n'est cité que s'il est visible sur la carte des visiteurs.
+      lieu: a.lieu.actif ? { id: String(a.lieu.id), nom: a.lieu.nom, nomCourt: a.lieu.nom_court } : null,
+      emplacement: zone
+        ? { nom: zone.nom, adresse: zone.adresse, latitude: zone.latitude === null ? null : Number(zone.latitude), longitude: zone.longitude === null ? null : Number(zone.longitude) }
+        : null,
+    })
   }
   res.set('Cache-Control', 'public, max-age=60').json(diffusees)
 })

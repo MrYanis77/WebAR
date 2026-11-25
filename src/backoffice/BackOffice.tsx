@@ -222,6 +222,10 @@ function MiseEnPage({ session, children }: { session: Session; children: ReactNo
             )
           })}
         </nav>
+        <Link to="/" className="bo-lien-visiteur" title="Voir ce que voient les visiteurs sur leur téléphone">
+          <Icone nom="appareil" taille={18} />
+          Voir l’application visiteur
+        </Link>
         <div className="bo-aide">
           <Icone nom="info" taille={18} />
           <strong>Besoin d’aide ?</strong>

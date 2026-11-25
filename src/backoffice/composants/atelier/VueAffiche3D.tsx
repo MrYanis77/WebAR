@@ -12,7 +12,7 @@ import type { GeometrieAffiche } from '../../../commun/impression'
 import type { Affiche, ReglageAfficheRA, Reglages3D } from '../../../commun/types'
 import { chargerGlb, eclairer, ModeleAnime, type Eclairage } from '../../../visiteur/ra/contenu3d'
 import { cadrerCamera, creerDecorAffiche, LIBELLES_VUES, libererScene, limiterDecalage, metres, reculMur, silhouette, type DecorAffiche, type VueCamera } from '../sceneApercu'
-import { normaliserAngle, OUTILS_VUE, OutilsVue, type Outil } from './OutilsAtelier'
+import { normaliserAngle, OUTILS_VUE, type Outil } from './OutilsAtelier'
 
 const RAD = Math.PI / 180
 /** Bornes de la taille du modèle, en hauteurs d'affiche. */
@@ -34,14 +34,16 @@ export function VueAffiche3D({
   reglages3d,
   reglage,
   outil,
-  onOutil,
   onReglage,
   onRotation,
   onDimensions,
   desactive,
+  sansQr,
 }: {
   /** Affiche montrée au mur (image et QR code) ; absente : gabarit au format `format`. */
   affiche?: Affiche
+  /** Affiche montrée sans QR code (pas encore placé : création d'affiche avant son étape). */
+  sansQr?: boolean
   format: string
   geo: GeometrieAffiche
   modeleUrl?: string
@@ -279,7 +281,7 @@ export function VueAffiche3D({
 
   // Image de l'affiche avec son QR code, ou gabarit.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => scene3d.current?.decor.habiller(affiche, format), [affiche, format, geo.pageL, geo.pageH])
+  useEffect(() => scene3d.current?.decor.habiller(affiche, format, !sansQr), [affiche, format, geo.pageL, geo.pageH, sansQr])
 
   // Cadrage : au chargement du modèle, au changement de point de départ ou de format d'affiche.
   useEffect(() => {
@@ -314,9 +316,8 @@ export function VueAffiche3D({
   return (
     <div className="vue-atelier">
       <div className="atelier-canevas" ref={conteneur} role="img" aria-label="Aperçu 3D : l’affiche au mur et le modèle posé comme sur le téléphone du visiteur. Utilisez les poignées pour le déplacer, le tourner ou l’agrandir." />
+      {/* Outils (déplacer, tourner, taille) dans le panneau du studio ; ici, seulement la caméra et les repères. */}
       <div className="atelier-outils-vue">
-        <OutilsVue outil={outil} onOutil={onOutil} desactive={desactive || !dims} />
-        <span className="separateur" />
         {(['perspective', 'face', 'cote', 'dessus'] as const).map((v) => (
           <button
             key={v}
@@ -331,8 +332,8 @@ export function VueAffiche3D({
           </button>
         ))}
         <span className="separateur" />
-        <button type="button" className={humain ? 'actif' : ''} aria-pressed={humain} onClick={() => setHumain(!humain)} title="Silhouette de 1,75 m">
-          1,75 m
+        <button type="button" className={humain ? 'actif' : ''} aria-pressed={humain} onClick={() => setHumain(!humain)} title="La silhouette grise est une personne de 1,75 m : elle sert à juger la taille réelle">
+          <Icone nom="utilisateurs" taille={14} /> Personne 1,75 m
         </button>
         <button type="button" className={grille ? 'actif' : ''} aria-pressed={grille} onClick={() => setGrille(!grille)} title="Grille d’1 m au sol">
           Grille
@@ -360,7 +361,7 @@ export function VueAffiche3D({
             </>
           ) : (
             <>
-              <Icone nom="cube" taille={14} /> Choisissez un modèle 3D pour le voir sur l’affiche.
+              <Icone nom="cube" taille={16} /> Choisissez un modèle 3D dans le panneau : il apparaîtra ici.
             </>
           )}
         </p>

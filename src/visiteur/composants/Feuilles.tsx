@@ -63,7 +63,7 @@ export function FeuilleEtats({ ouverte, onFermer }: { ouverte: boolean; onFermer
   const { simuler, simulee } = usePosition()
   const etat = useDonneesPubliques()
   const [cas, setCas] = useState<CasErreur | null>(null)
-  const afficheVille = useAffichesDiffusees()[0]
+  const afficheVille = useAffichesDiffusees().affiches[0]
   // Arrivée simulée devant le premier lieu qui a une animation en cours.
   const lieuAnime = lieuxVisibles(etat).find((l) => animationsDuLieu(etat, l.id).active) ?? lieuxVisibles(etat)[0]
   const fermer = () => {
@@ -142,7 +142,7 @@ export function FeuilleEtats({ ouverte, onFermer }: { ouverte: boolean; onFermer
   )
 }
 
-/** Menu ouvert par le bouton (i) de la carte. */
+/** Menu « Plus » : langue, consignes, mentions, états de démonstration (barre de navigation et carte). */
 export function FeuilleMenu({ ouverte, onFermer }: { ouverte: boolean; onFermer: () => void }) {
   const { t, langue } = useLangue()
   const navigate = useNavigate()
@@ -181,7 +181,8 @@ export function FeuilleMenu({ ouverte, onFermer }: { ouverte: boolean; onFermer:
               onClick={() => {
                 marquerConsignesVues(false)
                 onFermer()
-                navigate('/lieux/chateau/ra')
+                // Les consignes s'ouvrent avant la caméra du scanner (l'ancien lien visait un lieu fixe).
+                navigate('/scanner?consignes=1')
               }}
             >
               <span>

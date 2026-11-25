@@ -100,6 +100,7 @@ export function AfficheAvecQr({
   nom,
   onQr,
   className = '',
+  sansQr = false,
 }: {
   image?: string
   ratio: number
@@ -108,6 +109,8 @@ export function AfficheAvecQr({
   nom: string
   onQr?: (p: PlacementQr) => void
   className?: string
+  /** QR code pas encore placé (création d'affiche avant l'étape du QR code) : l'affiche seule. */
+  sansQr?: boolean
 }) {
   const cadre = useRef<HTMLDivElement>(null)
   const bloc = useRef<HTMLDivElement>(null)
@@ -171,6 +174,7 @@ export function AfficheAvecQr({
           <small>Fichier de l’affiche à importer</small>
         </div>
       )}
+      {!sansQr && (
       <div
         ref={bloc}
         className={`bloc-qr ${qr.fond ? 'avec-fond' : ''}`}
@@ -195,7 +199,8 @@ export function AfficheAvecQr({
         <QrCode code={code} taille={240} className="bloc-qr-image" />
         {qr.mention && <span className="bloc-qr-mention">{MENTION_QR}</span>}
       </div>
-      {fantome && <span className="fantome-qr" style={{ left: `${fantome.x * 100}%`, top: `${fantome.y * 100}%`, width: `${fantome.l * 100}%`, height: `${fantome.h * 100}%` }} aria-hidden="true" />}
+      )}
+      {fantome && !sansQr &&<span className="fantome-qr" style={{ left: `${fantome.x * 100}%`, top: `${fantome.y * 100}%`, width: `${fantome.l * 100}%`, height: `${fantome.h * 100}%` }} aria-hidden="true" />}
     </div>
   )
 }

@@ -27,7 +27,21 @@ interface Element {
 const ECART_M = 0.1
 const nomSansExtension = (f: Fichier) => f.nomOriginal.replace(/\.glb$/i, '')
 
-export default function StudioAssemblage({ depart, onFermer, onCree }: { depart?: Fichier; onFermer: () => void; onCree: (f: Fichier, remplace: boolean) => void }) {
+export default function StudioAssemblage({
+  depart,
+  onFermer,
+  onCree,
+  scene,
+}: {
+  depart?: Fichier
+  onFermer: () => void
+  onCree: (f: Fichier, remplace: boolean) => void
+  /**
+   * Ouvert par « + Ajouter un modèle » dans le studio d'une affiche ou d'un monument : le modèle de
+   * l'animation est déjà posé, on lui ajoute des modèles ; la validation crée toujours un nouveau modèle.
+   */
+  scene?: { usage: 'AFFICHE' | 'LIEU' }
+}) {
   const etat = useEtat()
   const session = useSession()
   const agent = session.role === 'AGENT'
@@ -43,7 +57,7 @@ export default function StudioAssemblage({ depart, onFermer, onCree }: { depart?
   const [humain, setHumain] = useState(true)
   const [charges, setCharges] = useState(0)
   const [nom, setNom] = useState('')
-  const [usage, setUsage] = useState<'AFFICHE' | 'LIEU'>(depart?.usage ?? (agent ? 'LIEU' : 'AFFICHE'))
+  const [usage, setUsage] = useState<'AFFICHE' | 'LIEU'>(scene?.usage ?? depart?.usage ?? (agent ? 'LIEU' : 'AFFICHE'))
   const [envoi, setEnvoi] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
   const nomPropose = elements.map((e) => nomSansExtension(e.fichier)).join(' + ')
@@ -262,7 +276,7 @@ export default function StudioAssemblage({ depart, onFermer, onCree }: { depart?
   /** Animations qui utilisent le modèle de départ : elles suivent le modèle s'il est remplacé. */
   const animationsDepart = depart ? etat.animations.filter((a) => a.modeleId === depart.id) : []
   /** Le modèle de départ peut être modifié sur place (sinon seule une copie est possible). */
-  const departModifiable = !!depart && (agent || depart.proprietaireId === session.partenaireId)
+  const departModifiable = !scene && !!depart && (agent || depart.proprietaireId === session.partenaireId)
   const [choixEnregistrement, setChoixEnregistrement] = useState(false)
   const pret = tousCharges && (elements.length >= 2 || (departModifiable && elements.length >= 1))
 
@@ -287,14 +301,42 @@ export default function StudioAssemblage({ depart, onFermer, onCree }: { depart?
     }
   }
 
+  const ajouter = (id: string) => {
+    const f = modeles.find((x) => x.id === id)
+    if (!f) return
+    const cle = crypto.randomUUID()
+    setElements((l) => [...l, { cle, fichier: f, taille: 1 }])
+    setSelection(cle)
+  }
+  const choixAjout = (
+    <label className="ajout-studio">
+      <span className="icone-ajout" aria-hidden="true">
+        <Icone nom="plus" taille={18} epaisseur={2.4} />
+      </span>
+      <select value="" onChange={(ev) => ajouter(ev.target.value)} disabled={elements.length >= 12 || envoi} aria-label="Ajouter un modèle à la scène">
+        <option value="">Ajouter un modèle…</option>
+        {modeles.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.nomOriginal}
+            {f.clips?.length ? ` · ${f.clips.length} animation${f.clips.length > 1 ? 's' : ''}` : ''}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+
   return createPortal(
-    <div className="atelier-3d" role="dialog" aria-modal="true" aria-label="Studio d’assemblage">
+    <div className="atelier-3d studio-assemblage" role="dialog" aria-modal="true" aria-label={scene ? 'Ajouter des modèles à la scène' : 'Studio d’assemblage'}>
       <header className="atelier-tete">
         <div>
           <h2>
-            <Icone nom="couches" taille={20} /> Studio d’assemblage
+            <Icone nom="couches" taille={20} /> {scene ? 'Ajouter des modèles à la scène' : 'Studio d’assemblage'}
           </h2>
-          <p>Réunissez plusieurs modèles 3D en un seul : chacun garde ses animations, qui jouent ensemble.</p>
+          <p>
+            {scene
+              ? `Ajoutez des modèles à côté de « ${depart ? nomSansExtension(depart) : 'votre modèle'} », placez-les, puis validez : ils apparaîtront ensemble.`
+              : 'Réunissez plusieurs modèles 3D en un seul : chacun garde ses animations, qui jouent ensemble.'}
+          </p>
         </div>
         <div className="atelier-actions">
           <button type="button" className="btn btn-fantome" onClick={onFermer} disabled={envoi}>
@@ -306,19 +348,17 @@ export default function StudioAssemblage({ depart, onFermer, onCree }: { depart?
               {envoi ? <span className="spinner" /> : <Icone nom="check" taille={15} />} Enregistrer…
             </button>
           ) : (
-            <button type="button" className="btn btn-primaire" onClick={() => void creer(false)} disabled={envoi || !pret} title={elements.length < 2 ? 'Ajoutez au moins deux modèles' : undefined}>
-              {envoi ? <span className="spinner" /> : <Icone nom="check" taille={15} />} Créer le modèle assemblé
+            <button type="button" className="btn btn-primaire" onClick={() => void creer(false)} disabled={envoi || !pret} title={elements.length < 2 ? 'Ajoutez au moins un autre modèle' : undefined}>
+              {envoi ? <span className="spinner" /> : <Icone nom="check" taille={15} />} {scene ? 'Valider la scène' : 'Créer le modèle assemblé'}
             </button>
           )}
-          <button type="button" className="bo-icone" onClick={onFermer} aria-label="Fermer le studio" disabled={envoi}>
-            <Icone nom="fermer" taille={18} />
-          </button>
         </div>
       </header>
 
       <div className="atelier-corps">
         <section className="atelier-vue">
           <div className="atelier-canevas" ref={conteneur} />
+          {/* Ici, seulement la caméra et les repères : les outils sont dans le panneau. */}
           <div className="atelier-outils-vue">
             {(['perspective', 'face', 'cote', 'dessus'] as const).map((v) => (
               <button
@@ -334,26 +374,22 @@ export default function StudioAssemblage({ depart, onFermer, onCree }: { depart?
               </button>
             ))}
             <span className="separateur" />
-            <button type="button" className={mode === 'translate' ? 'actif' : ''} aria-pressed={mode === 'translate'} onClick={() => setMode('translate')}>
-              Déplacer
-            </button>
-            <button type="button" className={mode === 'rotate' ? 'actif' : ''} aria-pressed={mode === 'rotate'} onClick={() => setMode('rotate')}>
-              Tourner
-            </button>
-            <span className="separateur" />
-            <button type="button" className={humain ? 'actif' : ''} onClick={() => setHumain(!humain)} title="Silhouette de 1,75 m">
-              Repère 1,75 m
+            <button type="button" className={humain ? 'actif' : ''} aria-pressed={humain} onClick={() => setHumain(!humain)} title="Silhouette d’une personne de 1,75 m, pour juger les tailles">
+              <Icone nom="utilisateurs" taille={14} /> Personne 1,75 m
             </button>
           </div>
-          {elements.length === 0 && <div className="atelier-chargement">Ajoutez un premier modèle dans le panneau de droite.</div>}
+          {elements.length === 0 && <div className="atelier-chargement">Ajoutez un premier modèle avec « + » dans le panneau.</div>}
           {elements.length > 0 && !tousCharges && (
             <div className="atelier-chargement">
               <span className="spinner" /> Chargement des modèles…
             </div>
           )}
+          {selectionne && tousCharges && (
+            <p className="consigne-vue">{mode === 'translate' ? 'Glissez une flèche pour déplacer le modèle sélectionné.' : 'Glissez un anneau pour le faire tourner.'} Cliquez sur un modèle pour le sélectionner.</p>
+          )}
         </section>
 
-        <aside className="atelier-panneau">
+        <aside className="atelier-panneau panneau-studio">
           {erreur && (
             <p className="erreur-acces" role="alert">
               <Icone nom="alerte" taille={15} />
@@ -361,11 +397,11 @@ export default function StudioAssemblage({ depart, onFermer, onCree }: { depart?
             </p>
           )}
 
-          <fieldset>
-            <legend>Modèles de l’assemblage</legend>
-            {elements.length === 0 ? (
-              <small className="aide-champ">Aucun modèle pour l’instant.</small>
-            ) : (
+          <section className="studio-section" aria-label="Modèles de la scène">
+            <h3 className="titre-studio">
+              <Icone nom="cube" taille={16} /> Modèles de la scène <b>{elements.length}</b>
+            </h3>
+            {elements.length > 0 && (
               <ol className="liste-assemblage">
                 {elements.map((e, i) => (
                   <li key={e.cle} className={e.cle === selection ? 'actif' : ''}>
@@ -375,10 +411,10 @@ export default function StudioAssemblage({ depart, onFermer, onCree }: { depart?
                       <small>{metres(e.taille)}</small>
                     </button>
                     <span className="boutons-rapides">
-                      <button type="button" onClick={() => deplacer(e.cle, -1)} disabled={i === 0} aria-label={`Monter ${e.fichier.nomOriginal}`}>
+                      <button type="button" onClick={() => deplacer(e.cle, -1)} disabled={i === 0} aria-label={`Monter ${e.fichier.nomOriginal}`} title="Monter dans la liste">
                         <Icone nom="haut" taille={13} />
                       </button>
-                      <button type="button" onClick={() => deplacer(e.cle, 1)} disabled={i === elements.length - 1} aria-label={`Descendre ${e.fichier.nomOriginal}`}>
+                      <button type="button" onClick={() => deplacer(e.cle, 1)} disabled={i === elements.length - 1} aria-label={`Descendre ${e.fichier.nomOriginal}`} title="Descendre dans la liste">
                         <Icone nom="bas" taille={13} />
                       </button>
                       <button
@@ -388,6 +424,7 @@ export default function StudioAssemblage({ depart, onFermer, onCree }: { depart?
                           if (selection === e.cle) setSelection(null)
                         }}
                         aria-label={`Retirer ${e.fichier.nomOriginal}`}
+                        title="Retirer de la scène"
                       >
                         <Icone nom="poubelle" taille={13} />
                       </button>
@@ -396,37 +433,29 @@ export default function StudioAssemblage({ depart, onFermer, onCree }: { depart?
                 ))}
               </ol>
             )}
-            <label className="champ">
-              <span className="etiquette">Ajouter un modèle</span>
-              <select
-                value=""
-                onChange={(ev) => {
-                  const f = modeles.find((x) => x.id === ev.target.value)
-                  if (!f) return
-                  const cle = crypto.randomUUID()
-                  setElements((l) => [...l, { cle, fichier: f, taille: 1 }])
-                  setSelection(cle)
-                }}
-                disabled={elements.length >= 12}
-              >
-                <option value="">Choisir un modèle…</option>
-                {modeles.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.nomOriginal}
-                    {f.clips?.length ? ` · ${f.clips.length} animation${f.clips.length > 1 ? 's' : ''}` : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button type="button" className="btn btn-secondaire btn-bloc" onClick={aligner} disabled={!tousCharges || elements.length < 2}>
-              <Icone nom="grille" taille={15} /> Aligner côte à côte (ordre de la liste)
-            </button>
-            <small className="aide-champ">Un même modèle peut être ajouté plusieurs fois. Les réglages de l’atelier de chaque modèle (orientation, ancrage) sont appliqués.</small>
-          </fieldset>
+            {choixAjout}
+            {elements.length >= 2 && (
+              <button type="button" className="btn btn-texte petit" onClick={aligner} disabled={!tousCharges}>
+                <Icone nom="grille" taille={14} /> Aligner côte à côte
+              </button>
+            )}
+          </section>
 
           {selectionne && (
-            <fieldset>
-              <legend>{nomSansExtension(selectionne.fichier)}</legend>
+            <section className="studio-section" aria-label={`Réglages de ${nomSansExtension(selectionne.fichier)}`}>
+              <h3 className="titre-studio">
+                <Icone nom="reglages" taille={16} /> {nomSansExtension(selectionne.fichier)}
+              </h3>
+              <div className="onglets-studio deux" role="tablist" aria-label="Outil">
+                <button type="button" role="tab" aria-selected={mode === 'translate'} className={mode === 'translate' ? 'actif' : ''} onClick={() => setMode('translate')}>
+                  <Icone nom="deplacer" taille={18} />
+                  <span>Déplacer</span>
+                </button>
+                <button type="button" role="tab" aria-selected={mode === 'rotate'} className={mode === 'rotate' ? 'actif' : ''} onClick={() => setMode('rotate')}>
+                  <Icone nom="pivoter" taille={18} />
+                  <span>Tourner</span>
+                </button>
+              </div>
               <label className="reglage-curseur">
                 <span>
                   Taille <b>{metres(selectionne.taille)}</b>
@@ -440,31 +469,28 @@ export default function StudioAssemblage({ depart, onFermer, onCree }: { depart?
                   onChange={(ev) => majTaille(selectionne.cle, Number((10 ** Number(ev.target.value)).toFixed(2)))}
                 />
               </label>
-              <small className="aide-champ">
-                Plus grande dimension du modèle. Dans la vue : « Déplacer » (flèches, carrés pour un plan) ou « Tourner » (anneaux). Cliquez sur un modèle pour le sélectionner.
-              </small>
-            </fieldset>
+            </section>
           )}
 
-          <fieldset>
-            <legend>{departModifiable ? 'Modèle enregistré' : 'Nouveau modèle'}</legend>
-            <label className="champ">
-              <span className="etiquette">Nom</span>
-              <input value={nom} onChange={(ev) => setNom(ev.target.value)} placeholder={nomPropose || 'Nom du modèle assemblé'} maxLength={120} />
-            </label>
-            <label className="champ">
-              <span className="etiquette">Usage</span>
-              <select value={usage} onChange={(ev) => setUsage(ev.target.value as 'AFFICHE' | 'LIEU')} disabled={!agent}>
-                <option value="AFFICHE">Animation d’affiche (30 000 triangles max.)</option>
-                <option value="LIEU">Animation de lieu (100 000 triangles max.)</option>
-              </select>
-            </label>
-            <small className="aide-champ">
-              {departModifiable
-                ? `À l’enregistrement, vous choisissez : modifier « ${depart!.nomOriginal} » (ses animations le gardent) ou créer une copie. La taille réelle se règle ensuite au placement de l’animation.`
-                : 'Le serveur crée un nouveau fichier GLB, contrôlé comme un import ; les modèles d’origine ne changent pas. La taille réelle se règle ensuite au placement de l’animation.'}
-            </small>
-          </fieldset>
+          {!scene && (
+            <details className="reglages-avances studio-section">
+              <summary>{departModifiable ? 'Nom et usage du modèle' : 'Nom et usage du nouveau modèle'}</summary>
+              <label className="champ">
+                <span className="etiquette">Nom</span>
+                <input value={nom} onChange={(ev) => setNom(ev.target.value)} placeholder={nomPropose || 'Nom du modèle assemblé'} maxLength={120} />
+              </label>
+              <label className="champ">
+                <span className="etiquette">Usage</span>
+                <select value={usage} onChange={(ev) => setUsage(ev.target.value as 'AFFICHE' | 'LIEU')} disabled={!agent}>
+                  <option value="AFFICHE">Animation d’affiche (30 000 triangles max.)</option>
+                  <option value="LIEU">Animation de lieu (100 000 triangles max.)</option>
+                </select>
+              </label>
+            </details>
+          )}
+          <small className="aide-champ">
+            {scene ? 'Les modèles réunis forment un nouveau modèle ; les originaux ne changent pas. La taille réelle se règle ensuite dans le studio.' : 'Le serveur crée un nouveau fichier GLB, contrôlé comme un import ; les modèles d’origine ne changent pas.'}
+          </small>
         </aside>
       </div>
       {choixEnregistrement && depart && (

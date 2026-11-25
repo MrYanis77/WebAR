@@ -17,6 +17,7 @@ const PageRA = lazy(() => import('./pages/PageRA'))
 const PageAffiche = lazy(() => import('./pages/PageAffiche'))
 const PageAgenda = lazy(() => import('./pages/PageAgenda'))
 const PageScanner = lazy(() => import('./pages/PageScanner'))
+const PageAffichesVille = lazy(() => import('./pages/PageAffichesVille'))
 const PageMentions = lazy(() => import('./pages/PageMentions'))
 
 /** Bandeau « Vous êtes arrivé » quand le visiteur entre dans le rayon d'un lieu (BF-08). */
@@ -47,11 +48,12 @@ function MessageProximite() {
   }, [lieuId])
 
   const lieu = etat.lieux.find((l) => l.id === lieuId)
-  if (!lieu || pathname.includes('/ra') || pathname.startsWith('/a/')) return null
+  // Pas par-dessus la caméra : le scanner et la RA ont leurs propres indications.
+  if (!lieu || pathname.includes('/ra') || pathname.startsWith('/a/') || pathname.startsWith('/scanner')) return null
   return (
     <div className="message-proximite" role="status">
       <span className="icone-proximite">
-        <Icone nom="pin" taille={20} />
+        <Icone nom="pin" taille={16} />
       </span>
       <div>
         <strong>{t('prox.titre')}</strong>
@@ -68,7 +70,7 @@ function MessageProximite() {
         {t('prox.action')}
       </button>
       <button type="button" className="fermer-proximite" onClick={() => setLieuId(null)} aria-label={t('commun.fermer')}>
-        <Icone nom="fermer" taille={14} />
+        <Icone nom="fermer" taille={15} />
       </button>
     </div>
   )
@@ -116,6 +118,7 @@ export default function Visiteur() {
                   <Route path="lieux/:id/ra" element={<PageRA />} />
                   <Route path="a/:code" element={<PageAffiche />} />
                   <Route path="agenda" element={<PageAgenda />} />
+                  <Route path="affiches" element={<PageAffichesVille />} />
                   <Route path="scanner" element={<PageScanner />} />
                   <Route path="mentions" element={<PageMentions />} />
                   <Route path="*" element={<PageCarte />} />

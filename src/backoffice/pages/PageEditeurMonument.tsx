@@ -13,9 +13,9 @@ import { BadgeStatut, DialogueSuppression, maintenantLocal, Onglets, toastApresN
 const AtelierMonument = lazy(() => import('../composants/atelier/AtelierMonument'))
 
 const ETAPES = [
-  { titre: 'Fiche', aide: 'Nom, adresse, présentation', intro: 'Ce que le visiteur lit sur la carte et la fiche du monument : en français (obligatoire), en anglais et en allemand.' },
-  { titre: 'Position GPS', aide: 'Point et rayon', intro: 'Placez le repère au centre du monument (vue satellite) ou cherchez son adresse. Le rayon délimite la zone où le visiteur peut lancer l’animation.' },
-  { titre: 'Animation 3D', aide: 'Modèle, position, taille', intro: 'Choisissez le modèle 3D du monument, puis placez-le autour du bâtiment : déplacez-le, tournez-le, changez sa taille.' },
+  { titre: 'Fiche', aide: 'Nom, adresse, présentation', intro: 'Ce que le visiteur lit sur la carte et sur la fiche du monument. Le français est obligatoire ; l’anglais et l’allemand sont conseillés.' },
+  { titre: 'Position GPS', aide: 'Point et rayon', intro: 'Cherchez l’adresse ou cliquez sur la carte, au centre du monument. Réglez ensuite le rayon : c’est la zone où le visiteur pourra voir l’animation.' },
+  { titre: 'Animation 3D', aide: 'Modèle, position, taille', intro: 'Choisissez le modèle 3D, placez-le sur la carte (déplacer, tourner, taille), puis ajoutez un son si besoin : tout se règle dans le panneau à droite de la carte.' },
   { titre: 'Publication', aide: 'Diffusion et carte', intro: 'Choisissez quand l’animation se lance et quand elle est diffusée, puis rendez le monument visible sur la carte des visiteurs.' },
 ]
 
@@ -375,6 +375,7 @@ function EditeurMonument({ id }: { id?: string }) {
                       lieu={l}
                       desactive={verrou}
                       erreurModele={tente && erreursAnim.modele}
+                      son={<SonEtDuree animation={anim} onChange={majAnim} desactive={verrou} tente={tente} />}
                       entete={
                         <div className="choix-animation">
                           {animations.length > 0 && (
@@ -407,16 +408,6 @@ function EditeurMonument({ id }: { id?: string }) {
                     />
                   </Suspense>
                 </div>
-                <details className="details-etape" open={!!anim.sonId || (tente && erreursAnim.transcription)}>
-                  <summary>
-                    <Icone nom="son" taille={16} />
-                    <strong>Son, durée et accessibilité</strong>
-                    <small>
-                      {anim.sonId ? 'son ajouté' : 'sans son'} · {anim.dureeS} s
-                    </small>
-                  </summary>
-                  <SonEtDuree animation={anim} onChange={majAnim} desactive={verrou} tente={tente} />
-                </details>
                 {!avecAnimation && (
                   <p className="note-partage">
                     <Icone nom="info" taille={14} /> Sans modèle 3D, le monument n’aura pas d’animation : vous pourrez en ajouter une plus tard.

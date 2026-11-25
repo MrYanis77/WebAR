@@ -3,12 +3,11 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { distanceM, formaterDistance, minutesAPied, type Coordonnees } from '../../commun/geo'
 import { useLangue } from '../../commun/i18n'
 import { Icone } from '../../commun/Icone'
-import { useAffichePublique, useDonneesPubliques } from '../donneesPubliques'
+import { positionAffiche, useAffichePublique, useAffichesDiffusees, useDonneesPubliques } from '../donneesPubliques'
 import type { Lieu } from '../../commun/types'
-import type { CentrageCarte } from '../composants/CarteLieux'
+import type { CentrageCarte, RepereAffiche } from '../composants/CarteLieux'
 import { CoucheModale } from '../composants/Couche'
 import { BoutonLangue, FeuilleMenu } from '../composants/Feuilles'
-import { FormulaireSignalement, type CibleSignalement } from '../composants/FormulaireSignalement'
 import { MessageErreur } from '../composants/MessageErreur'
 import { NavBas } from '../composants/NavBas'
 import { usePosition } from '../contexte/position'
@@ -68,14 +67,20 @@ export default function PageCarte() {
   const codeAffiche = params.get('affiche')
   // Arrivée depuis une affiche : son nom est relu dans le cache de la requête publique.
   const affichePromo = useAffichePublique(codeAffiche).donnees?.affiche
+  // Affiches animées placées sur la carte ; « ?repere=<code> » (liste des affiches, scanner) en centre une.
+  const { affiches } = useAffichesDiffusees()
+  const reperes = useMemo<RepereAffiche[]>(() => affiches.flatMap((a) => { const p = positionAffiche(a); return p ? [{ code: a.codeQr, nom: a.nom, ...p }] : [] }), [affiches])
+  const repereParam = params.get('repere')
+  const [afficheChoisie, setAfficheChoisie] = useState<string | null>(repereParam)
 
   const [selection, setSelection] = useState<string | null>(() => lieuParam ?? lieux[0]?.id ?? null)
   const [centrage, setCentrage] = useState<CentrageCarte | null>(null)
   const [menu, setMenu] = useState(false)
   const [erreurPosition, setErreurPosition] = useState(false)
-  const [cible, setCible] = useState<CibleSignalement | null>(null)
   const [attenteCentrage, setAttenteCentrage] = useState(false)
   const [repliee, setRepliee] = useState(false)
+  /** Fiche masquée par sa croix : la carte est entièrement visible ; un repère touché la rouvre. */
+  const [ficheFermee, setFicheFermee] = useState(false)
   const [itin, setItin] = useState<EtatItineraire | null>(null)
   const [mode, setMode] = useState<ModeTrajet>('pied')
   const requete = useRef<AbortController | null>(null)
@@ -92,6 +97,13 @@ export default function PageCarte() {
     setSelection(l.id)
     centrerSur(l, 16)
   }, [lieuParam, lieux, centrerSur])
+
+  useEffect(() => {
+    const r = reperes.find((x) => x.code === repereParam)
+    if (!r) return
+    setAfficheChoisie(r.code)
+    setCentrage({ latitude: r.latitude, longitude: r.longitude, cle: `affiche-${r.code}-${Date.now()}`, zoom: 17 })
+  }, [repereParam, reperes])
 
   // Recentre sur le visiteur dès que la position arrive après un appui sur « Ma position ».
   useEffect(() => {
@@ -233,11 +245,13 @@ export default function PageCarte() {
 
   function choisir(id: string) {
     setSelection(id)
+    setFicheFermee(false)
     const l = lieux.find((x) => x.id === id)
     if (l && !itin) centrerSur(l)
   }
 
-  const margeBas = large ? 30 : itin ? 380 : repliee ? 250 : 330
+  const margeBas = large ? 30 : itin ? 380 : ficheFermee ? 140 : repliee ? 220 : 290
+  const afficheVue = affiches.find((a) => a.codeQr === afficheChoisie)
 
   return (
     <div className={`page page-carte ${itin ? 'avec-itineraire' : ''}`}>
@@ -247,10 +261,14 @@ export default function PageCarte() {
           selection={lieu?.id ?? null}
           onSelection={choisir}
           position={position.coords}
+          precisionM={position.precisionM}
           misEnAvant={affichePromo ? lieuParam : null}
           centrage={centrage}
           trace={resultat?.trace ?? null}
           marges={{ haut: 110, bas: margeBas, gauche: large ? 480 : 20 }}
+          affiches={reperes}
+          afficheChoisie={afficheChoisie}
+          onAffiche={(code) => setAfficheChoisie(code === afficheChoisie ? null : code)}
         />
       </Suspense>
 
@@ -267,7 +285,31 @@ export default function PageCarte() {
         </div>
       </header>
 
-      {affichePromo && !itin && (
+      {afficheVue && !itin && (
+        <div className="bandeau-affiche-carte" role="status">
+          {afficheVue.image ? <img src={afficheVue.image.url} alt="" /> : <Icone nom="affiche" taille={20} />}
+          <div>
+            <small>{t('carte.afficheIci')}</small>
+            <strong>{afficheVue.nom}</strong>
+            {afficheVue.emplacement && <span>{afficheVue.emplacement.nom} · {afficheVue.emplacement.adresse}</span>}
+            <div className="actions-bandeau-affiche">
+              {positionAffiche(afficheVue) && (
+                <a className="btn btn-primaire petit" href={lienNavigation(positionAffiche(afficheVue)!, 'pied')} target="_blank" rel="noopener noreferrer">
+                  <Icone nom="itineraire" taille={15} /> {t('affiches.yAller')}
+                </a>
+              )}
+              <button type="button" className="btn btn-secondaire petit" onClick={() => navigate('/scanner')}>
+                <Icone nom="scan" taille={15} /> {t('nav.scanner')}
+              </button>
+            </div>
+          </div>
+          <button type="button" className="fermer-bandeau" aria-label={t('commun.fermer')} onClick={() => setAfficheChoisie(null)}>
+            <Icone nom="fermer" taille={14} />
+          </button>
+        </div>
+      )}
+
+      {affichePromo && !itin && !afficheVue && (
         <div className="bandeau-promo" role="status">
           <Icone nom="affiche" taille={16} />
           <span>{t('carte.misEnAvant', { nom: affichePromo.nom })}</span>
@@ -408,7 +450,8 @@ export default function PageCarte() {
             )}
           </section>
         ) : (
-          lieu && (
+          lieu &&
+          !ficheFermee && (
             <section className={`fiche-carte ${repliee ? 'repliee' : ''}`} aria-label={lieu.nom}>
               <button type="button" className="poignee-bouton" onClick={() => setRepliee(!repliee)} aria-expanded={!repliee} aria-label={repliee ? t('carte.deplier') : t('carte.replier')}>
                 <span className="poignee" aria-hidden="true" />
@@ -420,14 +463,9 @@ export default function PageCarte() {
               <div className="fiche-carte-texte">
                 <div className="fiche-carte-ligne">
                   <p className="type-lieu">{tr(lieu.categorie)}</p>
-                  <button
-                    type="button"
-                    className="bouton-signaler-mini"
-                    aria-label={t('lieu.signaler')}
-                    disabled={!active}
-                    onClick={() => active && setCible({ animationId: active.id, nom: `${active.titre} — ${lieu.nomCourt}` })}
-                  >
-                    <Icone nom="drapeau" taille={14} />
+                  {/* Signaler : sur la fiche complète du lieu (« Plus d’infos ») ; ici, la croix masque la fiche. */}
+                  <button type="button" className="fermer-fiche" aria-label={t('carte.fermerFiche')} onClick={() => setFicheFermee(true)}>
+                    <Icone nom="fermer" taille={15} />
                   </button>
                 </div>
                 <h2>{lieu.nom}</h2>
@@ -480,7 +518,6 @@ export default function PageCarte() {
 
       <NavBas />
       <FeuilleMenu ouverte={menu} onFermer={() => setMenu(false)} />
-      <FormulaireSignalement cible={cible} onFermer={() => setCible(null)} />
       <CoucheModale ouverte={erreurPosition} onFermer={() => setErreurPosition(false)} etiquette={t('erreur.position.titre')}>
         <MessageErreur
           cas="position"

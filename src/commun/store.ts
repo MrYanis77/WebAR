@@ -254,6 +254,18 @@ export async function rangerFichier(id: string, dossier: string | null) {
   await rafraichir('fichiers')
 }
 
+/**
+ * Plusieurs fichiers rangés d'un coup : déplacement d'une sélection, dossier renommé (ses fichiers passent
+ * dans le nouveau nom) ou supprimé (ses fichiers passent « sans dossier », aucun fichier n'est supprimé).
+ */
+export async function rangerFichiers(ids: string[], dossier: string | null) {
+  try {
+    await Promise.all(ids.map((id) => appelApi(`/fichiers/${id}/dossier`, { methode: 'PATCH', corps: { dossier } })))
+  } finally {
+    await rafraichir('fichiers')
+  }
+}
+
 /** Studio d'assemblage : nouveau modèle (copie), ou modèle remplacé sur place si remplacerId est donné. */
 export async function assemblerModeles(d: { nom: string; usage: 'AFFICHE' | 'LIEU'; elements: { fichierId: string; matrice: number[] }[]; remplacerId?: string }): Promise<Fichier> {
   const cree = await appelApi<Fichier>('/fichiers/assembler', { methode: 'POST', corps: d })

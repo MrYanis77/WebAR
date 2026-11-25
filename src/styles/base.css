@@ -41,10 +41,12 @@ body {
 body {
   min-width: 320px;
   min-height: 100vh;
+  /* Sur téléphone, 100vh = hauteur sans la barre d’adresse : la page défilait d’autant et laissait un vide en bas. */
+  min-height: 100dvh;
   background: var(--chalk);
   color: var(--ink);
   font-family: var(--font-texte);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
@@ -124,7 +126,7 @@ a {
 
 .eyebrow {
   color: var(--wine);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 1.7px;
   text-transform: uppercase;
@@ -137,7 +139,7 @@ a {
   width: fit-content;
   padding: 6px 9px;
   border-radius: 7px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.6px;
   line-height: 1;
@@ -160,7 +162,7 @@ a {
   padding: 0 18px;
   border: 0;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 650;
   text-decoration: none;
   white-space: nowrap;
@@ -177,16 +179,16 @@ a {
 .btn-fantome:hover:not(:disabled) { background: #fff; }
 .btn-danger { background: #b42318; color: #fff; }
 .btn-danger:hover:not(:disabled) { background: #912018; }
-.btn-texte { background: none; border: 0; color: var(--muted); font-size: 12px; padding: 8px; }
+.btn-texte { background: none; border: 0; color: var(--muted); font-size: 14.5px; padding: 8px; }
 .btn-bloc { width: 100%; }
 
 .champ {
   display: block;
-  font-size: 12px;
+  font-size: 14.5px;
   font-weight: 650;
 }
 .champ > span.etiquette { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-.champ small { color: var(--muted-2); font-weight: 400; }
+.champ small { color: var(--muted); font-weight: 400; }
 .champ input,
 .champ select,
 .champ textarea {
@@ -196,22 +198,22 @@ a {
   border: 1px solid #d6d1c9;
   border-radius: 10px;
   background: #fff;
-  font-size: 13px;
+  font-size: 15.5px;
   font-weight: 400;
   outline-color: var(--wine);
 }
 .champ textarea { resize: vertical; min-height: 90px; }
-.champ .aide { display: block; margin-top: 5px; color: var(--muted-2); font-size: 11px; font-weight: 400; }
+.champ .aide { display: block; margin-top: 5px; color: var(--muted); font-size: 14px; font-weight: 400; line-height: 1.45; }
 .champ.erreur input,
 .champ.erreur select,
 .champ.erreur textarea { border-color: #b42318; }
-.champ .message-erreur { display: block; margin-top: 5px; color: #b42318; font-size: 11px; font-weight: 500; }
+.champ .message-erreur { display: block; margin-top: 5px; color: #b42318; font-size: 14px; font-weight: 600; }
 
 .case {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  font-size: 12px;
+  font-size: 14.5px;
   line-height: 1.45;
 }
 .case input { width: 18px; height: 18px; margin: 0; accent-color: var(--wine); flex: none; }
@@ -263,6 +265,21 @@ a {
   white-space: nowrap;
 }
 .bascule-prototype a.active { background: var(--chalk); color: var(--ink); }
+/* Poignée : la bascule se déplace à la main (elle pouvait masquer des boutons). */
+.poignee-bascule {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: #8f8e8b;
+  cursor: grab;
+  touch-action: none;
+}
+.poignee-bascule:hover { background: rgb(255 255 255 / 0.1); color: #fff; }
+.poignee-bascule:active { cursor: grabbing; }
+.bascule-prototype.deplacee { transition: none; }
 /* Hors de la colonne des pages : libellés masqués quand la marge est étroite. */
 @media (max-width: 1099px) {
   .bascule-prototype a { padding: 9px; }
@@ -288,3 +305,6 @@ a {
 .affiche-qr-cadre.editable .bloc-qr:active { cursor: grabbing; }
 .affiche-qr-cadre.editable { cursor: crosshair; touch-action: none; }
 .fantome-qr { position: absolute; border: 2px dashed var(--cyan); border-radius: 4%; background: rgb(79 209 197 / 0.18); pointer-events: none; }
+
+/* Un champ masqué reste masqué, même dans un .champ (le sélecteur de fichier natif apparaissait). */
+[hidden] { display: none !important; }

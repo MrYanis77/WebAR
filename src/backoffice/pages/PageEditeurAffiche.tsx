@@ -1,8 +1,9 @@
 import { lazy, Suspense, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
-import { AfficheAvecQr, FORMATS_MM, largeurImpressionMm, QR_DEFAUT, urlQr, useOrigineApplication } from '../../commun/AfficheQr'
+import { AfficheAvecQr, FORMATS_MM, largeurImpressionMm, QR_DEFAUT, useOrigineApplication } from '../../commun/AfficheQr'
 import { REGLAGE_AFFICHE_RA_DEFAUT } from '../../commun/constantes'
 import { Icone } from '../../commun/Icone'
+import { QR_MIN_CM, QR_TAILLE_MAX, qrImprimeCm, tailleQrMinimale } from '../../commun/impression'
 import { messageErreur } from '../../commun/api'
 import {
   alerteAnimationAffiche,
@@ -26,23 +27,24 @@ import { EchelleFormat } from '../composants/EchelleFormat'
 import { exporterPng } from '../composants/exportAffiche'
 import { peutCreer, proprietaireDe, useSession } from '../session'
 import { BadgeStatut, DialogueSuppression, formaterPoids, maintenantLocal, toastApresNavigation, useToast } from '../ui'
-import { estPdf, pdfVersImage } from '../composants/pdfVersImage'
 import { RecadrageAffiche } from '../composants/RecadrageAffiche'
 
 const ApercuAnimationAffiche = lazy(() => import('../composants/ApercuAnimationAffiche'))
 const AtelierAffiche = lazy(() => import('../composants/atelier/AtelierAffiche'))
+const CarteZones = lazy(() => import('../composants/CarteZones'))
 
+/**
+ * Étapes de l'assistant. Suites des tests utilisateurs : des titres qui disent ce qu'on fait et pour qui
+ * (le visiteur), des introductions d'une phrase, un seul endroit pour choisir le format (étape 1).
+ */
 const ETAPES = [
-  { titre: 'Affiche', aide: 'Fichier et format', intro: 'Importez le visuel final de votre affiche, puis choisissez son format d’impression. Ce visuel sert aussi à reconnaître l’affiche en réalité augmentée.' },
-  { titre: 'Informations', aide: 'Textes, dates, lieu', intro: 'Ces textes s’affichent dans l’application après l’animation. Le lieu promu est celui sur lequel la carte s’ouvre ensuite.' },
-  { titre: 'Animation 3D', aide: 'Modèle, position, taille', intro: 'Choisissez le modèle 3D qui sort de l’affiche, puis réglez-le directement sur votre affiche : déplacez-le, tournez-le, changez sa taille.' },
-  { titre: 'QR code', aide: 'Cliquez pour le placer', intro: 'Le QR code unique de l’affiche est prêt. Cliquez sur l’affiche, à droite, à l’endroit où vous voulez le placer.' },
-  { titre: 'Publication', aide: 'Zone et export', intro: 'Vérifiez les conditions, faites attribuer une zone d’affichage, puis publiez et téléchargez le fichier à imprimer.' },
+  { titre: 'Affiche', aide: 'Emplacement et image', h2: 'Où et quelle affiche ?', intro: 'Choisissez d’abord où elle sera collée : l’emplacement fixe la taille du papier. Ajoutez ensuite l’image de votre affiche.' },
+  { titre: 'Textes', aide: 'Ce que lit le visiteur', h2: 'Ce que le visiteur va lire', intro: 'Ces textes s’affichent sur le téléphone du visiteur, juste après l’animation. Seuls les champs « Obligatoire » sont nécessaires pour continuer.' },
+  { titre: 'Animation', aide: 'Ce qui sort de l’affiche', h2: 'L’animation qui sort de l’affiche', intro: 'Choisissez le modèle 3D, placez-le dans la vue (déplacer, tourner, taille), puis ajoutez un son si besoin : tout se règle dans le panneau à droite.' },
+  { titre: 'QR code', aide: 'Taille et position', h2: 'Placez le QR code', intro: 'Votre affiche a maintenant son QR code unique. Cliquez sur l’affiche, à droite, pour le placer. Il mesure au moins 3 cm une fois imprimé, pour être scanné facilement.' },
+  { titre: 'Publication', aide: 'Publier puis imprimer', h2: 'Publiez votre affiche', intro: 'Publiez d’abord : le QR code devient actif. Téléchargez ensuite le fichier à imprimer.' },
 ]
 const TAILLE_MAX_OCTETS = 30_000_000
-/** PDF importé : converti en image dans le navigateur, jamais envoyé tel quel. */
-const PDF_MAX_OCTETS = 100_000_000
-const QR_MIN_CM = 3
 /** Formats du plus petit au plus grand (format maximal d'une zone d'affichage). */
 const ORDRE_FORMATS = ['A4', 'A3', 'A2', 'A1', 'A0']
 
@@ -56,6 +58,20 @@ const ALIGNEMENTS: { libelle: string; x: number; y: number }[] = [
 
 function dimensions(fichier: Blob): Promise<{ largeur: number; hauteur: number }> {
   return createImageBitmap(fichier).then((b) => ({ largeur: b.width, hauteur: b.height }))
+}
+
+/**
+ * QR code agrandi si besoin pour mesurer au moins 3 cm imprimé (format ou image changés) : le partenaire
+ * ne peut plus descendre sous la limite, au lieu d'être bloqué une étape plus tard (tests utilisateurs).
+ */
+function qrAuMoins3cm(q: PlacementQr, format: string | undefined, image?: { largeur: number; hauteur: number }): PlacementQr {
+  const min = tailleQrMinimale(format, image?.largeur, image?.hauteur)
+  return q.taille >= min ? q : { ...q, taille: min, x: Math.min(q.x, 1 - min) }
+}
+
+/** Champ obligatoire ou facultatif, écrit en toutes lettres (tests utilisateurs). */
+function Mention({ obligatoire }: { obligatoire?: boolean }) {
+  return <small className={obligatoire ? 'mention-obligatoire' : 'mention-facultatif'}>{obligatoire ? 'Obligatoire' : 'Facultatif'}</small>
 }
 
 /** Les affiches sont chargées depuis l'API avant d'ouvrir l'éditeur (lien direct vers /affiches/:id). */
@@ -133,6 +149,8 @@ function Editeur({ id }: { id?: string }) {
   const maj = (p: Partial<Affiche>) => setBrouillon((b) => ({ ...b, ...p }))
   const qr = a.qr ?? QR_DEFAUT
   const majQr = (p: Partial<PlacementQr>) => maj({ qr: { ...qr, ...p } })
+  /** Changement de format : le QR code reste à 3 cm au moins une fois imprimé. */
+  const majFormat = (format: string) => setBrouillon((b) => ({ ...b, format, qr: qrAuMoins3cm(b.qr ?? QR_DEFAUT, format, b.image) }))
 
   // ------------------------------------------------------------ animation de l'affiche (étape 3)
   /** Nouvelle animation propre à cette affiche : elle reprend son nom et ses dates à l'enregistrement. */
@@ -210,70 +228,54 @@ function Editeur({ id }: { id?: string }) {
   const [formatL, formatH] = FORMATS_MM[a.format ?? 'A3'] ?? FORMATS_MM.A3
   const hauteurMm = paysage ? formatL : formatH
   const ratioPage = largeurMm / hauteurMm
-  const qrCm = (qr.taille * largeurMm) / 10
+  // Même mesure que le PDF imprimé et que l'API : fraction de la largeur de l'image ajustée dans la page.
+  const qrCm = qrImprimeCm(qr.taille, a.format, a.image?.largeur, a.image?.hauteur)
+  const qrTailleMin = tailleQrMinimale(a.format, a.image?.largeur, a.image?.hauteur)
+  const qrTropPetit = qrCm < QR_MIN_CM - 0.005
   const dpi = a.image ? Math.round(a.image.largeur / (largeurMm / 25.4)) : 0
   const imagePrete = !!a.image && !!image
-  const pret = publiable(conditions) && imagePrete && qrCm >= QR_MIN_CM
+  const pret = publiable(conditions) && imagePrete && !qrTropPetit
   const erreursInfos = { nom: !a.nom.trim(), texte: !a.texte.trim(), dates: a.fin <= a.debut, lieu: !a.lieuId }
   const erreursAnim = animModifiable
     ? { modele: !anim.modeleId, transcription: !!anim.sonId && !anim.transcription.fr.trim(), duree: !(anim.dureeS >= 5 && anim.dureeS <= 1800) }
     : { modele: !anim.id, transcription: false, duree: false }
   const zone = etat.zones.find((z) => z.id === (agent ? a.zoneId : (a.zoneProposeeId ?? a.zoneId)))
   const tropGrand = (format?: string) => !!zone && ORDRE_FORMATS.indexOf(a.format ?? 'A3') > ORDRE_FORMATS.indexOf(format ?? 'A0')
+  const zonesActives = etat.zones.filter((z) => z.active)
+  /** L'emplacement se choisit au début (étape 1) : il fixe le format maximal de l'affiche. */
+  const erreurZone = zonesActives.length > 0 && !zone
 
   /**
-   * Import du fichier de l'affiche (PDF converti en image, PNG, JPEG ou WebP) : pré-contrôle (format,
-   * poids, dimensions) puis envoi à l'API, qui vérifie le type réel et réencode l'image (sharp) avant de
-   * la marquer conforme.
+   * Import de l'image de l'affiche (PNG, JPEG ou WebP uniquement : le sélecteur de fichiers ne propose
+   * plus les PDF, qui déroutaient les testeurs) : pré-contrôle (format, poids, dimensions) puis envoi à
+   * l'API, qui vérifie le type réel et réencode l'image (sharp) avant de la marquer conforme.
    */
-  async function importer(source: File) {
+  async function importer(fichier: File) {
     setErreurImport(null)
     setInfoImport(null)
-    // PDF : la première page est rendue en image (300 dpi) dans le navigateur, puis importée comme une image.
-    let fichier = source
-    let formatDetecte: string | undefined
-    if (estPdf(source)) {
-      if (source.size > PDF_MAX_OCTETS) {
-        setErreurImport(`PDF trop lourd (${formaterPoids(source.size)}) : ${PDF_MAX_OCTETS / 1_000_000} Mo maximum.`)
-        return
-      }
-      setEnvoi('conversion')
-      try {
-        const c = await pdfVersImage(source)
-        fichier = c.fichier
-        if (c.format) {
-          formatDetecte = c.format
-          maj({ format: c.format })
-        }
-        setInfoImport(
-          `PDF converti en image : ${c.pages > 1 ? `page 1 sur ${c.pages} (seule la première est utilisée)` : 'page unique'}, ${c.largeurPx} × ${c.hauteurPx} px` +
-            (c.format ? `, format ${c.format} détecté (${c.dpi} dpi).` : '.'),
-        )
-      } catch (e) {
-        setErreurImport(messageErreur(e))
-        setEnvoi(null)
-        return
-      }
-    } else if (!/^image\/(png|jpeg|webp)$/.test(fichier.type)) {
-      setErreurImport(`« ${fichier.name} » refusé : importez votre affiche en PDF, PNG, JPEG ou WebP (exportée depuis votre logiciel de mise en page).`)
+    if (!/^image\/(png|jpeg|webp)$/.test(fichier.type)) {
+      setErreurImport(
+        /pdf$/i.test(fichier.type) || /\.pdf$/i.test(fichier.name)
+          ? `« ${fichier.name} » est un PDF : exportez votre affiche en image (PNG ou JPEG) depuis votre logiciel de mise en page, puis importez cette image.`
+          : `« ${fichier.name} » refusé : importez une image PNG, JPEG ou WebP.`,
+      )
       return
     }
-    setEnvoi(null)
     // Recadrage au format d'impression, sauf si l'image en a déjà les proportions.
     try {
       const d = await dimensions(fichier)
-      const [fl, fh] = FORMATS_MM[formatDetecte ?? a.format ?? 'A3'] ?? FORMATS_MM.A3
+      const [fl, fh] = FORMATS_MM[a.format ?? 'A3'] ?? FORMATS_MM.A3
       const r = d.largeur / d.hauteur
       const auFormat = Math.abs(r - fl / fh) < 0.02 || Math.abs(r - fh / fl) < 0.02
       if (!auFormat) {
-        setRecadrage({ fichier, nom: source.name, format: formatDetecte ?? a.format ?? 'A3' })
+        setRecadrage({ fichier, nom: fichier.name, format: a.format ?? 'A3' })
         return
       }
     } catch {
       setErreurImport('Image illisible ou corrompue.')
       return
     }
-    await envoyer(fichier, source.name)
+    await envoyer(fichier, fichier.name)
   }
 
   /** Contrôles (poids, dimensions) puis envoi à l'API du fichier de l'affiche, recadré ou non. */
@@ -296,11 +298,14 @@ function Editeur({ id }: { id?: string }) {
         setErreurImport(`Fichier refusé par le contrôle automatique : ${f.raisonRefus ?? 'format non reconnu'}.`)
         return
       }
-      maj({
+      const nouvelle = { nom: f.nomOriginal, largeur: f.largeurPx ?? d.largeur, hauteur: f.hauteurPx ?? d.hauteur, octets: f.tailleOctets, url: f.url }
+      setBrouillon((b) => ({
+        ...b,
         imageId: f.id,
-        image: { nom: f.nomOriginal, largeur: f.largeurPx ?? d.largeur, hauteur: f.hauteurPx ?? d.hauteur, octets: f.tailleOctets, url: f.url },
-        nom: brouillon.nom || nomSource.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').slice(0, 60),
-      })
+        image: nouvelle,
+        nom: b.nom || nomSource.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').slice(0, 60),
+        qr: qrAuMoins3cm(b.qr ?? QR_DEFAUT, b.format, nouvelle),
+      }))
       if (enregistree?.statut === 'PUBLIEE') toast.afficher('Nouveau fichier : enregistrez pour le remplacer sur l’affiche publiée')
     } catch (e) {
       setErreurImport(e instanceof TypeError ? 'Image illisible ou corrompue.' : messageErreur(e))
@@ -343,6 +348,41 @@ function Editeur({ id }: { id?: string }) {
     return r
   }
 
+  /**
+   * Emplacement choisi à l'étape 1. Affiche pas encore créée : le choix est gardé et envoyé à sa création ;
+   * affiche existante : attribué (agent) ou demandé à la mairie (partenaire) aussitôt. Un format plus
+   * grand que ce que l'emplacement accepte est ramené à son maximum.
+   */
+  async function choisirZone(zoneId: string) {
+    const z = etat.zones.find((x) => x.id === zoneId)
+    // Le format de l'affiche est celui de l'emplacement (le choix du format a été retiré de l'étape 1).
+    if (z && z.format !== a.format) majFormat(z.format)
+    if (!a.id) {
+      maj(agent ? { zoneId: zoneId || undefined } : { zoneProposeeId: zoneId || undefined })
+      return
+    }
+    try {
+      const r = await enregistrer()
+      if (agent) await attribuerZone(r.id, zoneId || undefined)
+      else if (zoneId) await proposerZone(r.id, zoneId)
+      toast.afficher(agent ? 'Emplacement attribué — partenaire prévenu' : 'Demande envoyée à la mairie')
+    } catch (err) {
+      toast.afficher(messageErreur(err))
+    }
+  }
+
+  /** Envoie l'emplacement choisi à l'étape 1, une fois l'affiche créée par l'API. */
+  async function envoyerZone(afficheId: string) {
+    const zoneId = agent ? brouillon.zoneId : brouillon.zoneProposeeId
+    if (!zoneId) return
+    try {
+      if (agent) await attribuerZone(afficheId, zoneId)
+      else await proposerZone(afficheId, zoneId)
+    } catch (err) {
+      toastApresNavigation(`Emplacement non envoyé : ${messageErreur(err)}`)
+    }
+  }
+
   /** Animation (si elle a changé, ou toujours en quittant l'étape 3), puis affiche. */
   async function toutEnregistrer(forcerAnimation: boolean) {
     const animationId = forcerAnimation || !a.animationAfficheId || animModifiee ? await enregistrerAnim() : a.animationAfficheId
@@ -355,15 +395,18 @@ function Editeur({ id }: { id?: string }) {
    */
   async function suivant() {
     setTente(true)
-    if (etape === 1 && !a.imageId) return
+    if (etape === 1 && (!a.imageId || erreurZone)) return
     if (etape === 2 && Object.values(erreursInfos).some(Boolean)) return
     if (etape === 3 && Object.values(erreursAnim).some(Boolean)) return
+    // QR code trop petit : bloqué ici, à l'étape du QR code, et pas une étape plus loin.
+    if (etape === 4 && qrTropPetit) return
     setTente(false)
     if (etape >= 3 || a.id) {
       setEnvoi('enregistrement')
       try {
         const r = await toutEnregistrer(etape === 3)
         if (!a.id) {
+          await envoyerZone(r.id)
           navigate(`/backoffice/affiches/${r.id}`, { replace: true, state: { etape: 4 } })
           return
         }
@@ -384,7 +427,8 @@ function Editeur({ id }: { id?: string }) {
     }
     setEnvoi('enregistrement')
     try {
-      await toutEnregistrer(false)
+      const r = await toutEnregistrer(false)
+      if (!a.id) await envoyerZone(r.id)
       // Retour à la liste des affiches, où le message de confirmation s'affiche.
       toastApresNavigation(a.statut === 'PUBLIEE' ? `« ${a.nom} » : modifications enregistrées` : `« ${a.nom} » enregistrée en brouillon`)
       navigate('/backoffice/affiches')
@@ -463,14 +507,25 @@ function Editeur({ id }: { id?: string }) {
 
   const atelierPleineLargeur = etape === 3
   const infoEtape = ETAPES[etape - 1]
+  /**
+   * Le QR code n'apparaît qu'à son étape (4) : il n'existe qu'une fois l'affiche créée, et le montrer dès
+   * l'import de l'image faisait croire qu'il était déjà placé (tests utilisateurs). Une affiche déjà créée
+   * le montre partout, à l'endroit où il a été placé.
+   */
+  const qrVisible = etape >= 4 || !!a.codeQr
   const manquants = [
-    !imagePrete && 'le fichier de l’affiche',
-    qrCm < QR_MIN_CM && 'un QR code d’au moins 3 cm',
-    !conditions.compteVerifie && 'un compte vérifié',
-    !conditions.fichiersConformes && 'des fichiers conformes',
-    !conditions.charteAcceptee && 'la charte acceptée',
-    !conditions.zoneAttribuee && 'une zone attribuée par la mairie',
+    !imagePrete && 'l’image de l’affiche',
+    qrTropPetit && 'un QR code d’au moins 3 cm',
+    !conditions.compteVerifie && 'la vérification de votre compte par la mairie',
+    !conditions.fichiersConformes && 'la vérification automatique de vos fichiers',
+    !conditions.charteAcceptee && 'l’acceptation de la charte',
+    !conditions.zoneAttribuee && 'un emplacement d’affichage validé par la mairie',
   ].filter(Boolean) as string[]
+  const publiee = a.statut === 'PUBLIEE'
+
+  const cm = (v: number) => v.toFixed(1).replace('.', ',')
+  const jour = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+  const qrTailleMax = Math.max(qrTailleMin, Math.min(QR_TAILLE_MAX, 0.35))
 
   return (
     <>
@@ -480,7 +535,7 @@ function Editeur({ id }: { id?: string }) {
             <Icone nom="gauche" taille={14} /> Affiches
           </Link>
           <h1>{existante ? existante.nom : 'Nouvelle affiche'}</h1>
-          <p>Votre affiche, son animation 3D et son QR code, réglés au même endroit.</p>
+          <p>Votre affiche, l’animation 3D qui en sort et son QR code, en 5 étapes.</p>
         </div>
         <div className="bo-entete-actions">
           {enregistree && <BadgeStatut statut={a.statut} />}
@@ -494,18 +549,15 @@ function Editeur({ id }: { id?: string }) {
               <Icone nom="poubelle" taille={15} /> Supprimer
             </button>
           )}
-          <button type="button" className="btn btn-fantome" onClick={() => void sauver()} disabled={lectureSeule || !a.imageId || !!envoi}>
-            {envoi === 'enregistrement' ? 'Enregistrement…' : 'Enregistrer'}
-          </button>
         </div>
       </header>
       <div className={`editeur-affiche ${atelierPleineLargeur ? 'pleine-largeur' : ''} ${etape === 4 ? 'etape-qr' : ''}`}>
         <div className="editeur-formulaire">
-          <ol className="etapes-editeur">
+          <ol className="etapes-editeur" aria-label="Étapes de création de l’affiche">
             {ETAPES.map((e, i) => (
               <li key={e.titre} className={etape === i + 1 ? 'actif' : etape > i + 1 ? 'fait' : ''}>
                 <button type="button" onClick={() => (existante || i + 1 < etape ? setEtape(i + 1) : undefined)} aria-current={etape === i + 1 ? 'step' : undefined}>
-                  <span>{etape > i + 1 ? <Icone nom="check" taille={13} /> : i + 1}</span>
+                  <span>{etape > i + 1 ? <Icone nom="check" taille={14} /> : i + 1}</span>
                   <strong>{e.titre}</strong>
                   <small>{e.aide}</small>
                 </button>
@@ -518,12 +570,60 @@ function Editeur({ id }: { id?: string }) {
               <span className="eyebrow">
                 Étape {etape} sur {ETAPES.length}
               </span>
-              <h2>{etape === 5 ? (pret ? 'Prête à imprimer' : 'Publication') : etape === 4 ? 'Placez le QR code' : etape === 3 ? 'Animation 3D de l’affiche' : etape === 2 ? 'Informations de l’affiche' : 'Importez votre affiche'}</h2>
+              <h2>{etape === 5 && publiee ? 'Votre affiche est publiée' : infoEtape.h2}</h2>
               <p className="intro-etape">{infoEtape.intro}</p>
             </div>
 
             {etape === 1 && (
               <>
+                {zonesActives.length > 0 && (
+                  <div className={`bloc-etape bloc-zone ${tente && erreurZone ? 'erreur' : ''}`}>
+                    <h3>
+                      {agent ? 'Emplacement d’affichage' : 'Où sera collée votre affiche ?'} <Mention obligatoire />
+                    </h3>
+                    <p className="aide-bloc">
+                      {agent ? 'Choisissez sur la carte ou dans la liste l’emplacement autorisé où elle sera collée.' : 'Choisissez sur la carte ou dans la liste. La mairie valide votre demande avant la publication.'}
+                    </p>
+                    <div className="choix-zone">
+                      <Suspense fallback={<div className="carte-zones petite" />}>
+                        <CarteZones
+                          zones={zonesActives}
+                          choisie={zone?.id}
+                          onChoix={(z) => !lectureSeule && void choisirZone(z.id)}
+                          libelleRepere={(z) => `${z.nom} — jusqu’au ${z.format}`}
+                          className="carte-zones petite"
+                        />
+                      </Suspense>
+                      <label className="champ">
+                        <span className="etiquette">{agent ? 'Emplacement attribué' : 'Emplacement souhaité'}</span>
+                        <select value={zone?.id ?? ''} disabled={lectureSeule} onChange={(e) => void choisirZone(e.target.value)}>
+                          <option value="">Choisir un emplacement…</option>
+                          {zonesActives.map((z) => (
+                            <option key={z.id} value={z.id}>
+                              {z.nom} — jusqu’au {z.format}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {zone && (
+                        <div className="resume-zone">
+                          <Icone nom="zone" taille={16} />
+                          <div>
+                            <strong>
+                              {zone.nom}
+                              {!agent && !a.zoneId && a.zoneProposeeId ? (a.id ? ' — en attente de validation par la mairie' : ' — la mairie validera votre demande') : ''}
+                            </strong>
+                            <small>
+                              {zone.adresse} · affiche imprimée en {a.format ?? 'A3'}
+                              {zone.regles ? ` · ${zone.regles}` : ''}
+                            </small>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {tente && erreurZone && <span className="message-erreur">Choisissez l’emplacement où l’affiche sera collée.</span>}
+                  </div>
+                )}
                 <div
                   className={`depot-affiche ${survol ? 'survol' : ''} ${tente && !a.image ? 'erreur' : ''}`}
                   onDragOver={(e) => {
@@ -539,19 +639,19 @@ function Editeur({ id }: { id?: string }) {
                   }}
                 >
                   <span className="icone-depot">
-                    <Icone nom="import" taille={26} />
+                    <Icone nom="image" taille={26} />
                   </span>
-                  <strong>{envoi === 'conversion' ? 'Conversion du PDF en image…' : envoi === 'import' ? 'Envoi et contrôle du fichier…' : a.image ? 'Remplacer le fichier de l’affiche' : 'Glissez votre affiche ici'}</strong>
-                  <p>PDF (première page), PNG, JPEG ou WebP · exportée depuis votre logiciel de mise en page, en haute définition.</p>
+                  <strong>{envoi === 'import' ? 'Envoi et vérification de l’image…' : a.image ? 'Remplacer l’image de l’affiche' : 'Glissez l’image de votre affiche ici'}</strong>
+                  <p>Image PNG ou JPEG, exportée en haute définition depuis votre logiciel de mise en page.</p>
                   <button type="button" className="btn btn-primaire" onClick={() => entree.current?.click()} disabled={lectureSeule || !!envoi}>
-                    {envoi === 'import' || envoi === 'conversion' ? <span className="spinner" /> : null}
-                    Choisir un fichier
+                    {envoi === 'import' ? <span className="spinner" /> : <Icone nom="import" taille={16} />}
+                    Choisir une image
                   </button>
                   <input
                     ref={entree}
                     type="file"
                     hidden
-                    accept="application/pdf,.pdf,image/png,image/jpeg,image/webp"
+                    accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
                     onChange={(e) => {
                       const f = e.target.files?.[0]
                       if (f) void importer(f)
@@ -559,6 +659,11 @@ function Editeur({ id }: { id?: string }) {
                     }}
                   />
                 </div>
+                {tente && !a.image && !erreurImport && (
+                  <p className="erreur-acces" role="alert">
+                    <Icone nom="alerte" taille={15} /> Importez l’image de votre affiche pour continuer.
+                  </p>
+                )}
                 {infoImport && !erreurImport && (
                   <p className="note-ok" role="status">
                     <Icone nom="check" taille={15} />
@@ -586,79 +691,81 @@ function Editeur({ id }: { id?: string }) {
                     <Icone nom="check" taille={18} />
                   </div>
                 )}
-                <div className="bloc-etape">
-                  <h3>Format d’impression</h3>
-                  <div className="grille-champs">
-                    <label className="champ">
-                      <span className="etiquette">
-                        Format <small>Selon la zone d’affichage</small>
-                      </span>
-                      <select value={a.format ?? 'A3'} onChange={(e) => maj({ format: e.target.value })} disabled={lectureSeule}>
-                        {Object.entries(FORMATS_MM).map(([f, [l, h]]) => (
-                          <option key={f} value={f}>
-                            {f} — {l / 10} × {h / 10} cm
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {a.image && (
-                      <div className={`budget ${dpi < 150 ? 'depasse' : ''}`}>
-                        <small>Qualité d’impression</small>
-                        <div>
-                          <span>
-                            {dpi} dpi en {a.format ?? 'A3'}
-                          </span>
-                          <span>{dpi >= 150 ? 'suffisant' : '150 dpi recommandés'}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                {/* Plus de choix du format ici : il découle de l'emplacement choisi (ou du recadrage). */}
+                {a.image && dpi < 150 && (
+                  <p className="erreur-acces" role="status">
+                    <Icone nom="alerte" taille={15} />
+                    Image un peu petite pour une impression en {a.format ?? 'A3'} ({dpi} dpi, 150 conseillés).
+                  </p>
+                )}
               </>
             )}
 
             {etape === 2 && (
               <>
                 <div className="bloc-etape">
-                  <h3>Textes</h3>
+                  <h3>Textes de l’affiche</h3>
                   <div className="grille-champs">
                     <label className={`champ ${tente && erreursInfos.nom ? 'erreur' : ''}`}>
-                      <span className="etiquette">Nom de l’affiche</span>
-                      <input value={a.nom} onChange={(e) => maj({ nom: e.target.value })} maxLength={60} disabled={lectureSeule} />
+                      <span className="etiquette">
+                        Nom de l’affiche <Mention obligatoire />
+                      </span>
+                      <input value={a.nom} onChange={(e) => maj({ nom: e.target.value })} maxLength={60} disabled={lectureSeule} placeholder="Ex. : Fête de la musique" />
+                      <span className="aide">Le titre, affiché en grand sur le téléphone.</span>
+                      {tente && erreursInfos.nom && <span className="message-erreur">Donnez un nom à votre affiche.</span>}
                     </label>
                     <label className="champ">
                       <span className="etiquette">
-                        Accroche <small>Facultatif</small>
+                        Phrase d’accroche <Mention />
                       </span>
-                      <input value={a.accroche} onChange={(e) => maj({ accroche: e.target.value })} maxLength={40} disabled={lectureSeule} />
+                      <input value={a.accroche} onChange={(e) => maj({ accroche: e.target.value })} maxLength={40} disabled={lectureSeule} placeholder="Ex. : Ce samedi au château" />
+                      <span className="aide">Quelques mots au-dessus du nom, pour donner envie ({a.accroche.length}/40).</span>
                     </label>
                     <label className={`champ pleine ${tente && erreursInfos.texte ? 'erreur' : ''}`}>
                       <span className="etiquette">
-                        Texte affiché dans l’application <small>{a.texte.length}/300 · texte brut, aucun lien</small>
+                        Description <Mention obligatoire />
                       </span>
-                      <textarea value={a.texte} onChange={(e) => maj({ texte: e.target.value.replace(/https?:\/\/\S+/g, '') })} maxLength={300} rows={3} disabled={lectureSeule} />
+                      <textarea
+                        value={a.texte}
+                        onChange={(e) => maj({ texte: e.target.value.replace(/https?:\/\/\S+/g, '') })}
+                        maxLength={300}
+                        rows={3}
+                        disabled={lectureSeule}
+                        placeholder="Ex. : Concerts gratuits dans toute la ville, de 18 h à minuit. Venez en famille !"
+                      />
+                      <span className="aide">Ce que le visiteur lit après l’animation : quoi, quand, où ({a.texte.length}/300). Texte simple, sans lien internet.</span>
+                      {tente && erreursInfos.texte && <span className="message-erreur">Écrivez une courte description.</span>}
                     </label>
                   </div>
                 </div>
                 <div className="bloc-etape">
-                  <h3>Dates d’affichage</h3>
+                  <h3>Période d’affichage</h3>
+                  <p className="aide-bloc">Le QR code lance l’animation seulement entre ces deux dates, par exemple pendant que l’affiche est collée en ville.</p>
                   <div className="grille-champs">
                     <label className="champ">
-                      <span className="etiquette">Date de sortie</span>
+                      <span className="etiquette">
+                        Début de l’affichage <Mention obligatoire />
+                      </span>
                       <input type="date" value={a.debut.slice(0, 10)} onChange={(e) => maj({ debut: `${e.target.value}T00:00:00` })} disabled={lectureSeule} />
+                      <span className="aide">Premier jour où le QR code fonctionne.</span>
                     </label>
                     <label className={`champ ${tente && erreursInfos.dates ? 'erreur' : ''}`}>
-                      <span className="etiquette">Date de fin</span>
+                      <span className="etiquette">
+                        Fin de l’affichage <Mention obligatoire />
+                      </span>
                       <input type="date" value={a.fin.slice(0, 10)} onChange={(e) => maj({ fin: `${e.target.value}T23:59:00` })} disabled={lectureSeule} />
+                      <span className="aide">Dernier jour, inclus.</span>
+                      {tente && erreursInfos.dates && <span className="message-erreur">La fin doit être après le début.</span>}
                     </label>
                   </div>
                 </div>
                 <div className="bloc-etape">
                   <h3>Après l’animation</h3>
+                  <p className="aide-bloc">La carte de la ville s’ouvre ensuite sur ce lieu, pour inviter le visiteur à s’y rendre.</p>
                   <div className="grille-champs">
                     <label className={`champ ${tente && erreursInfos.lieu ? 'erreur' : ''}`}>
                       <span className="etiquette">
-                        Lieu promu <small>La carte s’ouvre sur ce lieu</small>
+                        Lieu à faire découvrir <Mention obligatoire />
                       </span>
                       <select value={a.lieuId} onChange={(e) => maj({ lieuId: e.target.value, animationLieuId: undefined })} disabled={lectureSeule}>
                         <option value="">Choisir un lieu…</option>
@@ -677,10 +784,10 @@ function Editeur({ id }: { id?: string }) {
                     </label>
                     <label className="champ">
                       <span className="etiquette">
-                        Spectacle du lieu <small>Facultatif</small>
+                        Spectacle à mettre en avant <Mention />
                       </span>
                       <select value={a.animationLieuId ?? ''} onChange={(e) => maj({ animationLieuId: e.target.value || undefined })} disabled={lectureSeule || !a.lieuId}>
-                        <option value="">{animsDuLieu.length ? 'Aucun spectacle mis en avant' : 'Aucune animation sur ce lieu'}</option>
+                        <option value="">{animsDuLieu.length ? 'Aucun' : 'Aucun spectacle dans ce lieu'}</option>
                         {animsDuLieu.map((x) => (
                           <option key={x.id} value={x.id}>
                             {x.titre}
@@ -700,7 +807,7 @@ function Editeur({ id }: { id?: string }) {
                   <Suspense
                     fallback={
                       <div className="atelier-chargement">
-                        <span className="spinner" /> Ouverture de l’atelier…
+                        <span className="spinner" /> Ouverture de la vue 3D…
                       </div>
                     }
                   >
@@ -710,61 +817,57 @@ function Editeur({ id }: { id?: string }) {
                       reglages3d={modele.reglages}
                       onReglages3d={modele.setReglages}
                       affiche={afficheMontree}
+                      sansQr={!qrVisible}
                       desactive={!animModifiable}
                       erreurModele={tente && erreursAnim.modele}
+                      son={<SonEtDuree animation={anim} onChange={majAnim} desactive={!animModifiable} tente={tente} />}
                       entete={
-                        <div className="choix-animation">
-                          <label className="champ">
-                            <span className="etiquette">Animation qui sort de l’affiche</span>
-                            <select value={anim.id} onChange={(e) => choisirAnimation(e.target.value)} disabled={lectureSeule}>
-                              <option value="">{anim.id ? 'Créer une nouvelle animation' : 'Nouvelle animation pour cette affiche'}</option>
-                              {animsAffiche.length > 0 && (
-                                <optgroup label="Réutiliser une animation d’affiche">
-                                  {animsAffiche.map((x) => (
-                                    <option key={x.id} value={x.id}>
-                                      {x.titre}
-                                      {etatAnim(x)}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              )}
-                              {animsLieu.length > 0 && (
-                                <optgroup label="Animations de monument">
-                                  {animsLieu.map((x) => (
-                                    <option key={x.id} value={x.id}>
-                                      {x.titre} — {nomLieu(x.lieuId)}
-                                      {etatAnim(x)}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              )}
-                            </select>
-                          </label>
-                          {autresAffiches.length > 0 && (
-                            <p className="note-partage">
-                              <Icone nom="info" taille={14} /> Utilisée aussi par {autresAffiches.map((x) => `« ${x.nom} »`).join(', ')} : vos réglages s’appliquent aussi {autresAffiches.length > 1 ? 'à ces affiches' : 'à cette affiche'}.
-                            </p>
-                          )}
-                          {!animModifiable && !lectureSeule && (
-                            <p className="note-partage">
-                              <Icone nom="cadenas" taille={14} /> Animation de la Ville : vous pouvez l’utiliser, pas la modifier.
-                            </p>
-                          )}
-                        </div>
+                        (animsAffiche.length > 0 || animsLieu.length > 0 || autresAffiches.length > 0 || (!animModifiable && !lectureSeule)) && (
+                          <div className="choix-animation">
+                            <label className="champ">
+                              <span className="etiquette">
+                                Animation <small>Nouvelle, ou déjà créée</small>
+                              </span>
+                              <select value={anim.id} onChange={(e) => choisirAnimation(e.target.value)} disabled={lectureSeule}>
+                                <option value="">{anim.id ? 'Créer une nouvelle animation' : 'Nouvelle animation pour cette affiche'}</option>
+                                {animsAffiche.length > 0 && (
+                                  <optgroup label="Réutiliser une animation d’affiche">
+                                    {animsAffiche.map((x) => (
+                                      <option key={x.id} value={x.id}>
+                                        {x.titre}
+                                        {etatAnim(x)}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {animsLieu.length > 0 && (
+                                  <optgroup label="Animations de monument">
+                                    {animsLieu.map((x) => (
+                                      <option key={x.id} value={x.id}>
+                                        {x.titre} — {nomLieu(x.lieuId)}
+                                        {etatAnim(x)}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                              </select>
+                            </label>
+                            {autresAffiches.length > 0 && (
+                              <p className="note-partage">
+                                <Icone nom="info" taille={14} /> Utilisée aussi par {autresAffiches.map((x) => `« ${x.nom} »`).join(', ')} : vos réglages s’appliquent aussi {autresAffiches.length > 1 ? 'à ces affiches' : 'à cette affiche'}.
+                              </p>
+                            )}
+                            {!animModifiable && !lectureSeule && (
+                              <p className="note-partage">
+                                <Icone nom="cadenas" taille={14} /> Animation de la Ville : vous pouvez l’utiliser, pas la modifier.
+                              </p>
+                            )}
+                          </div>
+                        )
                       }
                     />
                   </Suspense>
                 </div>
-                <details className="details-etape" open={!!anim.sonId || (tente && erreursAnim.transcription)}>
-                  <summary>
-                    <Icone nom="son" taille={16} />
-                    <strong>Son, durée et accessibilité</strong>
-                    <small>
-                      {anim.sonId ? 'son ajouté' : 'sans son'} · {anim.dureeS} s
-                    </small>
-                  </summary>
-                  <SonEtDuree animation={anim} onChange={majAnim} desactive={!animModifiable} tente={tente} />
-                </details>
                 {tente && Object.values(erreursAnim).some(Boolean) && (
                   <p className="erreur-acces" role="alert">
                     <Icone nom="alerte" taille={15} />
@@ -779,49 +882,54 @@ function Editeur({ id }: { id?: string }) {
                 <div className="consigne-clic">
                   <Icone nom="viseur" taille={22} />
                   <div>
-                    <strong>Cliquez sur l’affiche à l’endroit voulu</strong>
-                    <small>Le QR code s’y place aussitôt. Faites-le glisser pour l’ajuster, ou utilisez les flèches du clavier (Maj pour aller plus vite).</small>
+                    <strong>Cliquez sur l’affiche, à droite, à l’endroit voulu</strong>
+                    <small>Le QR code s’y place aussitôt. Faites-le glisser pour l’ajuster.</small>
                   </div>
                 </div>
-                <div className="bloc-etape">
-                  <h3>Taille</h3>
-                  <label className="champ">
-                    <span className="etiquette">
-                      Taille du QR code <small>{qrCm.toFixed(1).replace('.', ',')} cm imprimé en {a.format ?? 'A3'}</small>
+                <div className={`bloc-etape bloc-taille-qr ${qrTropPetit ? 'erreur' : ''}`}>
+                  <h3>Taille du QR code</h3>
+                  <div className="mesure-qr">
+                    <strong>{cm(qrCm)} cm</strong>
+                    <span>
+                      de côté une fois imprimé en {a.format ?? 'A3'}
+                      <br />
+                      minimum {QR_MIN_CM} cm · lisible jusqu’à environ {cm(Math.max(0.3, qrCm / 10))} m
                     </span>
-                    <input
-                      type="range"
-                      min={0.08}
-                      max={0.35}
-                      step={0.005}
-                      value={qr.taille}
-                      disabled={lectureSeule}
-                      onChange={(e) => {
-                        const taille = Number(e.target.value)
-                        majQr({ taille, x: Math.min(qr.x, 1 - taille) })
-                      }}
-                    />
-                  </label>
-                  {qrCm < QR_MIN_CM && (
-                    <p className="erreur-acces">
-                      <Icone nom="alerte" taille={15} /> QR code trop petit : {QR_MIN_CM} cm minimum pour être scanné facilement.
+                  </div>
+                  <input
+                    type="range"
+                    className="curseur-qr"
+                    aria-label="Taille du QR code"
+                    aria-valuetext={`${cm(qrCm)} cm`}
+                    min={qrTailleMin}
+                    max={qrTailleMax}
+                    step={0.0025}
+                    value={Math.min(qrTailleMax, Math.max(qr.taille, qrTailleMin))}
+                    disabled={lectureSeule}
+                    onChange={(e) => {
+                      const taille = Math.max(qrTailleMin, Number(e.target.value))
+                      majQr({ taille, x: Math.min(qr.x, 1 - taille) })
+                    }}
+                  />
+                  <div className="bornes-curseur" aria-hidden="true">
+                    <span>{QR_MIN_CM} cm (minimum)</span>
+                    <span>{cm(qrImprimeCm(qrTailleMax, a.format, a.image?.largeur, a.image?.hauteur))} cm</span>
+                  </div>
+                  {qrTropPetit && (
+                    <p className="erreur-acces" role="alert">
+                      <Icone nom="alerte" taille={15} />
+                      <span>
+                        QR code trop petit pour être scanné facilement.{' '}
+                        <button type="button" className="lien-panneau" onClick={() => majQr({ taille: qrTailleMin, x: Math.min(qr.x, 1 - qrTailleMin) })} disabled={lectureSeule}>
+                          Agrandir à {QR_MIN_CM} cm
+                        </button>
+                      </span>
                     </p>
                   )}
                 </div>
                 <div className="bloc-etape">
-                  <h3>Apparence</h3>
-                  <label className="case">
-                    <input type="checkbox" checked={qr.fond} onChange={(e) => majQr({ fond: e.target.checked })} disabled={lectureSeule} />
-                    Fond blanc autour du QR code (recommandé sur un visuel sombre ou chargé)
-                  </label>
-                  <label className="case">
-                    <input type="checkbox" checked={qr.mention} onChange={(e) => majQr({ mention: e.target.checked })} disabled={lectureSeule} />
-                    Ajouter la mention « Scannez · expérience RA » sous le QR code
-                  </label>
-                </div>
-                <div className="bloc-etape">
-                  <h3>Alignement rapide</h3>
-                  <div className="positions-qr" role="group" aria-label="Alignements rapides">
+                  <h3>Position rapide</h3>
+                  <div className="positions-qr" role="group" aria-label="Positions rapides">
                     {ALIGNEMENTS.map((p) => (
                       <button key={p.libelle} type="button" onClick={() => aligner(p)} disabled={lectureSeule}>
                         {p.libelle}
@@ -829,109 +937,116 @@ function Editeur({ id }: { id?: string }) {
                     ))}
                   </div>
                 </div>
-                <div className="lien-qr">
-                  <Icone nom="lien" taille={15} />
-                  <code>{a.codeQr ? urlQr(a.codeQr) : 'Généré par le serveur à l’enregistrement'}</code>
+                <div className="bloc-etape">
+                  <h3>Apparence</h3>
+                  <label className="case">
+                    <input type="checkbox" checked={qr.fond} onChange={(e) => majQr({ fond: e.target.checked })} disabled={lectureSeule} />
+                    Fond blanc autour du QR code (conseillé sur une image sombre ou chargée)
+                  </label>
+                  <label className="case">
+                    <input type="checkbox" checked={qr.mention} onChange={(e) => majQr({ mention: e.target.checked })} disabled={lectureSeule} />
+                    Ajouter « Scannez · expérience RA » sous le QR code
+                  </label>
                 </div>
               </>
             )}
 
             {etape === 5 && (
               <>
-                <div className={`boite-pret ${pret ? '' : 'bloque'}`}>
-                  <Icone nom={pret ? 'check' : 'alerte'} taille={20} />
-                  <div>
-                    <strong>{pret ? (a.statut === 'PUBLIEE' ? 'Affiche publiée et prête à imprimer' : 'Votre affiche est prête') : 'Export et publication bloqués'}</strong>
-                    <p>
-                      {pret
-                        ? 'Le fichier exporté contient votre affiche à sa résolution d’origine avec le QR code incrusté. Publiée sans validation préalable : vous restez responsable du contenu.'
-                        : `Il manque : ${manquants.join(', ')}. Cette règle est aussi vérifiée par l’API.`}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bloc-etape">
-                  <h3>Zone d’affichage</h3>
-                  <label className="champ">
-                    <span className="etiquette">
-                      {agent ? 'Attribuer la zone d’affichage' : 'Proposer une zone'}
-                      <small>{agent ? 'Selon les règles d’affichage de la Ville' : 'La mairie attribue la zone ; vous pouvez en proposer une'}</small>
-                    </span>
-                    <select
-                      value={agent ? (a.zoneId ?? '') : (a.zoneProposeeId ?? '')}
-                      disabled={lectureSeule}
-                      onChange={async (e) => {
-                        const zoneId = e.target.value
-                        try {
-                          const r = await enregistrer()
-                          if (agent) await attribuerZone(r.id, zoneId || undefined)
-                          else if (zoneId) await proposerZone(r.id, zoneId)
-                          toast.afficher(agent ? 'Zone attribuée — partenaire notifié' : 'Proposition envoyée à la mairie')
-                        } catch (err) {
-                          toast.afficher(messageErreur(err))
-                        }
-                      }}
-                    >
-                      <option value="">{agent ? 'Aucune zone' : 'Choisir une zone…'}</option>
-                      {etat.zones
-                        .filter((z) => z.active)
-                        .map((z) => (
-                          <option key={z.id} value={z.id}>
-                            {z.nom} — {z.format} maximum
-                            {ORDRE_FORMATS.indexOf(a.format ?? 'A3') > ORDRE_FORMATS.indexOf(z.format) ? ' · format trop grand' : ''}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  {zone && (
-                    <div className={`resume-zone ${tropGrand(zone.format) ? 'alerte' : ''}`}>
-                      <Icone nom={tropGrand(zone.format) ? 'alerte' : 'zone'} taille={16} />
-                      <div>
-                        <strong>
-                          {zone.nom}
-                          {!agent && !a.zoneId && a.zoneProposeeId ? ' — proposée, en attente de la mairie' : ''}
-                        </strong>
-                        <small>
-                          {zone.adresse} · {zone.format} maximum{zone.regles ? ` · ${zone.regles}` : ''}
-                        </small>
-                        {tropGrand(zone.format) && <small>Votre affiche ({a.format ?? 'A3'}) dépasse le format maximal de cette zone : choisissez un format plus petit à l’étape 1.</small>}
-                      </div>
+                <ol className="parcours-publication">
+                  <li className={publiee ? 'fait' : pret ? 'actif' : 'bloque'}>
+                    <span className="numero">{publiee ? <Icone nom="check" taille={16} /> : 1}</span>
+                    <div>
+                      <strong>{publiee ? 'Affiche publiée : son QR code est actif' : 'Publier l’affiche'}</strong>
+                      <small>
+                        {publiee
+                          ? `Les visiteurs qui scannent le QR code voient l’animation du ${jour(a.debut)} au ${jour(a.fin)}.`
+                          : pret
+                            ? 'Le QR code lancera l’animation aux dates prévues. Publiée sans validation préalable : vous restez responsable du contenu.'
+                            : `Pas encore possible. Il manque : ${manquants.join(', ')}.`}
+                      </small>
                     </div>
-                  )}
-                </div>
+                    {!publiee && (
+                      <button type="button" className="btn btn-primaire btn-publier" disabled={!pret || lectureSeule || !!envoi} onClick={() => void publier()}>
+                        {envoi === 'publication' ? <span className="spinner" /> : <Icone nom="check" taille={17} />} Publier l’affiche
+                      </button>
+                    )}
+                  </li>
+                  <li className={publiee ? 'actif' : 'en-attente'}>
+                    <span className="numero">2</span>
+                    <div>
+                      <strong>Télécharger le fichier à imprimer</strong>
+                      <small>
+                        {publiee
+                          ? `Votre affiche au format ${a.format ?? 'A3'}, avec le QR code incrusté, prête pour l’imprimeur.`
+                          : 'Disponible dès que l’affiche est publiée : on imprime ainsi une affiche dont le QR code fonctionne.'}
+                      </small>
+                    </div>
+                    <div className="actions-telechargement">
+                      <button type="button" className={`btn ${publiee ? 'btn-primaire' : 'btn-fantome'}`} disabled={!pret || !publiee || !!export_} onClick={() => void exporter('pdf')}>
+                        {export_ === 'pdf' ? <span className="spinner" /> : <Icone nom="telecharger" taille={16} />}
+                        PDF {a.format ?? 'A3'}
+                      </button>
+                      <button type="button" className="btn btn-fantome" disabled={!pret || !publiee || !!export_} onClick={() => void exporter('png')}>
+                        {export_ === 'png' ? <span className="spinner" /> : <Icone nom="image" taille={16} />}
+                        Image PNG
+                      </button>
+                    </div>
+                  </li>
+                </ol>
+
+                {/* L'emplacement se choisit désormais à l'étape 1 ; ici, seulement son état dans les conditions. */}
+                {zone && tropGrand(zone.format) && (
+                  <p className="erreur-acces" role="status">
+                    <Icone nom="alerte" taille={15} />
+                    <span>
+                      Votre affiche est en {a.format ?? 'A3'}, plus grande que ce qu’accepte « {zone.nom} » (jusqu’au {zone.format}).{' '}
+                      <button type="button" className="lien-panneau" onClick={() => majFormat(zone.format)} disabled={lectureSeule}>
+                        Passer en {zone.format}
+                      </button>
+                    </span>
+                  </p>
+                )}
 
                 <div className="bloc-etape">
-                  <h3>Conditions de publication</h3>
+                  <h3>Avant de publier</h3>
                   <ul className="conditions">
                     {ligneCondition(conditions.compteVerifie, 'Compte vérifié par la mairie', nomProprietaire(etat, a.proprietaireId))}
-                    {ligneCondition(conditions.fichiersConformes, 'Fichiers conformes au contrôle automatique', anim.titre || 'Animation de l’affiche', <Link to="/backoffice/fichiers" className="lien-panneau">Voir les fichiers</Link>)}
+                    {ligneCondition(conditions.fichiersConformes, 'Image et modèle 3D vérifiés', 'Vérification automatique des fichiers importés', <Link to="/backoffice/fichiers" className="lien-panneau">Voir les fichiers</Link>)}
                     {ligneCondition(conditions.charteAcceptee, 'Charte d’utilisation acceptée', 'Version 1.0', <Link to="/backoffice/charte" className="lien-panneau">Accepter</Link>)}
                     {ligneCondition(
                       conditions.zoneAttribuee,
-                      'Zone d’affichage attribuée par la mairie',
-                      etat.zones.find((z) => z.id === a.zoneId)?.nom ?? (a.zoneProposeeId ? `Proposée : ${etat.zones.find((z) => z.id === a.zoneProposeeId)?.nom} — en attente` : 'Aucune zone'),
+                      'Emplacement d’affichage validé par la mairie',
+                      etat.zones.find((z) => z.id === a.zoneId)?.nom ?? (a.zoneProposeeId ? `Demandé : ${etat.zones.find((z) => z.id === a.zoneProposeeId)?.nom} — en attente` : 'À choisir à l’étape 1'),
+                      <button type="button" className="lien-panneau" onClick={() => setEtape(1)}>
+                        {a.zoneProposeeId ? 'Changer' : 'Choisir'}
+                      </button>,
+                    )}
+                    {ligneCondition(
+                      !qrTropPetit,
+                      'QR code d’au moins 3 cm',
+                      `${cm(qrCm)} cm en ${a.format ?? 'A3'}`,
+                      <button type="button" className="lien-panneau" onClick={() => setEtape(4)}>
+                        Agrandir
+                      </button>,
                     )}
                   </ul>
-                </div>
-
-                <div className="bloc-etape">
-                  <h3>Contrôles de l’affiche</h3>
-                  <ul className="verifications">
-                    {controle(imagePrete, <>Fichier de l’affiche importé {a.image ? `(${a.image.largeur} × ${a.image.hauteur} px)` : ''}</>)}
-                    {controle(!!a.codeQr, <>QR code unique : <code>{a.codeQr ? urlQr(a.codeQr) : '—'}</code></>)}
-                    {controle(qrCm >= QR_MIN_CM, <>QR code placé : {qrCm.toFixed(1).replace('.', ',')} cm en {a.format ?? 'A3'}</>)}
-                    {controle(!!anim.modeleId, <>Animation 3D : {fichierModele?.nomOriginal ?? 'aucun modèle'}</>)}
-                    {controle(
-                      !alerteAnim,
-                      anim.statut === 'PUBLIEE' ? 'L’animation est active pendant toute la période de l’affiche' : 'L’animation sera activée en même temps que l’affiche',
-                      true,
-                    )}
-                  </ul>
+                  <details className="details-verifications">
+                    <summary>Détail de l’affiche</summary>
+                    <ul className="verifications">
+                      {controle(imagePrete, <>Image de l’affiche {a.image ? `(${a.image.largeur} × ${a.image.hauteur} px)` : ''}</>)}
+                      {controle(!!anim.modeleId, <>Animation 3D : {fichierModele?.nomOriginal ?? 'aucun modèle'}</>)}
+                      {controle(!alerteAnim, anim.statut === 'PUBLIEE' ? 'L’animation est active pendant toute la période de l’affiche' : 'L’animation sera activée en même temps que l’affiche', true)}
+                    </ul>
+                  </details>
                   {alerteAnim && (
                     <p className="erreur-acces" role="status">
                       <Icone nom="alerte" taille={15} />
                       <span>
-                        {alerteAnim} <button type="button" className="lien-panneau" onClick={() => setEtape(3)}>Revoir l’animation</button>
+                        {alerteAnim}{' '}
+                        <button type="button" className="lien-panneau" onClick={() => setEtape(3)}>
+                          Revoir l’animation
+                        </button>
                       </span>
                     </p>
                   )}
@@ -940,56 +1055,51 @@ function Editeur({ id }: { id?: string }) {
             )}
           </section>
 
+          {/* Barre d'actions collée en bas du formulaire : toujours visible, rien ne la recouvre. */}
           <div className="pied-editeur">
             <button type="button" className="btn btn-fantome" onClick={() => (etape === 1 ? navigate('/backoffice/affiches') : setEtape(etape - 1))}>
-              {etape === 1 ? 'Annuler' : (
+              {etape === 1 ? (
+                'Annuler'
+              ) : (
                 <>
                   <Icone nom="gauche" taille={15} /> {ETAPES[etape - 2].titre}
                 </>
               )}
             </button>
-            {etape < 5 ? (
-              <button type="button" className="btn btn-primaire" onClick={() => void suivant()} disabled={!!envoi}>
+            <div className="pied-droite">
+              <button type="button" className="btn btn-secondaire" onClick={() => void sauver()} disabled={lectureSeule || !a.imageId || !!envoi}>
                 {envoi === 'enregistrement' ? <span className="spinner" /> : null}
-                {etape === 3 && !a.id ? 'Créer l’affiche et son QR code' : `Continuer : ${ETAPES[etape].titre}`} <Icone nom="droite" taille={15} />
+                {publiee ? 'Enregistrer les modifications' : 'Enregistrer le brouillon'}
               </button>
-            ) : (
-              <div className="actions-finales">
-                {a.statut !== 'PUBLIEE' && (
-                  <button type="button" className="btn btn-secondaire" disabled={!pret || lectureSeule || !!envoi} onClick={() => void publier()}>
-                    {envoi === 'publication' ? <span className="spinner" /> : null} Publier
-                  </button>
-                )}
-                <button type="button" className="btn btn-fantome" disabled={!pret || !!export_} onClick={() => void exporter('png')}>
-                  {export_ === 'png' ? <span className="spinner" /> : <Icone nom="image" taille={16} />}
-                  PNG
+              {etape < 5 && (
+                <button type="button" className="btn btn-primaire" onClick={() => void suivant()} disabled={!!envoi}>
+                  {etape === 3 && !a.id ? 'Créer l’affiche et son QR code' : `Continuer : ${ETAPES[etape].titre}`} <Icone nom="droite" taille={15} />
                 </button>
-                <button type="button" className="btn btn-primaire" disabled={!pret || !!export_} onClick={() => void exporter('pdf')}>
-                  {export_ === 'pdf' ? <span className="spinner" /> : <Icone nom="telecharger" taille={16} />}
-                  PDF {a.format ?? 'A3'}
-                </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
         {!atelierPleineLargeur && (
-          <aside className={`editeur-apercu ${etape === 4 ? 'etape-qr' : ''}`}>
+          <aside className={`editeur-apercu ${etape === 4 ? 'etape-qr' : ''}`} aria-label="Aperçu de l’affiche">
             <div className="libelle-apercu">
               {etape === 5 ? (
                 <div className="onglets onglets-apercu" role="tablist" aria-label="Type d’aperçu">
                   <button type="button" role="tab" aria-selected={vue === 'affiche'} className={vue === 'affiche' ? 'actif' : ''} onClick={() => setVue('affiche')}>
-                    Affiche
+                    <Icone nom="affiche" taille={14} /> L’affiche
                   </button>
                   <button type="button" role="tab" aria-selected={vue === 'ra'} className={vue === 'ra' ? 'actif' : ''} onClick={() => setVue('ra')} disabled={!imagePrete}>
-                    <Icone nom="cube" taille={14} /> Aperçu RA
+                    <Icone nom="cube" taille={14} /> L’animation sur un téléphone
                   </button>
                 </div>
               ) : (
-                <strong>{etape === 4 ? 'Cliquez pour placer le QR code' : 'Aperçu de l’affiche'}</strong>
+                <strong className="titre-apercu">
+                  <Icone nom={etape === 4 ? 'viseur' : 'oeil'} taille={17} />
+                  {etape === 4 ? 'Cliquez sur l’affiche pour placer le QR code' : etape === 2 ? 'Ce que verra le visiteur' : 'Aperçu de votre affiche'}
+                </strong>
               )}
               <span className="pill pill-stone">
-                {a.format ?? 'A3'} · {(largeurMm / 10).toFixed(1).replace('.', ',')} × {(hauteurMm / 10).toFixed(1).replace('.', ',')} cm
+                {a.format ?? 'A3'} · {cm(largeurMm / 10)} × {cm(hauteurMm / 10)} cm
               </span>
             </div>
             {etape === 5 && vue === 'ra' && imagePrete ? (
@@ -1013,14 +1123,15 @@ function Editeur({ id }: { id?: string }) {
                         qr={qr}
                         nom={a.nom}
                         onQr={etape === 4 && !lectureSeule ? (p) => majQr(p) : undefined}
-                        className="apercu-editeur"
+                        className={`apercu-editeur ${etape === 4 ? 'qr-a-placer' : ''}`}
+                        sansQr={!qrVisible}
                       />
                     )}
                   </div>
                 </div>
                 {Math.abs(ratio - ratioPage) > 0.02 && a.image && (
                   <p className="note-apercu">
-                    <Icone nom="info" taille={14} /> Les proportions de votre fichier diffèrent du format {a.format ?? 'A3'} : des marges blanches apparaîtront à l’impression.
+                    <Icone nom="info" taille={14} /> Les proportions de votre image diffèrent du format {a.format ?? 'A3'} : des marges blanches apparaîtront à l’impression.
                     {!lectureSeule && etape === 1 && (
                       <button type="button" className="lien-bouton" onClick={() => void recadrerImage()} disabled={!!envoi}>
                         Recadrer au format
@@ -1029,11 +1140,11 @@ function Editeur({ id }: { id?: string }) {
                   </p>
                 )}
                 {etape === 2 && (
-                  <div className="apercu-fiche-app" aria-label="Aperçu dans l’application">
-                    <small>Dans l’application, après l’animation</small>
+                  <div className="apercu-fiche-app" aria-label="Aperçu sur le téléphone du visiteur">
+                    <small>Sur le téléphone, après l’animation</small>
                     {a.accroche && <span className="eyebrow">{a.accroche}</span>}
                     <strong>{a.nom || 'Nom de l’affiche'}</strong>
-                    <p>{a.texte || 'Le texte de l’affiche apparaîtra ici.'}</p>
+                    <p>{a.texte || 'La description de l’affiche apparaîtra ici.'}</p>
                     {lieuPromu && (
                       <span className="pill pill-green">
                         <Icone nom="pin" taille={12} /> {lieuPromu.nomCourt || lieuPromu.nom}
@@ -1042,12 +1153,9 @@ function Editeur({ id }: { id?: string }) {
                     )}
                   </div>
                 )}
-                {(etape === 1 || etape === 4) && <EchelleFormat format={a.format ?? 'A3'} paysage={paysage} image={image} qr={qr} onFormat={(format) => maj({ format })} desactive={lectureSeule} />}
+                {etape === 4 && <EchelleFormat format={a.format ?? 'A3'} paysage={paysage} image={image} qr={qr} qrCm={qrCm} />}
               </>
             )}
-            <p className="note-apercu">
-              <Icone nom="info" taille={14} /> Le QR code renvoie uniquement vers l’application ; aucun lien externe n’est possible.
-            </p>
           </aside>
         )}
       </div>
@@ -1079,7 +1187,7 @@ function Editeur({ id }: { id?: string }) {
           onValider={(fichier, format) => {
             const r = recadrage
             setRecadrage(null)
-            maj({ format })
+            majFormat(format)
             setInfoImport(`Image recadrée au format ${format}.`)
             void envoyer(fichier, r.nom)
           }}

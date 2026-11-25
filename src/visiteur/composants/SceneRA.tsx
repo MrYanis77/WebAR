@@ -27,8 +27,10 @@ export type EvenementScene =
   | { type: 'lumiere'; sombre: boolean }
   /** Zoom nécessaire pour que l'image de la caméra remplisse tout l'écran (bouton « Plein écran »). */
   | { type: 'cadrage'; couverture: number }
-  /** Animation posée mais hors du champ de la caméra : de quel côté tourner le téléphone. */
-  | { type: 'direction'; cote: 'gauche' | 'droite' | null }
+  /** Animation posée mais hors du champ de la caméra : de quel côté tourner (ou lever) le téléphone. */
+  | { type: 'direction'; cote: CoteDirection | null }
+
+export type CoteDirection = 'gauche' | 'droite' | 'haut' | 'bas'
 
 export interface CommandesScene {
   /** Pose l'animation devant le visiteur (affiche non reconnue). Renvoie false si la scène n'est pas prête. */
@@ -77,6 +79,8 @@ const AGE_CAP_MAX_MS = 1000
 export default function SceneRA({ animation, cibles, mode, reglage = animation.reglageAffiche ?? REGLAGE_AFFICHE_DEFAUT, hauteurCibleM, recherche, cycle, zoom, gps, commandes, onEvenement }: Props) {
   const hauteurCibleRef = useRef(hauteurCibleM)
   hauteurCibleRef.current = hauteurCibleM
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
   const cadre = useRef<HTMLDivElement>(null)
   const gpsRef = useRef(gps)
   gpsRef.current = gps
@@ -252,7 +256,7 @@ export default function SceneRA({ animation, cibles, mode, reglage = animation.r
 
     let dernierSuivi: boolean | null = null
     let dernierEchantillon = 0
-    let derniereDirection: 'gauche' | 'droite' | null = null
+    let derniereDirection: CoteDirection | null = null
     let dernierSombre = false
     let horloge = performance.now()
 
@@ -274,16 +278,29 @@ export default function SceneRA({ animation, cibles, mode, reglage = animation.r
       }
     }
 
-    /** Animation hors du champ : indique de quel côté tourner le téléphone. */
+    /**
+     * Animation hors du champ : indique de quel côté tourner le téléphone, ou s'il faut le lever ou le
+     * baisser (modèle posé en hauteur, au-dessus d'un bâtiment). Le champ visible tient compte du zoom.
+     */
     const signalerDirection = (camera: THREE.PerspectiveCamera) => {
-      let cote: 'gauche' | 'droite' | null = null
+      let cote: CoteDirection | null = null
       if (e.modele?.visible) {
         const centre = e.modele.racine.getWorldPosition(new THREE.Vector3())
         centre.y += e.modele.racine.scale.y * 0.5
         const local = centre.applyMatrix4(camera.matrixWorldInverse)
-        const angle = Math.atan2(local.x, -local.z) / (Math.PI / 180)
-        const demiChamp = (camera.fov * Math.max(camera.aspect, 0.3)) / 2
-        if (Math.abs(angle) > demiChamp) cote = angle > 0 ? 'droite' : 'gauche'
+        const deg = Math.PI / 180
+        const angle = Math.atan2(local.x, -local.z) / deg
+        const elevation = Math.atan2(local.y, Math.hypot(local.x, local.z)) / deg
+        // Part de l'image de la caméra réellement visible à l'écran (le zoom recadre).
+        const cadreEl = cadre.current
+        const z = Math.max(1, zoomRef.current)
+        const partL = cadreEl?.offsetWidth ? Math.min(1, boite.clientWidth / (cadreEl.offsetWidth * z)) : 1
+        const partH = cadreEl?.offsetHeight ? Math.min(1, boite.clientHeight / (cadreEl.offsetHeight * z)) : 1
+        const tanV = Math.tan((camera.fov * deg) / 2)
+        const demiH = Math.atan(tanV * Math.max(camera.aspect, 0.3) * partL) / deg
+        const demiV = Math.atan(tanV * partH) / deg
+        if (Math.abs(angle) > demiH) cote = angle > 0 ? 'droite' : 'gauche'
+        else if (Math.abs(elevation) > demiV) cote = elevation > 0 ? 'haut' : 'bas'
       }
       if (cote !== derniereDirection) {
         derniereDirection = cote

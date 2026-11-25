@@ -2,6 +2,7 @@
 // 4 conditions de publication, zone proposée/attribuée, export PDF (BF-31, BF-37 à BF-42, BNF-16).
 import { Router } from 'express'
 import type { Prisma } from '../../generated/prisma/client.js'
+import { QR_MIN_CM, qrImprimeCm } from '../../../src/commun/impression.js'
 import { schemaAffiche, schemaZone, schemaZoneAffiche, zId, type DonneesAffiche } from '../../../src/commun/schemas.js'
 import { depuisLocal } from '../dates.js'
 import { prisma } from '../db.js'
@@ -19,6 +20,12 @@ export const routesZones = Router()
 routesAffiches.use(exigerConnexion)
 routesZones.use(exigerConnexion)
 
+/** QR code d'une affiche enregistrée : au moins 3 cm une fois imprimé (409 sinon, à la publication et à l'export). */
+function verifierQrImprime(a: { format: string; qr_taille: unknown; fichier: { largeur_px: number | null; hauteur_px: number | null } }) {
+  const cm = qrImprimeCm(Number(a.qr_taille), a.format, a.fichier.largeur_px ?? undefined, a.fichier.hauteur_px ?? undefined)
+  if (cm < QR_MIN_CM - 0.005) throw conflit(`QR code trop petit (${cm.toFixed(1).replace('.', ',')} cm en ${a.format}) : agrandissez-le à ${QR_MIN_CM} cm minimum.`)
+}
+
 async function repondre(id: number) {
   const [a, proprio, scans, conditions] = await Promise.all([
     prisma.affiche.findUniqueOrThrow({ where: { id }, include: { fichier: true } }),
@@ -34,6 +41,11 @@ async function preparer(u: Utilisateur, d: DonneesAffiche) {
   const image = await prisma.fichier.findUnique({ where: { id: d.imageId } })
   if (!image || image.type !== 'IMAGE') throw new ErreurApi(400, 'Fichier d’affiche introuvable.')
   if (u.role !== 'AGENT' && image.proprietaire_id !== u.compteId) throw interdit('Ce fichier appartient à un autre compte.')
+  // QR code trop petit : refusé dès l'enregistrement (et pas seulement à la publication), avec la
+  // même mesure que le PDF imprimé (fraction de la largeur de l'image ajustée dans la page).
+  const qrCm = qrImprimeCm(d.qr.taille, d.format, image.largeur_px ?? undefined, image.hauteur_px ?? undefined)
+  if (qrCm < QR_MIN_CM - 0.005)
+    throw new ErreurApi(400, `QR code trop petit : ${qrCm.toFixed(1).replace('.', ',')} cm une fois imprimé en ${d.format}, ${QR_MIN_CM} cm minimum pour être scanné facilement.`)
   const [animAffiche, animLieu, lieu] = await Promise.all([
     prisma.animation.findUnique({ where: { id: d.animationAfficheId } }),
     d.animationLieuId ? prisma.animation.findUnique({ where: { id: d.animationLieuId } }) : null,
@@ -128,11 +140,12 @@ routesAffiches.patch('/:id', valider(schemaAffiche), async (req, res) => {
 
 /** Publication sans validation humaine préalable, seulement si les 4 conditions sont réunies (BF-41, BF-42). */
 routesAffiches.post('/:id/publier', async (req, res) => {
-  const a = await prisma.affiche.findUnique({ where: { id: idParam(req) } })
+  const a = await prisma.affiche.findUnique({ where: { id: idParam(req) }, include: { fichier: true } })
   if (!a) throw introuvable('Affiche introuvable.')
   verifierProprietaire(req, a.proprietaire_id)
   const c = (await conditionsAffiche(a.id))!
   if (!publiable(c)) throw conflit('Les 4 conditions de publication ne sont pas réunies.', c)
+  verifierQrImprime(a)
   if (a.statut === 'SUSPENDUE' || a.statut === 'RETIREE') throw conflit('Contenu suspendu ou retiré par la mairie.')
   await prisma.$transaction(async (tx) => {
     await tx.affiche.update({ where: { id: a.id }, data: { statut: 'PUBLIEE', modifie_le: new Date() } })
@@ -186,6 +199,7 @@ routesAffiches.get('/:id/pdf', async (req, res) => {
   verifierProprietaire(req, a.proprietaire_id)
   const c = (await conditionsAffiche(a.id))!
   if (!publiable(c)) throw conflit('Export impossible : les 4 conditions de publication ne sont pas réunies.', c)
+  verifierQrImprime(a)
   const pdf = await genererPdfAffiche({
     origine: origineQr(req.headers['x-url-reseau']),
     nom: a.nom,

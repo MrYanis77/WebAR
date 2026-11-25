@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { DELAI_AFFICHE_NON_RECONNUE_S, PLACEMENT_LIEU_DEFAUT } from '../../commun/constantes'
-import { distanceM } from '../../commun/geo'
+import { capVers, distanceM } from '../../commun/geo'
 import { useLangue } from '../../commun/i18n'
 import { Icone } from '../../commun/Icone'
 import { compterLancement } from '../../commun/store'
@@ -13,9 +13,11 @@ import { appareilMobile } from '../ra/moteur'
 import { capturerPhoto, partagerPhoto } from '../services/photo'
 import { useDonneesPubliques } from '../donneesPubliques'
 import { arreterSon, couperSon, estMuet, jouerFichier } from '../services/son'
+import { useCap } from '../hooks/cap'
 import { CoucheModale, EnteteFeuille } from './Couche'
 import { FormulaireSignalement, type CibleSignalement } from './FormulaireSignalement'
-import type { CommandesScene, EvenementScene } from './SceneRA'
+import { FlecheBord, GuideBoussole } from './GuideDirection'
+import type { CommandesScene, CoteDirection, EvenementScene } from './SceneRA'
 
 type Phase = 'recherche' | 'detecte' | 'echec' | 'fin'
 
@@ -38,6 +40,10 @@ const DELAI_PLACEMENT_GPS_MS = 2500
  * l'environnement du visiteur. Sans reconnaissance : conseils, puis pose devant le visiteur (affiche)
  * ou à sa position GPS en 3D (lieu : position, hauteur, orientation et taille réglées dans le
  * back-office, sinon position du lieu). Sur ordinateur : aperçu simulé.
+ *
+ * Suites des tests utilisateurs : la caméra occupe tout l'écran (zoom « plein écran » par défaut, panneau
+ * réduit au-dessus de l'image), l'animation ne se ferme jamais d'elle-même (le visiteur choisit « Voir le
+ * lieu ») et, au monument, une boussole puis des flèches indiquent où regarder.
  */
 export function VueRA({
   mode,
@@ -77,15 +83,32 @@ export function VueRA({
   const [suiviNormal, setSuiviNormal] = useState(true)
   const [sombreMoteur, setSombreMoteur] = useState(false)
   const [modeleIndisponible, setModeleIndisponible] = useState(false)
-  /** Animation hors du champ de la caméra : côté vers lequel tourner le téléphone. */
-  const [direction, setDirection] = useState<'gauche' | 'droite' | null>(null)
-  // Zoom : 1 = tout le champ de la caméra ; « couverture » = zoom qui remplit l'écran.
+  /** Animation hors du champ de la caméra : côté vers lequel tourner (ou lever) le téléphone. */
+  const [direction, setDirection] = useState<CoteDirection | null>(null)
+  // Zoom : 1 = tout le champ de la caméra ; « couverture » = zoom qui remplit l'écran. Par défaut la
+  // caméra remplit l'écran (« plein écran ») tant que le visiteur n'a pas zoomé lui-même.
   const [zoom, setZoom] = useState(1)
   const [couverture, setCouverture] = useState(1)
+  const zoomManuel = useRef(false)
   const pincement = useRef<{ distance: number; zoom: number } | null>(null)
   const zoomMax = Math.max(ZOOM_MAX, couverture * 2)
   const borner = (z: number) => Math.min(zoomMax, Math.max(1, z))
+  const zoomer = (z: number) => {
+    zoomManuel.current = true
+    setZoom(borner(z))
+  }
+  useEffect(() => {
+    if (!zoomManuel.current) setZoom(Math.max(1, couverture))
+  }, [couverture])
+  /** Panneau de l'affiche déplié (texte, lieu promu) ; replié, il laisse voir toute la caméra. */
+  const [infos, setInfos] = useState(false)
   const [sansBoussole, setSansBoussole] = useState(false)
+  /** Affiche : aide « Ça ne marche pas ? » dépliée pendant la recherche. */
+  const [aide, setAide] = useState(false)
+  /** Affiche : message d'accueil quand l'animation apparaît (ce que l'on voit, comment interagir). */
+  const [accueil, setAccueil] = useState(false)
+  /** Commandes de zoom montrées à la demande (le pincement à deux doigts marche toujours). */
+  const [zoomVisible, setZoomVisible] = useState(mode === 'monument')
 
   // Sans moteur : caméra de la page (webcam) et modèle superposé.
   const { etat: etatCam, flux } = useCamera(cameraAutorisee && !moteur)
@@ -100,7 +123,6 @@ export function VueRA({
   const [photo, setPhoto] = useState<string | null>(null)
   const [cible, setCible] = useState<CibleSignalement | null>(null)
   const [cycle, setCycle] = useState(0)
-  const [redirection, setRedirection] = useState(false)
 
   const simulee = !moteur && etatCam !== 'active'
   const sombreVideo = useLuminosite(video, !moteur && etatCam === 'active' && phase === 'recherche')
@@ -149,7 +171,7 @@ export function VueRA({
       const p = pincement.current
       if (!p || e.touches.length !== 2) return
       const [a, b] = [e.touches[0], e.touches[1]]
-      setZoom(borner(p.zoom * (Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / Math.max(1, p.distance))))
+      zoomer(p.zoom * (Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / Math.max(1, p.distance)))
     },
     onTouchEnd: () => {
       pincement.current = null
@@ -200,6 +222,9 @@ export function VueRA({
   const distance = position.coords ? distanceM(position.coords, lieu) : null
   const dansZone = distance !== null && distance <= lieu.rayonM
   const gps = position.coords ? { coords: position.coords, precisionM: position.precisionM ?? 15 } : null
+  // « Où regarder ? » : cap et distance du visiteur vers le point où l'animation du monument apparaît.
+  const cap = useCap(mode === 'monument')
+  const guide = mode === 'monument' && position.coords ? { capCible: capVers(position.coords, placement), distanceM: distanceM(position.coords, placement), hauteurM: placement.hauteurM } : null
 
   /** Pose l'animation à sa position GPS en 3D ; renvoie false si la caméra ou la position ne sont pas prêtes. */
   const placerParGps = useCallback(() => {
@@ -207,7 +232,6 @@ export function VueRA({
     if (!r || r === 'pas-pret') return false
     setSansBoussole(r === 'sans-boussole')
     setManuel(true)
-    setRedirection(false)
     setPhase('detecte')
     return true
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -262,24 +286,35 @@ export function VueRA({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, animation.id, animation.dureeS, animation.sonUrl, mode, cycle])
 
-  // Après l'animation d'affiche : la carte s'ouvre, centrée sur le lieu promu (BF-32).
+  // Après l'animation d'affiche, la carte centrée sur le lieu promu (BF-32) s'ouvre seulement quand le
+  // visiteur le demande (« Voir le lieu ») : la fermeture automatique surprenait (tests utilisateurs).
+  // Le modèle reste en place ; le panneau propose de le relancer ou d'aller au lieu.
   useEffect(() => {
-    if (mode !== 'affiche' || phase !== 'fin' || !onVoirLieu) return
-    setRedirection(true)
-    const id = window.setTimeout(onVoirLieu, 6000)
+    if (phase === 'fin') setInfos(true)
+  }, [phase])
+
+  // Affiche : à la première apparition, un court message explique ce qui se passe et comment interagir.
+  const accueilVu = useRef(false)
+  useEffect(() => {
+    if (mode !== 'affiche' || phase !== 'detecte' || accueilVu.current) return
+    accueilVu.current = true
+    setAide(false)
+    setAccueil(true)
+  }, [mode, phase])
+  useEffect(() => {
+    if (!accueil) return
+    const id = window.setTimeout(() => setAccueil(false), 7000)
     return () => window.clearTimeout(id)
-  }, [mode, phase, onVoirLieu])
+  }, [accueil])
 
   useEffect(() => () => arreterSon(), [])
 
   const relancer = useCallback(() => {
-    setRedirection(false)
     setCycle((c) => c + 1)
     setPhase('detecte')
   }, [])
 
   const reessayer = useCallback(() => {
-    setRedirection(false)
     setManuel(false)
     setCycle((c) => c + 1)
     setPhase('recherche')
@@ -288,10 +323,7 @@ export function VueRA({
   /** Affiche non reconnue : l'animation est posée devant le visiteur, dans son environnement. */
   function poserIci() {
     if (!moteur) return relancer()
-    if (commandes.current?.poserDevant()) {
-      setRedirection(false)
-      setPhase('detecte')
-    }
+    if (commandes.current?.poserDevant()) setPhase('detecte')
   }
 
   /** Monument non reconnu : animation posée à sa position GPS en 3D (GPS + boussole). */
@@ -444,11 +476,6 @@ export function VueRA({
           <Icone nom="boussole" taille={12} /> {t('ra.manuel')}
         </span>
       )}
-      {moteur && enAnimation && direction && (
-        <span>
-          <Icone nom={direction === 'gauche' ? 'gauche' : 'droite'} taille={12} /> {direction === 'gauche' ? t('ra.directionGauche') : t('ra.directionDroite')}
-        </span>
-      )}
       {manuel && enAnimation && sansBoussole && (
         <span className="alerte">
           <Icone nom="boussole" taille={12} /> {t('ra.boussole')}
@@ -469,17 +496,17 @@ export function VueRA({
 
   const zoomPossible = moteur || !simulee
   const formaterZoom = (z: number) => `${z.toFixed(z < 10 ? 1 : 0).replace('.', ',')}×`
-  const commandesZoom = zoomPossible && (
+  const commandesZoom = zoomPossible && zoomVisible && (
     <div className="zoom-ra" role="group" aria-label={t('ra.zoom')}>
-      <button type="button" onClick={() => setZoom(borner(zoom * 1.25))} disabled={zoom >= zoomMax} aria-label={t('ra.zoomPlus')}>
+      <button type="button" onClick={() => zoomer(zoom * 1.25)} disabled={zoom >= zoomMax} aria-label={t('ra.zoomPlus')}>
         <Icone nom="plus" taille={18} />
       </button>
       <span aria-live="polite">{formaterZoom(zoom)}</span>
-      <button type="button" onClick={() => setZoom(borner(zoom / 1.25))} disabled={zoom <= 1} aria-label={t('ra.zoomMoins')}>
+      <button type="button" onClick={() => zoomer(zoom / 1.25)} disabled={zoom <= 1} aria-label={t('ra.zoomMoins')}>
         <Icone nom="moins" taille={18} />
       </button>
       {couverture > 1.02 && (
-        <button type="button" className="zoom-preset" onClick={() => setZoom(zoom > 1.01 ? 1 : borner(couverture))}>
+        <button type="button" className="zoom-preset" onClick={() => zoomer(zoom > 1.01 ? 1 : couverture)}>
           {zoom > 1.01 ? t('ra.champComplet') : t('ra.pleinEcran')}
         </button>
       )}
@@ -515,100 +542,157 @@ export function VueRA({
 
   // ---------------------------------------------------------------- mode affiche
 
+  // Animation posée hors du cadre : grande flèche sur le bord de l'écran (RA seulement).
+  const flecheBord = moteur && enAnimation && direction && <FlecheBord cote={direction} />
+
   if (mode === 'affiche') {
+    // Barre du haut épurée : quitter, et seulement les réglages utiles au moment présent.
+    const barreAffiche = (
+      <div className="barre-ra">
+        <button type="button" onClick={onQuitter} aria-label={t('ra.fermer')}>
+          <Icone nom="fermer" taille={19} />
+        </button>
+        <div className="barre-ra-droite">
+          {zoomPossible && (
+            <button type="button" onClick={() => setZoomVisible(!zoomVisible)} aria-pressed={zoomVisible} aria-label={t('ra.zoom')} className={zoomVisible ? 'actif' : ''}>
+              <Icone nom="recherche" taille={18} />
+            </button>
+          )}
+          {aTranscription && enAnimation && (
+            <button type="button" onClick={() => setSousTitres(!sousTitres)} aria-pressed={sousTitres} aria-label={t('ra.sousTitres')} className={sousTitres ? 'actif' : ''}>
+              <Icone nom="sousTitres" taille={18} />
+            </button>
+          )}
+          <button type="button" onClick={basculerSon} aria-pressed={muet} aria-label={muet ? t('ra.muet') : t('ra.son')}>
+            <Icone nom={muet ? 'muet' : 'son'} taille={18} />
+          </button>
+        </div>
+      </div>
+    )
+
     return (
       <div className="page ecran-ra ecran-affiche">
+        {/* Caméra en plein écran ; les indications sont posées dessus, en bas, et prennent peu de place. */}
         <div className="zone-camera-affiche">
           {flux_}
-          {barreHaut}
+          {barreAffiche}
           {reperes}
-          {enAnimation && (
+          {enAnimation && simulee && (
             <div className="etincelle-affiche" aria-hidden="true">
               ✦
             </div>
           )}
           {puces}
+          {flecheBord}
           {sousTitresBloc}
           {commandesZoom}
-          <div className="outils-affiche">
-            <button type="button" onClick={() => void prendrePhoto()} aria-label={t('ra.photo')} disabled={!enAnimation}>
-              <Icone nom="appareil" taille={19} />
-            </button>
-            <button type="button" onClick={relancer} aria-label={t('ra.relancer')} disabled={!enAnimation}>
-              <Icone nom="relancer" taille={19} />
-            </button>
-            <button type="button" onClick={signaler} aria-label={t('ra.signaler')}>
-              <Icone nom="drapeau" taille={19} />
-            </button>
-          </div>
+          {accueil && (
+            <div className="accueil-ra" role="status">
+              <span className="icone-accueil">
+                <Icone nom="etoile" taille={20} />
+              </span>
+              <div>
+                <strong>{t('ra.accueilTitre')}</strong>
+                <p>{t('ra.accueilTexte')}</p>
+              </div>
+              <button type="button" onClick={() => setAccueil(false)}>
+                {t('ra.compris')}
+              </button>
+            </div>
+          )}
         </div>
-        <section className="panneau-affiche" aria-live="polite">
-          {phase === 'recherche' && (
-            <>
-              <span className="pill pill-stone">{t('affiche.recherche')}</span>
-              <h2>{t('affiche.cadrez')}</h2>
-              <p>{t('affiche.conseil')}</p>
+
+        {/* Recherche de l'affiche : une seule consigne, l'aide est repliée. */}
+        {(phase === 'recherche' || phase === 'echec') && (
+          <section className={`bulle-ra ${phase === 'echec' ? 'echec' : ''}`} aria-live="polite">
+            <h2>
+              {phase === 'echec' ? (
+                t('erreur.affiche.titre')
+              ) : moteur && !cameraPrete ? (
+                <>
+                  <span className="spinner" /> {t('ra.demarrage')}
+                </>
+              ) : (
+                <>
+                  <span className="point-pulse" /> {t('affiche.cadrez')}
+                </>
+              )}
+            </h2>
+            <p>{phase === 'echec' ? t('erreur.affiche.texte') : t('affiche.conseil')}</p>
+            {(aide || phase === 'echec') && (
               <div className="actions-panneau">
                 <button type="button" className="btn btn-secondaire" onClick={poserIci} disabled={moteur && !cameraPrete}>
                   <Icone nom={moteur ? 'cube' : 'scan'} taille={17} />
                   {moteur ? t('ra.poserIci') : t('affiche.simuler')}
                 </button>
+                {phase === 'echec' && (
+                  <button type="button" className="btn btn-primaire" onClick={reessayer}>
+                    <Icone nom="relancer" taille={17} />
+                    {t('erreur.affiche.action')}
+                  </button>
+                )}
               </div>
-            </>
-          )}
-          {phase === 'echec' && (
-            <>
-              <span className="pill pill-wine">{t('ra.nonReconnu')}</span>
-              <h2>{t('erreur.affiche.titre')}</h2>
-              <p>{t('erreur.affiche.texte')}</p>
-              <div className="actions-panneau">
-                <button type="button" className="btn btn-secondaire" onClick={poserIci}>
-                  <Icone nom="cube" taille={17} />
-                  {t('ra.poserIci')}
-                </button>
-                <button type="button" className="btn btn-primaire" onClick={reessayer}>
-                  <Icone nom="relancer" taille={17} />
-                  {t('erreur.affiche.action')}
-                </button>
-              </div>
-              <button type="button" className="btn-texte btn-bloc" onClick={onVoirLieu}>
-                {t('ra.voirCarte')}
+            )}
+            {phase === 'recherche' && !aide && (
+              <button type="button" className="lien-aide-ra" onClick={() => setAide(true)}>
+                <Icone nom="aide" taille={15} /> {t('ra.besoinAide')}
               </button>
-            </>
-          )}
-          {enAnimation && (
-            <>
-              <span className="pill pill-cyan">{t('affiche.detectee')}</span>
-              <h2>{t('affiche.prendVie')}</h2>
-              <p>
-                <strong>{affiche?.nom}</strong> — {affiche?.texte}
-              </p>
-              {affiche && affiche.proprietaireId !== 'ville' && proprietaire && <p className="proprietaire">{t('affiche.parPartenaire', { nom: proprietaire })}</p>}
-              <div className="invitation-lieu">
-                {lieu.image && <img src={lieu.image} alt="" />}
-                <div>
-                  <small>{t('affiche.invite')}</small>
-                  <strong>{lieu.nom}</strong>
+            )}
+            {phase === 'echec' && (
+              <button type="button" className="lien-aide-ra" onClick={onVoirLieu}>
+                <Icone nom="carte" taille={15} /> {t('ra.voirCarte')}
+              </button>
+            )}
+          </section>
+        )}
+
+        {/* L'animation est là : le titre, les informations à la demande, des commandes libellées. */}
+        {enAnimation && (
+          <section className={`panneau-affiche ${infos ? 'deplie' : ''}`} aria-live="polite">
+            <button type="button" className="tete-panneau" onClick={() => setInfos(!infos)} aria-expanded={infos}>
+              <span>
+                {phase === 'fin' ? <small>{t('ra.finAffiche')}</small> : affiche?.accroche && <small>{affiche.accroche}</small>}
+                <strong>{affiche?.nom ?? t('affiche.prendVie')}</strong>
+              </span>
+              <span className="bascule-infos">
+                {infos ? t('ra.moinsInfos') : t('ra.plusInfos')}
+                <Icone nom={infos ? 'bas' : 'haut'} taille={15} />
+              </span>
+            </button>
+            {infos && (
+              <div className="infos-affiche">
+                {affiche?.texte && <p>{affiche.texte}</p>}
+                {affiche && affiche.proprietaireId !== 'ville' && proprietaire && <p className="proprietaire">{t('affiche.parPartenaire', { nom: proprietaire })}</p>}
+                <div className="invitation-lieu">
+                  {lieu.image && <img src={lieu.image} alt="" />}
+                  <div>
+                    <small>{t('affiche.invite')}</small>
+                    <strong>{lieu.nom}</strong>
+                  </div>
                 </div>
               </div>
-              <div className="actions-panneau">
-                <button type="button" className="btn btn-secondaire" onClick={relancer}>
-                  <Icone nom="relancer" taille={17} />
-                  {t('ra.relancer')}
-                </button>
-                <button type="button" className="btn btn-primaire" onClick={onVoirLieu}>
-                  {t('affiche.voirLieu')}
-                  <Icone nom="droite" taille={17} />
-                </button>
-              </div>
-              {redirection && (
-                <div className="barre-redirection" aria-hidden="true">
-                  <span />
-                </div>
-              )}
-            </>
-          )}
-        </section>
+            )}
+            <div className="commandes-affiche">
+              <button type="button" onClick={relancer}>
+                <Icone nom="relancer" taille={20} />
+                <span>{t('ra.relancer')}</span>
+              </button>
+              <button type="button" onClick={() => void prendrePhoto()}>
+                <Icone nom="appareil" taille={20} />
+                <span>{t('ra.photo')}</span>
+              </button>
+              <button type="button" onClick={signaler}>
+                <Icone nom="drapeau" taille={20} />
+                <span>{t('ra.signaler')}</span>
+              </button>
+            </div>
+            <button type="button" className="btn btn-primaire btn-bloc" onClick={onVoirLieu}>
+              <Icone nom="pin" taille={17} />
+              {t('affiche.voirLieuNom', { lieu: lieu.nomCourt || lieu.nom })}
+              <Icone nom="droite" taille={17} />
+            </button>
+          </section>
+        )}
         {feuilles}
       </div>
     )
@@ -653,16 +737,27 @@ export function VueRA({
       )}
 
       {puces}
+      {flecheBord}
       {sousTitresBloc}
       {commandesZoom}
 
+      {/* Placement en cours : la boussole montre déjà où l'animation va apparaître. */}
+      {phase === 'recherche' && dansZone && guide && (
+        <div className="guide-flottant">
+          <GuideBoussole cap={cap} {...guide} compact />
+        </div>
+      )}
+
       {phase === 'echec' && (
-        <div className="carte-echec" role="alert">
-          <span className="icone-echec">
-            <Icone nom={dansZone ? 'boussole' : 'pin'} taille={28} />
-          </span>
+        <div className={`carte-echec ${dansZone ? 'avec-guide' : ''}`} role="alert">
+          {!(dansZone && guide) && (
+            <span className="icone-echec">
+              <Icone nom={dansZone ? 'boussole' : 'pin'} taille={28} />
+            </span>
+          )}
           <h2>{dansZone ? t('ra.monumentNonReconnu') : t('ra.loinDuMonument')}</h2>
           <p>{dansZone ? t('ra.monumentNonReconnuTexte') : t('ra.horsZone', { r: lieu.rayonM })}</p>
+          {dansZone && guide && <GuideBoussole cap={cap} {...guide} />}
           <button type="button" className="btn btn-primaire btn-bloc" disabled={!dansZone} onClick={lancerParPosition}>
             <Icone nom="boussole" taille={17} />
             {t('ra.lancerManuel')}

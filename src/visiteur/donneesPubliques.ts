@@ -54,7 +54,28 @@ export function useAffichePublique(code: string | null | undefined) {
   return { donnees: q.data, raison, chargement: q.isLoading, erreurReseau: q.isError && !raison }
 }
 
-/** Affiches actuellement diffusées (scanner intégré : ouvre une affiche sans passer par son QR code). */
+/** Affiche diffusée, telle que la présente la liste « Les affiches à découvrir ». */
+export interface AfficheDiffusee {
+  codeQr: string
+  nom: string
+  accroche: string
+  /** Dernier jour de diffusion (heure locale). */
+  fin: string
+  image: { url: string; largeur: number; hauteur: number } | null
+  /** Monument vers lequel l'affiche invite (s'il est visible sur la carte). */
+  lieu: { id: string; nom: string; nomCourt: string } | null
+  /** Où l'affiche est collée : zone d'affichage attribuée par la mairie. */
+  emplacement: { nom: string; adresse: string; latitude: number | null; longitude: number | null } | null
+}
+
+/** Affiches actuellement diffusées : liste des affiches, repères de la carte et scanner. */
 export function useAffichesDiffusees() {
-  return useQuery({ queryKey: ['public-affiches'], queryFn: () => appelApi<{ codeQr: string; nom: string }[]>('/public/affiches', { publique: true }) }).data ?? []
+  const q = useQuery({ queryKey: ['public-affiches'], queryFn: () => appelApi<AfficheDiffusee[]>('/public/affiches', { publique: true }), refetchInterval: 120_000 })
+  return { affiches: q.data ?? [], chargement: q.isLoading, erreur: q.isError }
+}
+
+/** Position d'une affiche (emplacement placé sur la carte), sinon null. */
+export function positionAffiche(a: AfficheDiffusee) {
+  const e = a.emplacement
+  return e && e.latitude && e.longitude ? { latitude: e.latitude, longitude: e.longitude } : null
 }

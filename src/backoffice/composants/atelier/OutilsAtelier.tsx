@@ -16,7 +16,9 @@ export const OUTILS: Record<Outil, { libelle: string; icone: NomIcone; geste: st
   position: { libelle: 'Position', icone: 'deplacer', geste: 'Déplacer' },
   rotation: { libelle: 'Rotation', icone: 'pivoter', geste: 'Tourner' },
   taille: { libelle: 'Taille', icone: 'agrandir', geste: 'Agrandir' },
-  rendu: { libelle: 'Rendu', icone: 'soleil', geste: 'Rendu' },
+  // « Rendu » + icône soleil, mais premier réglage « vitesse » : déroutant (tests). L'onglet s'appelle
+  // désormais « Lumière » et commence par la luminosité.
+  rendu: { libelle: 'Lumière', icone: 'soleil', geste: 'Lumière' },
   fichier: { libelle: 'Fichier', icone: 'fichier', geste: 'Fichier' },
 }
 
@@ -58,26 +60,13 @@ export function Curseur({
 }
 
 /** Onglets d'outils du panneau : l'outil choisi règle aussi les poignées de la vue (déplacer, tourner, agrandir). */
-export function OngletsOutils({ outil, onOutil, outils }: { outil: Outil; onOutil: (o: Outil) => void; outils: Outil[] }) {
+export function OngletsOutils({ outil, onOutil, outils, desactive }: { outil: Outil; onOutil: (o: Outil) => void; outils: Outil[]; desactive?: boolean }) {
   return (
-    <div className="onglets-outils" role="tablist" aria-label="Outils de l’atelier">
+    <div className={`onglets-outils ${desactive ? 'inactifs' : ''}`} role="tablist" aria-label="Outils de l’atelier" style={{ gridTemplateColumns: `repeat(${outils.length}, minmax(0, 1fr))` }}>
       {outils.map((o) => (
-        <button key={o} type="button" role="tab" aria-selected={outil === o} className={outil === o ? 'actif' : ''} onClick={() => onOutil(o)}>
+        <button key={o} type="button" role="tab" aria-selected={outil === o} className={outil === o ? 'actif' : ''} onClick={() => onOutil(o)} disabled={desactive}>
           <Icone nom={OUTILS[o].icone} taille={17} />
           <span>{OUTILS[o].libelle}</span>
-        </button>
-      ))}
-    </div>
-  )
-}
-
-/** Boutons d'outils posés sur la vue 3D (mêmes outils que les onglets du panneau). */
-export function OutilsVue({ outil, onOutil, desactive }: { outil: Outil; onOutil: (o: Outil) => void; desactive?: boolean }) {
-  return (
-    <div className="choix-geste" role="group" aria-label="Poignées dans la vue">
-      {OUTILS_VUE.map((o) => (
-        <button key={o} type="button" className={outil === o ? 'actif' : ''} aria-pressed={outil === o} onClick={() => onOutil(o)} disabled={desactive} title={`${OUTILS[o].geste} le modèle dans la vue`}>
-          <Icone nom={OUTILS[o].icone} taille={15} /> {OUTILS[o].geste}
         </button>
       ))}
     </div>
@@ -168,9 +157,10 @@ export function SectionRendu({ reglages, onChange, desactive }: { reglages: Regl
   const maj = (p: Partial<Reglages3D>) => onChange({ ...reglages, ...p })
   return (
     <div className="section-outil">
-      <TitreOutil titre="Animation et lumière" />
-      <Curseur libelle="Vitesse des animations du modèle" valeur={reglages.vitesse} min={0.1} max={4} pas={0.05} onChange={(v) => maj({ vitesse: v })} affichage={`× ${virgule(reglages.vitesse, 2)}`} desactive={desactive} />
+      <TitreOutil titre="Lumière" consigne="Éclaircissez le modèle s’il paraît trop sombre." />
       <Curseur libelle="Luminosité" valeur={reglages.luminosite} min={0.1} max={4} pas={0.05} onChange={(v) => maj({ luminosite: v })} affichage={`× ${virgule(reglages.luminosite, 2)}`} desactive={desactive} />
+      <TitreOutil titre="Vitesse" consigne="Si le modèle bouge, accélérez ou ralentissez son mouvement." />
+      <Curseur libelle="Vitesse du mouvement" valeur={reglages.vitesse} min={0.1} max={4} pas={0.05} onChange={(v) => maj({ vitesse: v })} affichage={`× ${virgule(reglages.vitesse, 2)}`} desactive={desactive} />
       <TitreOutil titre="Correction du modèle" consigne="À régler seulement si le modèle flotte ou s’enfonce." />
       <div className="choix-segment" role="group" aria-label="Point d’ancrage">
         <span>Point posé</span>

@@ -10,8 +10,8 @@ async function chargerImage(fichier: Blob): Promise<ImageBitmap> {
   return createImageBitmap(fichier)
 }
 
-/** Dessine l'affiche et son QR code dans un canvas. */
-export async function composerAffiche(fichier: Blob, code: string, qr: PlacementQr, coteMax = COTE_MAX): Promise<HTMLCanvasElement> {
+/** Dessine l'affiche et son QR code dans un canvas (`qr` null : l'affiche seule, QR code pas encore placé). */
+export async function composerAffiche(fichier: Blob, code: string, qr: PlacementQr | null, coteMax = COTE_MAX): Promise<HTMLCanvasElement> {
   const img = await chargerImage(fichier)
   const ech = Math.min(1, coteMax / Math.max(img.width, img.height))
   const W = Math.round(img.width * ech)
@@ -21,6 +21,7 @@ export async function composerAffiche(fichier: Blob, code: string, qr: Placement
   c.height = H
   const ctx = c.getContext('2d')!
   ctx.drawImage(img, 0, 0, W, H)
+  if (!qr) return c
 
   const largeurBloc = qr.taille * W
   const marge = qr.fond ? largeurBloc * 0.07 : 0

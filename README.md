@@ -62,7 +62,6 @@ Ouvrez le **panneau de contrôle XAMPP** et cliquez sur **Start** en face de **M
 1. Ouvrez [http://localhost/phpmyadmin](http://localhost/phpmyadmin).
 2. Cliquez sur **Nouvelle base de données**, nommez-la `webar`, interclassement `utf8mb4_unicode_ci`, puis **Créer**.
 3. Sélectionnez la base `webar`, onglet **Importer**, choisissez le fichier `database/montbeliard_webar.sql` du projet, puis **Importer**.
-4. Toujours dans `webar`, importez aussi `database/migrations/2026-11-18_decalage_affiche.sql` (déplacement de l'animation autour de l'affiche).
 
 Ou en ligne de commande (XAMPP : `C:\xampp\mysql\bin\mysql.exe`) :
 
@@ -74,11 +73,7 @@ mysql -u root -e "CREATE DATABASE webar CHARACTER SET utf8mb4 COLLATE utf8mb4_un
 mysql -u root webar < database/montbeliard_webar.sql
 ```
 
-```bash
-mysql -u root webar < database/migrations/2026-11-18_decalage_affiche.sql
-```
-
-Le script crée 17 tables et 6 vues, **sans aucune donnée**. Attention : il supprime d'abord les tables existantes de la base où vous l'importez.
+Le script crée 17 tables et 6 vues, **sans aucune donnée**, et contient déjà toutes les migrations (aucune autre importation n'est nécessaire). Attention : il supprime d'abord les tables existantes de la base où vous l'importez.
 
 ### 2.4 Créer le fichier de configuration `.env`
 
@@ -193,11 +188,11 @@ N'oubliez pas **Enregistrer** en haut de l'atelier.
 
 **Affiches › Nouvelle affiche**, en 5 étapes :
 
-1. **Affiche** : importez votre affiche déjà mise en page (**PDF**, PNG, JPEG ou WebP) et choisissez le format d'impression (A4 à A0). L'image sert aussi à la reconnaissance par la caméra : préférez une affiche riche en détails.
-2. **Informations** : nom, accroche, texte montré au visiteur, dates.
-3. **Expérience** : l'animation qui sort de l'affiche et le monument vers lequel la carte guidera le visiteur. Un message vous prévient si l'animation n'est pas diffusée pendant toute la période de l'affiche.
-4. **QR code** : il est généré automatiquement ; glissez-le sur l'affiche (3 cm minimum à l'impression).
-5. **Validation** : les 4 conditions de publication (compte vérifié, fichiers conformes, charte acceptée, zone attribuée), puis **Publier** et téléchargement en **PDF** prêt à imprimer.
+1. **Affiche** : importez l'image de votre affiche déjà mise en page (**PNG ou JPEG**, WebP accepté ; les PDF sont refusés : exportez-les en image) et choisissez le format d'impression (A4 à A0) sur le schéma à l'échelle. L'image sert aussi à la reconnaissance par la caméra : préférez une affiche riche en détails.
+2. **Textes** : nom et description (obligatoires), phrase d'accroche (facultative), période d'affichage et lieu vers lequel la carte guidera le visiteur.
+3. **Animation** : d'abord le modèle 3D, puis son placement devant l'affiche (les réglages restent grisés tant que le modèle n'est pas chargé). Un message vous prévient si l'animation n'est pas diffusée pendant toute la période de l'affiche.
+4. **QR code** : il est généré automatiquement ; cliquez sur l'affiche pour le placer. Sa taille ne peut pas descendre sous **3 cm** à l'impression (l'API le refuse aussi).
+5. **Publication** : choisissez l'emplacement d'affichage, vérifiez les conditions (compte vérifié, fichiers conformes, charte acceptée, emplacement validé, QR code de 3 cm), puis **1. Publier** et **2. Télécharger** le PDF prêt à imprimer.
 
 **Voir l'affiche** l'ouvre en plein écran : vous pouvez scanner son QR code directement sur l'écran.
 
@@ -213,8 +208,8 @@ Les contenus des partenaires ne sont pas validés un par un : la mairie peut les
 ### 4.6 Côté visiteur
 
 - **Carte** : les monuments, la distance, l'itinéraire à pied, le message « Vous êtes arrivé » dans le rayon.
-- **Scan d'une affiche** : consignes, autorisation de la caméra, l'animation sort de l'affiche, puis la carte s'ouvre sur le monument promu.
-- **Au monument** : dans le rayon, l'animation apparaît à l'endroit choisi dans le back-office.
+- **Scan d'une affiche** : confirmation « QR code reconnu », consignes, autorisation de la caméra (en plein écran), l'animation sort de l'affiche et reste affichée ; le visiteur ouvre la carte sur le monument promu avec **Voir le lieu** (plus de fermeture automatique).
+- **Au monument** : dans le rayon, l'animation apparaît à l'endroit choisi dans le back-office ; une boussole « Où regarder ? » (direction, distance, hauteur) puis des flèches sur le bord de l'écran guident le regard.
 - Partout : bouton **Signaler** anonyme, langues français / anglais / allemand.
 
 ---
@@ -287,7 +282,7 @@ Si votre base `webar` a été créée avant une évolution, importez dans phpMyA
 | `2026-11-18_decalage_affiche.sql` | Déplacement du modèle autour de l'affiche (rayon de 3 m) |
 | `2026-11-21_dossiers_fichiers.sql` | Dossiers de la bibliothèque de fichiers (affiche + modèle 3D + son) |
 
-Le script `database/montbeliard_webar.sql` contient déjà les trois premières et la dernière (dossiers) : après une installation neuve, seule `2026-11-18_decalage_affiche.sql` est à importer.
+Le script `database/montbeliard_webar.sql` contient déjà toutes ces migrations : après une installation neuve, aucune n'est à importer.
 
 ---
 
